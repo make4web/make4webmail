@@ -84,6 +84,13 @@ final class Folders
         if ($parentId && !self::find($userId, $parentId)) {
             $parentId = null;
         }
+        $dupe = DB::value(
+            'SELECT COUNT(*) FROM folders WHERE user_id = :u AND LOWER(name) = :n AND ' . ($parentId ? 'parent_id = :p' : 'parent_id IS NULL'),
+            ['u' => $userId, 'n' => mb_strtolower($name)] + ($parentId ? ['p' => $parentId] : [])
+        );
+        if ($dupe) {
+            throw new \InvalidArgumentException(t('folder.exists'));
+        }
         return DB::insert('folders', [
             'user_id' => $userId, 'name' => $name, 'parent_id' => $parentId, 'role' => null,
             'color' => preg_match('/^#[0-9a-f]{6}$/i', $color) ? $color : '', 'sort' => 100, 'created_at' => time(),

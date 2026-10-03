@@ -34,6 +34,7 @@ final class Fetcher
         if ($data['host'] === '' || $data['username'] === '' || !preg_match('/^[a-z0-9.-]+$/i', $data['host'])) {
             throw new \InvalidArgumentException(t('fetch.invalid'));
         }
+        self::assertPublicHost($data['host']);
         if (($d['password'] ?? '') !== '') {
             $data['password_enc'] = Crypto::encrypt((string) $d['password']);
         }
@@ -47,6 +48,23 @@ final class Fetcher
         return DB::insert('fetch_accounts', $data + ['user_id' => $userId, 'created_at' => time()]);
     }
 
+    /** Prevent SSRF: user-defined servers must resolve to public addresses. */
+    public static function assertPublicHost(string $host): void
+    {
+        if ((int) \M4W\Core\Settings::get('features.fetch_allow_private', 0)) {
+            return;
+        }
+        $ips = @gethostbynamel($host) ?: [];
+        if (!$ips) {
+            throw new \InvalidArgumentException(t('fetch.invalid'));
+        }
+        foreach ($ips as $ip) {
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                throw new \InvalidArgumentException(t('fetch.private_host'));
+            }
+        }
+    }
+
     /** @return array{fetched:int,error:string} */
     public static function run(array $acc, int $max = 200): array
     {
@@ -58,6 +76,7 @@ final class Fetcher
         $fetched = 0;
         $error = '';
         try {
+            self::assertPublicHost((string) $acc['host']);
             $client->connect($acc['username'], Crypto::decrypt((string) $acc['password_enc']) ?? '');
             $info = $client->select($acc['remote_folder']);
             $lastUid = (int) $acc['last_uid'];

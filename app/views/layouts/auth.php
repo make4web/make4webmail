@@ -15,7 +15,7 @@ $logo = Branding::logoUrl();
   <section class="m4w-auth-hero<?= $bg !== '' ? ' has-image' : '' ?>"<?= $bg !== '' ? ' style="background-image:url(\'' . e(url('brand/' . $bg)) . '\')"' : '' ?>>
     <span class="orb o1"></span><span class="orb o2"></span>
     <div class="m4w-auth-logo" data-aos="fade-down">
-      <?php if ($logo !== ''): ?><img src="<?= e(Branding::logoUrl(true)) ?>" alt="<?= e($brand) ?>"><?php else: ?><span class="m4w-brand-mark" style="background:rgba(255,255,255,.18);box-shadow:none"><i class="bi bi-envelope-paper-heart"></i></span><span><?= e($brand) ?></span><?php endif; ?>
+      <?php if ($logo !== '' && Settings::get('brand.logo_dark', '') !== ''): ?><img src="<?= e(Branding::logoUrl(true)) ?>" alt="<?= e($brand) ?>"><?php elseif ($logo !== ''): ?><span class="m4w-logo-chip"><img src="<?= e($logo) ?>" alt="<?= e($brand) ?>"></span><?php else: ?><span class="m4w-brand-mark" style="background:rgba(255,255,255,.18);box-shadow:none"><i class="bi bi-envelope-paper-heart"></i></span><span><?= e($brand) ?></span><?php endif; ?>
     </div>
     <div>
       <h2 data-aos="fade-up"><?= e(Settings::get('brand.tagline', '') ?: t('auth.hero_title')) ?></h2>

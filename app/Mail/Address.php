@@ -97,6 +97,8 @@ final class Address
     /** Format for display / header use (not encoded). */
     public static function format(string $email, string $name = ''): string
     {
+        $name = trim(preg_replace('/[\x00-\x1f\x7f]+/', ' ', $name) ?? '');
+        $email = preg_replace('/[\x00-\x20\x7f<>]+/', '', $email) ?? '';
         if ($name === '' || $name === $email) {
             return $email;
         }
@@ -109,7 +111,8 @@ final class Address
     /** Header-ready (RFC 2047 encoded name, IDN domain). */
     public static function encode(string $email, string $name = ''): string
     {
-        $email = self::asciiEmail($email);
+        $email = self::asciiEmail(preg_replace('/[\x00-\x20\x7f<>]+/', '', $email) ?? '');
+        $name = trim(preg_replace('/[\x00-\x1f\x7f]+/', ' ', $name) ?? '');
         if ($name === '') {
             return $email;
         }

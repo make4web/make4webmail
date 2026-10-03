@@ -165,6 +165,8 @@
 
   // ---- global UI wiring
   $(function () {
+    // Modals must live directly under <body> (animated containers create stacking contexts).
+    $('.modal').appendTo(document.body);
     if (window.AOS) { AOS.init({ once: true, duration: 450, easing: 'ease-out-cubic', offset: 10 }); }
     $('[data-bs-toggle="tooltip"]').each(function () { bootstrap.Tooltip.getOrCreateInstance(this); });
 
@@ -192,6 +194,10 @@
       var $b = $(this).find('button[type=submit], button:not([type])').last();
       if ($b.length && !$b.find('.spinner-border').length) $b.prepend('<span class="spinner-border spinner-border-sm me-2"></span>');
     });
+
+    // Installer: database driver fields
+    var syncDb = function () { $('.m4w-mysql').toggle($('input[name=db_driver]:checked').val() === 'mysql'); };
+    $(document).on('change', 'input[name=db_driver]', syncDb); syncDb();
 
     // Quick settings
     $(document).on('change', 'input[name=qs_theme]', function () {

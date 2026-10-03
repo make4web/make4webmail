@@ -293,7 +293,8 @@ final class HtmlSanitizer
         $css = preg_replace('/position\s*:\s*fixed/i', 'position:static', $css) ?? $css;
         if ($isBlock) {
             $css = preg_replace('/@font-face\s*\{[^}]*\}/i', '', $css) ?? $css;
-            return trim($css);
+            // A "<" can never be needed in CSS and could only serve to break out of <style>.
+            return trim(str_replace('<', '', $css));
         }
         return trim(str_replace(["\n", "\r"], ' ', $css));
     }

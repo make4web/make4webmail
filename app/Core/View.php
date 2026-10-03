@@ -21,16 +21,16 @@ final class View
         return self::partial($layout, $data + ['content' => $content]);
     }
 
-    public static function partial(string $template, array $data = []): string
+    public static function partial(string $__view, array $__data = []): string
     {
-        $file = M4W_APP . '/views/' . $template . '.php';
-        if (!is_file($file)) {
-            throw new \RuntimeException("View not found: $template");
+        $__file = M4W_APP . '/views/' . $__view . '.php';
+        if (!is_file($__file)) {
+            throw new \RuntimeException("View not found: $__view");
         }
-        extract(self::$shared + $data, EXTR_SKIP);
+        extract(self::$shared + $__data, EXTR_SKIP);
         ob_start();
         try {
-            include $file;
+            include $__file;
         } catch (\Throwable $e) {
             ob_end_clean();
             throw $e;

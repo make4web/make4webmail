@@ -38,7 +38,10 @@ final class App
      */
     private static function afterResponse(): void
     {
-        if (!Config::installed()) {
+        // Only when the response can be detached from the worker (PHP-FPM / LiteSpeed);
+        // otherwise slow remote MX servers would hold the client connection open.
+        $canDetach = function_exists('fastcgi_finish_request') || function_exists('litespeed_finish_request');
+        if (!Config::installed() || !$canDetach) {
             return;
         }
         try {
@@ -52,6 +55,8 @@ final class App
             Session::close();
             if (function_exists('fastcgi_finish_request')) {
                 fastcgi_finish_request();
+            } else {
+                litespeed_finish_request();
             }
             \M4W\Service\Transport::processQueue(10);
         } catch (\Throwable $e) {

@@ -59,7 +59,8 @@ function format_bytes(int|float $bytes, int $precision = 1): string
         $bytes /= 1024;
         $i++;
     }
-    return round($bytes, $i === 0 ? 0 : $precision) . ' ' . $units[$i];
+    $n = (string) round($bytes, $i === 0 ? 0 : $precision);
+    return (I18n::language() === 'fr' ? str_replace('.', ',', $n) : $n) . ' ' . $units[$i];
 }
 
 function format_datetime(int $ts, bool $withTime = true): string

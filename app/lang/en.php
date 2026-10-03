@@ -300,4 +300,6 @@ return [
     'mail.filters' => 'Filters',
     'mail.f_flagged' => 'Starred',
     'mail.f_attachments' => 'Attachments',
+    'fetch.private_host' => 'This server points to an internal address, which is not allowed.',
+    'folder.exists' => 'A folder with this name already exists.',
 ];

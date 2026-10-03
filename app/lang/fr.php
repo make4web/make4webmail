@@ -373,4 +373,6 @@ return [
     'mail.filters' => 'Filtres',
     'mail.f_flagged' => 'Suivis',
     'mail.f_attachments' => 'Pièces jointes',
+    'fetch.private_host' => 'Ce serveur pointe vers une adresse interne, ce qui n\'est pas autorisé.',
+    'folder.exists' => 'Un dossier portant ce nom existe déjà.',
 ];

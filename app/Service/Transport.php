@@ -93,8 +93,8 @@ final class Transport
             $mxs = self::mxHosts($domain);
             $lastError = 'Aucun serveur MX pour ' . $domain;
             $done = false;
-            foreach ($mxs as $mx) {
-                $client = new SmtpClient($mx, 25, 'none', '', '', 30, false, (string) Settings::get('smtp.helo', ''), true);
+            foreach (array_slice($mxs, 0, 3) as $mx) {
+                $client = new SmtpClient($mx, 25, 'none', '', '', 15, false, (string) Settings::get('smtp.helo', ''), true);
                 try {
                     $client->connect();
                     $rejected = $client->send($from, $list, $raw);

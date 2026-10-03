@@ -62,11 +62,11 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
       </div></div>
       <div class="card"><div class="card-header"><i class="bi bi-hdd-network me-2 text-primary"></i><?= te('admin.dns_records') ?></div><div class="card-body small">
         <?php $dom = $domains[0] ?? 'exemple.fr'; $host = S::get('smtp.helo') ?: 'mail.' . $dom; ?>
-        <table class="table table-sm m4w-code mb-0"><tbody>
+        <div class="table-responsive"><table class="table table-sm m4w-code mb-0" style="word-break:break-all"><tbody>
           <tr><td>MX</td><td><?= e($dom) ?></td><td>10 <?= e($host) ?></td></tr>
           <tr><td>TXT</td><td><?= e($dom) ?></td><td>v=spf1 mx <?= S::get('smtp.host') ? 'include:' . e(S::get('smtp.host')) . ' ' : '' ?>~all</td></tr>
           <tr><td>TXT</td><td>_dmarc.<?= e($dom) ?></td><td>v=DMARC1; p=quarantine; rua=mailto:postmaster@<?= e($dom) ?></td></tr>
-        </tbody></table>
+        </tbody></table></div>
       </div></div>
     </div>
   </div>
