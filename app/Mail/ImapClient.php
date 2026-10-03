@@ -19,6 +19,7 @@ final class ImapClient
         private string $security = 'ssl',
         private int $timeout = 30,
         private bool $verifyPeer = true,
+        private string $connectTo = '',
     ) {
     }
 
@@ -28,7 +29,11 @@ final class ImapClient
             'verify_peer' => $this->verifyPeer, 'verify_peer_name' => $this->verifyPeer,
             'allow_self_signed' => !$this->verifyPeer, 'peer_name' => $this->host, 'SNI_enabled' => true,
         ]]);
-        $remote = ($this->security === 'ssl' ? 'ssl://' : 'tcp://') . $this->host . ':' . $this->port;
+        $target = $this->connectTo !== '' ? $this->connectTo : $this->host;
+        if (str_contains($target, ':')) {
+            $target = '[' . $target . ']';
+        }
+        $remote = ($this->security === 'ssl' ? 'ssl://' : 'tcp://') . $target . ':' . $this->port;
         $sock = @stream_socket_client($remote, $errno, $errstr, $this->timeout, STREAM_CLIENT_CONNECT, $ctx);
         if (!$sock) {
             throw new \RuntimeException("IMAP: connexion impossible ($errstr)");

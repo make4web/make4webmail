@@ -59,6 +59,7 @@ final class Mailbox
             'priority'        => $parsed->priority(),
             'storage_path'    => $rel,
             'draft_meta'      => isset($flags['draft_meta']) ? json_encode($flags['draft_meta']) : '',
+            'scheduled_at'    => max(0, (int) ($flags['draft_meta']['scheduled_at'] ?? 0)),
             'created_at'      => time(),
         ]);
         DB::run('UPDATE users SET used_bytes = used_bytes + :s WHERE id = :u', ['s' => strlen($raw), 'u' => $userId]);
@@ -262,7 +263,7 @@ final class Mailbox
             'draft'       => (bool) $m['is_draft'],
             'attachments' => isset($m['thread_att']) ? (int) $m['thread_att'] > 0 : (bool) $m['has_attachments'],
             'priority'    => (int) $m['priority'],
-            'scheduled'   => $m['is_draft'] ? (int) (json_decode((string) $m['draft_meta'], true)['scheduled_at'] ?? 0) : 0,
+            'scheduled'   => (int) ($m['scheduled_at'] ?? 0),
         ];
     }
 

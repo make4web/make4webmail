@@ -91,6 +91,7 @@ final class Session
     {
         if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();
+            self::$started = false;
         }
     }
 }

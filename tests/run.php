@@ -405,7 +405,7 @@ test('scheduled send: stored as draft, sent by scheduler with signature', functi
     eq(Composer::processScheduled(), 0, 'sent too early');
     $meta = json_decode($d['draft_meta'], true);
     $meta['scheduled_at'] = time() - 5;
-    DB::update('messages', ['draft_meta' => json_encode($meta)], 'id = :id', ['id' => $id]);
+    DB::update('messages', ['draft_meta' => json_encode($meta), 'scheduled_at' => time() - 5], 'id = :id', ['id' => $id]);
     eq(Composer::processScheduled(), 1);
     ok(Mailbox::get((int) $alice['id'], $id) === null, 'draft not removed');
     $got = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Plus tard'", ['u' => $bob['id']]);
@@ -523,6 +523,43 @@ test('DKIM signature verifies with the public key (relaxed/relaxed)', function (
     $data .= $canon(preg_replace('/b=[^;]+$/s', 'b=', $dkim));
     $pub = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(substr($txt, strpos($txt, 'p=') + 2), 64, "\n") . "-----END PUBLIC KEY-----\n";
     eq(openssl_verify($data, base64_decode(preg_replace('/\s+/', '', $bm[1])), $pub, OPENSSL_ALGO_SHA256), 1, 'signature');
+});
+
+echo "\nReview regressions\n";
+test('open redirect guard', function () {
+    ok(M4W\Controller\AuthController::safePath('/mail') === '/mail');
+    foreach (['//evil.com', '/\\evil.com', 'https://evil.com', "/x\r\nLocation: y", '/\\/evil'] as $bad) {
+        ok(M4W\Controller\AuthController::safePath($bad) === null, 'accepted ' . $bad);
+    }
+});
+test('deleting a folder disables rules targeting it (incl. subfolders), mail falls back to inbox', function () use ($alice, $sendTo) {
+    $uid = (int) $alice['id'];
+    $parent = Folders::create($uid, 'Temp');
+    $child = Folders::create($uid, 'TempChild', $parent);
+    $rid = DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'to child', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'orphan']],
+        'actions' => [['type' => 'move', 'folder' => $child]]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Folders::delete($uid, $parent);
+    eq((int) DB::value('SELECT enabled FROM rules WHERE id = :id', ['id' => $rid]), 0);
+    DB::update('rules', ['enabled' => 1], 'id = :id', ['id' => $rid]);
+    Delivery::deliver($sendTo('admin@test.local', 'orphan test'), 'x@ext.com', ['admin@test.local']);
+    $m = DB::one("SELECT f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = 'orphan test'", ['u' => $uid]);
+    ok($m !== null, 'mail lost in a deleted folder');
+    DB::delete('rules', 'id = :id', ['id' => $rid]);
+});
+test('no auto-reply to null envelope sender', function () use ($bob, $sendTo) {
+    Vacation::save((int) $bob['id'], ['enabled' => 1, 'body_html' => '<p>away</p>', 'interval_days' => 0]);
+    $n = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'");
+    Delivery::deliver($sendTo('bob@test.local', 'bounce', 'someone@ext.com'), '', ['bob@test.local'], 'smtp');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'"), $n);
+    Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
+});
+test('SSRF guard rejects private and IPv6 loopback', function () {
+    foreach (['127.0.0.1', '::1', '10.1.2.3', '169.254.169.254', '::ffff:127.0.0.1', 'localhost'] as $h) {
+        $thrown = false;
+        try { M4W\Core\Net::publicIp($h); } catch (\InvalidArgumentException) { $thrown = true; }
+        ok($thrown, "accepted $h");
+    }
+    eq(M4W\Core\Net::publicIp('8.8.8.8'), '8.8.8.8');
 });
 
 echo "\nMailbox\n";

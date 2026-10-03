@@ -299,7 +299,12 @@ final class MailController extends Controller
             $used[mb_strtolower($name)] = true;
             $zip->addFromString($name, $part->decodedBody());
         }
+        $count = $zip->numFiles;
         $zip->close();
+        if ($count === 0) {
+            @unlink($tmp);
+            throw new HttpException(404, t('mail.not_found'));
+        }
         $content = (string) file_get_contents($tmp);
         @unlink($tmp);
         $base = preg_replace('/[^\p{L}\p{N}\s._-]/u', '', $m['subject']) ?: 'pieces-jointes';
@@ -326,7 +331,7 @@ final class MailController extends Controller
         $m = $this->message($id);
         $parsed = Mailbox::parsed($m);
         $mid = (int) $m['id'];
-        $html = (new HtmlSanitizer(false, static fn(string $cid) => url('api/messages/' . $mid . '/part/cid:' . rawurlencode($cid), ['inline' => 1])))->sanitize($parsed->html());
+        $html = (new HtmlSanitizer(true, static fn(string $cid) => url('api/messages/' . $mid . '/part/cid:' . rawurlencode($cid), ['inline' => 1]), false))->sanitize($parsed->html());
         return $this->view('mail/print', ['m' => $m, 'parsed' => $parsed, 'html' => $html], 'layouts/blank');
     }
 
@@ -337,17 +342,26 @@ final class MailController extends Controller
         $header = (string) $parsed->header('List-Unsubscribe');
         $post = stripos((string) $parsed->header('List-Unsubscribe-Post'), 'One-Click') !== false;
         if ($post && preg_match('/<(https:[^>]+)>/i', $header, $mm)) {
-            // RFC 8058 one-click unsubscribe, performed server-side (hides the user's IP).
-            $host = parse_url($mm[1], PHP_URL_HOST);
-            $ip = $host ? gethostbyname($host) : '';
-            if ($ip === '' || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            // RFC 8058 one-click unsubscribe, performed server-side (hides the user's IP),
+            // pinned to a validated public IP (no SSRF / DNS rebinding), no redirects.
+            $host = (string) parse_url($mm[1], PHP_URL_HOST);
+            try {
+                $ip = \M4W\Core\Net::publicIp($host);
+            } catch (\InvalidArgumentException) {
                 return $this->fail(t('mail.unsub_failed'));
             }
-            $ctx = stream_context_create(['http' => [
-                'method' => 'POST', 'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-                'content' => 'List-Unsubscribe=One-Click', 'timeout' => 10, 'follow_location' => 0, 'ignore_errors' => true,
-            ]]);
-            @file_get_contents($mm[1], false, $ctx);
+            if (!function_exists('curl_init')) {
+                return $this->ok(['url' => $mm[1]]);
+            }
+            $port = (int) (parse_url($mm[1], PHP_URL_PORT) ?: 443);
+            $ch = curl_init($mm[1]);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true, CURLOPT_POSTFIELDS => 'List-Unsubscribe=One-Click', CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => false, CURLOPT_TIMEOUT => 10, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_RESOLVE => [$host . ':' . $port . ':' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip)],
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
             return $this->ok(['done' => true]);
         }
         if (preg_match('/<(https:[^>]+)>/i', $header, $mm)) {

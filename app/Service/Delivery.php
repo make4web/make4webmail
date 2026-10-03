@@ -65,9 +65,10 @@ final class Delivery
 
             // 3. User rules.
             $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
-            if ($actions['folder']) {
-                $folderId = $actions['folder'];
+            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder'])) {
+                $folderId = (int) $actions['folder'];
             }
+            $actions['copies'] = array_values(array_filter($actions['copies'], static fn($c) => (bool) Folders::find($uid, (int) $c)));
             if (!$isLoop) {
                 foreach (array_unique($actions['redirects']) as $to) {
                     try {
@@ -76,8 +77,10 @@ final class Delivery
                     } catch (\InvalidArgumentException) {
                     }
                 }
-                foreach ($actions['replies'] as $reply) {
-                    self::ruleReply($user, $parsed, $reply, $envelopeFrom);
+                if ($envelopeFrom !== '' || $source === 'local') {
+                    foreach ($actions['replies'] as $reply) {
+                        self::ruleReply($user, $parsed, $reply, $envelopeFrom);
+                    }
                 }
             }
             if ($actions['discard']) {
@@ -97,7 +100,7 @@ final class Delivery
 
             // 5. Out-of-office.
             $spamId = (int) Folders::byRole($uid, 'spam')['id'];
-            if (!$isLoop && $folderId !== $spamId) {
+            if (!$isLoop && $folderId !== $spamId && ($envelopeFrom !== '' || $source === 'local')) {
                 Vacation::maybeRespond($user, $parsed, $envelopeFrom);
             }
             $results[$rcpt] = 'ok';
@@ -112,6 +115,13 @@ final class Delivery
         if ($sender === '' || $msg->isAutomated()) {
             return;
         }
+        // One rule reply per sender per day (backscatter protection).
+        $key = 'rule:' . mb_strtolower($sender);
+        if (\M4W\Core\Database::value('SELECT COUNT(*) FROM vacation_log WHERE user_id = :u AND sender = :s AND sent_at > :t',
+            ['u' => $user['id'], 's' => mb_substr($key, 0, 190), 't' => time() - 86400])) {
+            return;
+        }
+        \M4W\Core\Database::insert('vacation_log', ['user_id' => $user['id'], 'sender' => mb_substr($key, 0, 190), 'sent_at' => time()]);
         $b = new MimeBuilder();
         $b->from = ['email' => $user['email'], 'name' => $user['name']];
         $b->to = [['email' => $sender, 'name' => '']];

@@ -234,7 +234,7 @@ final class RuleEngine
             $n++;
             foreach ($rule['actions'] as $a) {
                 match ($a['type']) {
-                    'move'      => Mailbox::move($userId, [(int) $row['id']], (int) $a['folder']),
+                    'move'      => Folders::find($userId, (int) $a['folder']) ? Mailbox::move($userId, [(int) $row['id']], (int) $a['folder']) : 0,
                     'mark_read' => Mailbox::setFlags($userId, [(int) $row['id']], ['is_read' => 1]),
                     'flag'      => Mailbox::setFlags($userId, [(int) $row['id']], ['is_flagged' => 1]),
                     'trash'     => Mailbox::delete($userId, [(int) $row['id']]),

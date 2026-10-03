@@ -29,7 +29,16 @@ final class AuthController extends Controller
             }
         }
         $back = (string) ($this->req->query['back'] ?? '/login');
-        return Response::redirect(str_starts_with($back, '/') && !str_starts_with($back, '//') ? $back : '/login');
+        return Response::redirect(self::safePath($back) ?? '/login');
+    }
+
+    /** Local path only: no scheme, host, backslash or control characters. */
+    public static function safePath(string $p): ?string
+    {
+        if (!preg_match('#^/(?![/\\\\])[^\\\\\x00-\x1f\x7f]*$#', $p) || parse_url($p, PHP_URL_HOST) !== null) {
+            return null;
+        }
+        return $p;
     }
 
     public function loginForm(): Response
@@ -62,7 +71,7 @@ final class AuthController extends Controller
         Auth::login($user, $this->req);
         $intended = (string) Session::get('intended', '/mail');
         Session::forget('intended');
-        if (!str_starts_with($intended, '/') || str_starts_with($intended, '//') || str_starts_with($intended, '/api/')) {
+        if (self::safePath($intended) === null || str_starts_with($intended, '/api/')) {
             $intended = '/mail';
         }
         return Response::redirect($intended);
@@ -87,6 +96,14 @@ final class AuthController extends Controller
             return Response::redirect('/login');
         }
         $user = Users::find((int) $p['uid']);
+        $window = max(1, (int) \M4W\Core\Settings::get('security.lockout_minutes', 15)) * 60;
+        $max = max(3, (int) \M4W\Core\Settings::get('security.max_attempts', 5));
+        if ($user && (int) DB::value('SELECT COUNT(*) FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :t',
+            ['e' => $user['email'], 't' => time() - $window]) >= $max) {
+            Session::forget('pending_2fa');
+            Session::flash('danger', t('auth.locked', ['minutes' => (int) ($window / 60)]));
+            return Response::redirect('/login');
+        }
         $secret = $user ? Crypto::decrypt((string) $user['totp_secret']) : null;
         $code = $this->req->str('recovery') !== '' ? $this->req->str('recovery') : $this->req->str('code');
         $ok = $secret && Totp::verify($secret, $code);
@@ -97,6 +114,9 @@ final class AuthController extends Controller
         if (!$ok) {
             $p['tries']++;
             Session::set('pending_2fa', $p);
+            if ($user) {
+                DB::insert('login_attempts', ['ip' => $this->req->ip(), 'email' => $user['email'], 'success' => 0, 'created_at' => time()]);
+            }
             Audit::log('login.2fa_failed', $user['email'] ?? '', [], $user['id'] ?? null);
             Session::flash('danger', t('auth.2fa_invalid'));
             return Response::redirect('/login/2fa');

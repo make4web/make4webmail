@@ -49,20 +49,12 @@ final class Fetcher
     }
 
     /** Prevent SSRF: user-defined servers must resolve to public addresses. */
-    public static function assertPublicHost(string $host): void
+    public static function assertPublicHost(string $host): string
     {
         if ((int) \M4W\Core\Settings::get('features.fetch_allow_private', 0)) {
-            return;
+            return $host;
         }
-        $ips = @gethostbynamel($host) ?: [];
-        if (!$ips) {
-            throw new \InvalidArgumentException(t('fetch.invalid'));
-        }
-        foreach ($ips as $ip) {
-            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                throw new \InvalidArgumentException(t('fetch.private_host'));
-            }
-        }
+        return \M4W\Core\Net::publicIp($host);
     }
 
     /** @return array{fetched:int,error:string} */
@@ -72,11 +64,10 @@ final class Fetcher
         if (!$user) {
             return ['fetched' => 0, 'error' => 'user missing'];
         }
-        $client = new ImapClient($acc['host'], (int) $acc['port'], $acc['security']);
         $fetched = 0;
         $error = '';
         try {
-            self::assertPublicHost((string) $acc['host']);
+            $client = new ImapClient($acc['host'], (int) $acc['port'], $acc['security'], 30, true, self::assertPublicHost((string) $acc['host']));
             $client->connect($acc['username'], Crypto::decrypt((string) $acc['password_enc']) ?? '');
             $info = $client->select($acc['remote_folder']);
             $lastUid = (int) $acc['last_uid'];
@@ -103,6 +94,7 @@ final class Fetcher
             }
             $client->logout();
         } catch (\Throwable $e) {
+            isset($client) && $client->logout();
             $error = mb_substr($e->getMessage(), 0, 500);
         }
         DB::update('fetch_accounts', ['last_run_at' => time(), 'last_error' => $error], 'id = :id', ['id' => $acc['id']]);

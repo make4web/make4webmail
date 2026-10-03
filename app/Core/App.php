@@ -49,7 +49,7 @@ final class App
                 return;
             }
             $due = (int) Database::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'pending' AND next_attempt_at <= :n", ['n' => time()]);
-            $scheduled = (int) Database::value("SELECT COUNT(*) FROM messages WHERE is_draft = 1 AND draft_meta LIKE :p", ['p' => '%"scheduled_at":1%']);
+            $scheduled = (int) Database::value('SELECT COUNT(*) FROM messages WHERE is_draft = 1 AND scheduled_at > 0 AND scheduled_at <= :n', ['n' => time()]);
             if ($due === 0 && $scheduled === 0) {
                 return;
             }
@@ -76,6 +76,9 @@ final class App
             if (!in_array($req->path, ['/install', '/theme.css'], true)) {
                 return Response::redirect('/install');
             }
+        }
+        if (Config::installed()) {
+            \M4W\Database\Migrator::migrate();
         }
         Session::start($req);
         $user = Config::installed() ? Auth::user() : null;

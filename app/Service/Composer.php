@@ -134,15 +134,14 @@ final class Composer
      */
     private static function restoreImages(string $html, MimeBuilder $b, int $userId): string
     {
-        $base = preg_quote(url('api/'), '#');
-        return preg_replace_callback('#<img\b[^>]*>#i', static function ($m) use ($b, $userId, $base) {
+        return preg_replace_callback('#<img\b[^>]*>#i', static function ($m) use ($b, $userId) {
             $tag = $m[0];
             if (preg_match('#data-m4w-src="(https?://[^"]+)"#i', $tag, $r)) {
                 $tag = preg_replace('#\ssrc="[^"]*"#i', ' src="' . $r[1] . '"', $tag) ?? $tag;
                 $tag = preg_replace('#\sdata-m4w-src="[^"]*"#i', '', $tag) ?? $tag;
                 return str_replace('m4w-blocked', '', $tag);
             }
-            if (!preg_match('#\ssrc="(' . $base . '[^"]+)"#i', $tag, $r)) {
+            if (!preg_match('#\ssrc="([^"]*?/api/(?:messages/\d+/part|upload)/[^"]+)"#i', $tag, $r)) {
                 return $tag;
             }
             $src = html_entity_decode($r[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -272,8 +271,8 @@ final class Composer
     public static function processScheduled(int $max = 50): int
     {
         $rows = DB::all(
-            "SELECT * FROM messages WHERE is_draft = 1 AND draft_meta LIKE :p ORDER BY id LIMIT 500",
-            ['p' => '%"scheduled_at":%']
+            "SELECT * FROM messages WHERE is_draft = 1 AND scheduled_at > 0 AND scheduled_at <= :now ORDER BY scheduled_at LIMIT $max",
+            ['now' => time()]
         );
         $n = 0;
         foreach ($rows as $row) {
@@ -288,8 +287,8 @@ final class Composer
             }
             // Claim: clear the schedule first so a concurrent worker cannot send it twice.
             $meta['scheduled_at'] = 0;
-            $claimed = DB::run('UPDATE messages SET draft_meta = :m WHERE id = :id AND draft_meta = :old', [
-                'm' => json_encode($meta), 'id' => $row['id'], 'old' => $row['draft_meta'],
+            $claimed = DB::run('UPDATE messages SET draft_meta = :m, scheduled_at = 0 WHERE id = :id AND scheduled_at = :old', [
+                'm' => json_encode($meta), 'id' => $row['id'], 'old' => $row['scheduled_at'],
             ])->rowCount();
             if (!$claimed) {
                 continue;

@@ -185,7 +185,15 @@ final class Transport
                 continue;
             }
             $rcpts = json_decode((string) $row['recipients'], true) ?: [];
-            $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null);
+            try {
+                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null);
+            } catch (\Throwable $e) {
+                DB::update('mail_queue', [
+                    'status' => 'pending', 'attempts' => (int) $row['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500),
+                    'next_attempt_at' => time() + 300,
+                ], 'id = :id', ['id' => $row['id']]);
+                continue;
+            }
             $attempts = (int) $row['attempts'] + 1;
             if (!$res['failed']) {
                 DB::update('mail_queue', ['status' => 'sent', 'attempts' => $attempts, 'sent_at' => time(), 'last_error' => ''], 'id = :id', ['id' => $row['id']]);

@@ -131,7 +131,14 @@ final class Folders
             [$in, $params] = DB::in('f', $ids);
             DB::run("UPDATE messages SET folder_id = :t WHERE user_id = :u AND folder_id IN $in", ['t' => $trash['id'], 'u' => $userId] + $params);
             DB::run("DELETE FROM folders WHERE user_id = :u AND id IN $in", ['u' => $userId] + $params);
-            DB::run("UPDATE rules SET enabled = 0 WHERE user_id = :u AND actions LIKE :pat", ['u' => $userId, 'pat' => '%"folder":' . $id . '%']);
+            foreach (DB::all('SELECT id, actions FROM rules WHERE user_id = :u', ['u' => $userId]) as $rule) {
+                foreach (json_decode((string) $rule['actions'], true) ?: [] as $a) {
+                    if (isset($a['folder']) && in_array((int) $a['folder'], $ids, true)) {
+                        DB::update('rules', ['enabled' => 0], 'id = :id', ['id' => $rule['id']]);
+                        break;
+                    }
+                }
+            }
         });
     }
 }

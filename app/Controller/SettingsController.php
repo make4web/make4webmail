@@ -147,7 +147,11 @@ final class SettingsController extends Controller
         if (!$rule) {
             return $this->fail(t('mail.not_found'));
         }
-        $n = RuleEngine::applyToFolder($uid, $rule, $this->req->int('folder') ?: (int) Folders::byRole($uid, 'inbox')['id']);
+        try {
+            $n = RuleEngine::applyToFolder($uid, $rule, $this->req->int('folder') ?: (int) Folders::byRole($uid, 'inbox')['id']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
         return $this->ok(['applied' => $n, 'message' => t('rules.applied', ['n' => $n])]);
     }
 

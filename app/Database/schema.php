@@ -271,4 +271,8 @@ return [
   created_at INTEGER NOT NULL DEFAULT 0
 ) {OPT}",
 ],
+2 => [
+"ALTER TABLE messages ADD COLUMN scheduled_at INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX messages_scheduled ON messages(scheduled_at)",
+],
 ];
