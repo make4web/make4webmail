@@ -49,7 +49,8 @@ final class App
                 return;
             }
             $due = (int) Database::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'pending' AND next_attempt_at <= :n", ['n' => time()]);
-            if ($due === 0) {
+            $scheduled = (int) Database::value("SELECT COUNT(*) FROM messages WHERE is_draft = 1 AND draft_meta LIKE :p", ['p' => '%"scheduled_at":1%']);
+            if ($due === 0 && $scheduled === 0) {
                 return;
             }
             Session::close();
@@ -58,6 +59,7 @@ final class App
             } else {
                 litespeed_finish_request();
             }
+            \M4W\Service\Composer::processScheduled(10);
             \M4W\Service\Transport::processQueue(10);
         } catch (\Throwable $e) {
             error_log('[m4w] queue: ' . $e->getMessage());
@@ -213,6 +215,8 @@ final class App
         $r->get('/api/compose', [Controller\ComposeController::class, 'prefill']);
         $r->post('/api/compose/send', [Controller\ComposeController::class, 'send']);
         $r->post('/api/compose/draft', [Controller\ComposeController::class, 'draft']);
+        $r->post('/api/compose/schedule', [Controller\ComposeController::class, 'schedule']);
+        $r->get('/api/messages/{id}/zip', [Controller\MailController::class, 'zip']);
         $r->post('/api/upload', [Controller\ComposeController::class, 'upload']);
         $r->get('/api/upload/{token}', [Controller\ComposeController::class, 'uploadPreview']);
         $r->get('/api/contacts/suggest', [Controller\ComposeController::class, 'suggest']);

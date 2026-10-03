@@ -262,6 +262,7 @@ final class Mailbox
             'draft'       => (bool) $m['is_draft'],
             'attachments' => isset($m['thread_att']) ? (int) $m['thread_att'] > 0 : (bool) $m['has_attachments'],
             'priority'    => (int) $m['priority'],
+            'scheduled'   => $m['is_draft'] ? (int) (json_decode((string) $m['draft_meta'], true)['scheduled_at'] ?? 0) : 0,
         ];
     }
 

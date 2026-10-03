@@ -239,6 +239,8 @@ final class Composer
             'attachments' => array_values(array_map('strval', (array) ($in['attachments'] ?? []))),
             'mode' => (string) ($in['mode'] ?? 'new'), 'ref_id' => (int) ($in['ref_id'] ?? 0),
             'ref_parts' => array_values((array) ($in['ref_parts'] ?? [])), 'priority' => $b->priority,
+            'receipt' => !empty($in['receipt']) ? 1 : 0, 'attach_original' => !empty($in['attach_original']) ? 1 : 0,
+            'scheduled_at' => max(0, (int) ($in['scheduled_at'] ?? 0)),
         ];
         $id = Mailbox::store($uid, (int) $drafts['id'], $b->build(true), ['read' => true, 'draft' => true, 'draft_meta' => $meta]);
         if (!empty($in['draft_id'])) {
@@ -248,6 +250,60 @@ final class Composer
             }
         }
         return $id;
+    }
+
+    /**
+     * Schedule a message: validated now, stored as a draft and sent by the scheduler
+     * (signature injected at actual send time).
+     */
+    public static function schedule(array $user, array $in, int $sendAt): int
+    {
+        if ($sendAt < time() + 60) {
+            throw new \InvalidArgumentException(t('compose.schedule_past'));
+        }
+        if ($sendAt > time() + 366 * 86400) {
+            throw new \InvalidArgumentException(t('compose.schedule_far'));
+        }
+        self::build($user, $in, true); // validation only
+        return self::saveDraft($user, ['scheduled_at' => $sendAt] + $in);
+    }
+
+    /** Send drafts whose scheduled time has come. Returns number sent. */
+    public static function processScheduled(int $max = 50): int
+    {
+        $rows = DB::all(
+            "SELECT * FROM messages WHERE is_draft = 1 AND draft_meta LIKE :p ORDER BY id LIMIT 500",
+            ['p' => '%"scheduled_at":%']
+        );
+        $n = 0;
+        foreach ($rows as $row) {
+            $meta = json_decode((string) $row['draft_meta'], true) ?: [];
+            $at = (int) ($meta['scheduled_at'] ?? 0);
+            if ($at <= 0 || $at > time() || $n >= $max) {
+                continue;
+            }
+            $user = Users::find((int) $row['user_id']);
+            if (!$user || $user['status'] !== 'active') {
+                continue;
+            }
+            // Claim: clear the schedule first so a concurrent worker cannot send it twice.
+            $meta['scheduled_at'] = 0;
+            $claimed = DB::run('UPDATE messages SET draft_meta = :m WHERE id = :id AND draft_meta = :old', [
+                'm' => json_encode($meta), 'id' => $row['id'], 'old' => $row['draft_meta'],
+            ])->rowCount();
+            if (!$claimed) {
+                continue;
+            }
+            try {
+                self::send($user, $meta + ['draft_id' => (int) $row['id']]);
+                $n++;
+            } catch (\Throwable $e) {
+                $meta['schedule_error'] = mb_substr($e->getMessage(), 0, 300);
+                DB::update('messages', ['draft_meta' => json_encode($meta), 'is_read' => 0], 'id = :id', ['id' => $row['id']]);
+                Audit::log('mail.schedule_failed', (string) $row['subject'], ['error' => $meta['schedule_error']], (int) $user['id']);
+            }
+        }
+        return $n;
     }
 
     private static function cleanupUploads(int $userId, array $tokens): void

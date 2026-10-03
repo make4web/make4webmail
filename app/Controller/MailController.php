@@ -269,6 +269,43 @@ final class MailController extends Controller
         return $r;
     }
 
+    /** All attachments of a message as a single ZIP archive. */
+    public function zip(string $id): Response
+    {
+        Session::close();
+        $m = $this->message($id);
+        $parsed = Mailbox::parsed($m);
+        if (!class_exists(\ZipArchive::class)) {
+            throw new HttpException(500, 'ZIP extension missing');
+        }
+        $tmp = tempnam(storage_path('tmp'), 'zip');
+        $zip = new \ZipArchive();
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
+        $used = [];
+        foreach ($parsed->attachmentList() as $a) {
+            if ($a['inline']) {
+                continue;
+            }
+            $part = $parsed->findPart($a['part']);
+            if (!$part) {
+                continue;
+            }
+            $name = $a['name'];
+            $i = 1;
+            while (isset($used[mb_strtolower($name)])) {
+                $name = pathinfo($a['name'], PATHINFO_FILENAME) . " ($i)." . pathinfo($a['name'], PATHINFO_EXTENSION);
+                $i++;
+            }
+            $used[mb_strtolower($name)] = true;
+            $zip->addFromString($name, $part->decodedBody());
+        }
+        $zip->close();
+        $content = (string) file_get_contents($tmp);
+        @unlink($tmp);
+        $base = preg_replace('/[^\p{L}\p{N}\s._-]/u', '', $m['subject']) ?: 'pieces-jointes';
+        return Response::download($content, 'application/zip', mb_substr($base, 0, 80) . '.zip');
+    }
+
     public function source(string $id): Response
     {
         $m = $this->message($id);

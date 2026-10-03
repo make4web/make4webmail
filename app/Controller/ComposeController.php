@@ -24,7 +24,8 @@ final class ComposeController extends Controller
         $mode = (string) ($this->req->query['mode'] ?? 'new');
         $id = (int) ($this->req->query['id'] ?? 0);
         $out = ['mode' => $mode, 'to' => '', 'cc' => '', 'bcc' => '', 'subject' => '', 'html' => '', 'ref_id' => 0,
-            'ref_attachments' => [], 'attachments' => [], 'draft_id' => 0, 'from' => $u['email'], 'priority' => 3];
+            'ref_attachments' => [], 'attachments' => [], 'draft_id' => 0, 'from' => $u['email'], 'priority' => 3,
+            'receipt' => 0, 'attach_original' => 0, 'scheduled_at' => 0, 'schedule_error' => ''];
 
         if ($mode === 'new') {
             $out['to'] = (string) ($this->req->query['to'] ?? '');
@@ -148,6 +149,17 @@ final class ComposeController extends Controller
         return $this->ok($res);
     }
 
+    public function schedule(): Response
+    {
+        $u = $this->user();
+        try {
+            $id = Composer::schedule($u, $this->payload(), $this->req->int('send_at'));
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        return $this->ok(['draft_id' => $id]);
+    }
+
     public function draft(): Response
     {
         $u = $this->user();
@@ -167,7 +179,7 @@ final class ComposeController extends Controller
             'subject' => $r->raw('subject'), 'html' => $r->raw('html'), 'mode' => $r->str('mode', 'new'),
             'ref_id' => $r->int('ref_id'), 'ref_parts' => $r->arr('ref_parts'), 'attachments' => $r->arr('attachments'),
             'draft_id' => $r->int('draft_id'), 'priority' => $r->int('priority', 3), 'receipt' => $r->bool('receipt'),
-            'attach_original' => $r->bool('attach_original'),
+            'attach_original' => $r->bool('attach_original'), 'scheduled_at' => $r->int('scheduled_at'),
         ];
     }
 

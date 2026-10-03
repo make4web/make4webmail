@@ -201,7 +201,7 @@
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
       + M4W.avatar(who, whoEmail)
       + '<div class="m4w-row-main"><div class="m4w-row-line1">'
-      + (m.draft ? '<span class="text-danger fw-semibold small me-1">' + esc(t('draft')) + '</span>' : '')
+      + (m.scheduled ? '<span class="badge badge-soft me-1" title="' + esc(M4W.date(m.scheduled, true)) + '"><i class="bi bi-clock"></i> ' + esc(new Date(m.scheduled * 1000).toLocaleString(document.documentElement.lang, { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</span>' : (m.draft ? '<span class="text-danger fw-semibold small me-1">' + esc(t('draft')) + '</span>' : ''))
       + (sent && !m.draft ? '<span class="text-muted small">' + esc(t('to_prefix')) + '</span>' : '')
       + '<span class="m4w-row-from">' + esc(who) + '</span>'
       + (m.thread_count > 1 ? '<span class="m4w-row-count">' + m.thread_count + '</span>' : '')
@@ -325,7 +325,8 @@
         + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + esc(M4W.bytes(a.size)) + '</div></a>'
         + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" download><i class="bi bi-download"></i></a></div>';
     }).join('');
-    return '<div class="m4w-msg-atts"><div class="w-100 small text-muted mb-1"><i class="bi bi-paperclip"></i> ' + esc(t('n_attachments', { n: atts.length, size: M4W.bytes(total) })) + '</div>' + html + '</div>';
+    var zip = atts.length > 1 ? ' · <a href="' + esc(M4W.url('api/messages/' + msg.id + '/zip')) + '"><i class="bi bi-file-zip"></i> ' + esc(t('download_all')) + '</a>' : '';
+    return '<div class="m4w-msg-atts"><div class="w-100 small text-muted mb-1"><i class="bi bi-paperclip"></i> ' + esc(t('n_attachments', { n: atts.length, size: M4W.bytes(total) })) + zip + '</div>' + html + '</div>';
   }
 
   function messageCard(msg, expanded) {

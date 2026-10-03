@@ -672,3 +672,5 @@ textarea.m4w-code { min-height: 320px; tab-size: 2; line-height: 1.5; }
 [data-sidebar="brand"] .m4w-sidebar .m4w-folder-dd .btn, [data-sidebar="dark"] .m4w-sidebar .m4w-folder-dd .btn { color: var(--m4w-sidebar-fg); }
 .m4w-table-card .table td { word-break: break-word; }
 [data-sidebar="brand"] .m4w-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, .75); }
+.m4w-schedule-banner { display: flex; align-items: center; gap: .5rem; padding: .5rem .9rem; background: var(--m4w-primary-soft); color: var(--m4w-primary); font-size: .82rem; font-weight: 500; }
+.m4w-schedule-banner.error { background: rgba(220, 38, 38, .1); color: var(--m4w-danger); }

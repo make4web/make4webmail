@@ -23,6 +23,7 @@ $out = static function (string $m) {
         echo $m, "\n";
     }
 };
+$out('scheduled: ' . M4W\Service\Composer::processScheduled(100));
 $out('queue: ' . M4W\Service\Transport::processQueue(200));
 if ((int) Settings::get('features.fetch_accounts', 1)) {
     $out('fetched: ' . M4W\Service\Fetcher::runAll());

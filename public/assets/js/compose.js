@@ -118,7 +118,7 @@
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="min" title="' + esc(t('minimize')) + '"><i class="bi bi-dash-lg"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-icon m4w-desktop-only" data-c="max" title="' + esc(t('fullscreen')) + '"><i class="bi bi-arrows-angle-expand"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="close" title="' + esc(t('save_close')) + '"><i class="bi bi-x-lg"></i></button></div>'
-      + '<div class="m4w-compose-body">' + fromField
+      + '<div class="m4w-compose-body"><div class="m4w-schedule-banner d-none" data-sched-banner></div>' + fromField
       + '<div class="m4w-field"><label>' + esc(t('to')) + '</label><div class="m4w-recipients" data-r="to" data-label="' + esc(t('to')) + '"></div><div class="m4w-field-toggles"><button type="button" class="btn btn-ghost" data-c="cc">Cc</button><button type="button" class="btn btn-ghost" data-c="bcc">' + esc(t('bcc')) + '</button></div></div>'
       + '<div class="m4w-field d-none" data-f="cc"><label>Cc</label><div class="m4w-recipients" data-r="cc" data-label="Cc"></div></div>'
       + '<div class="m4w-field d-none" data-f="bcc"><label>' + esc(t('bcc')) + '</label><div class="m4w-recipients" data-r="bcc" data-label="' + esc(t('bcc')) + '"></div></div>'
@@ -132,7 +132,8 @@
       + '<div class="btn-group m4w-send-group"><button type="button" class="btn btn-primary m4w-send" data-c="send" title="' + esc(t('send')) + ' (Ctrl+Enter)">' + esc(t('send')) + '</button>'
       + '<button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-label="' + esc(t('send_options')) + '"></button>'
       + '<div class="dropdown-menu"><label class="dropdown-item"><input type="checkbox" class="form-check-input m-0 me-2" data-opt="priority"> <i class="bi bi-exclamation-circle text-danger"></i>' + esc(t('high_priority')) + '</label>'
-      + '<label class="dropdown-item"><input type="checkbox" class="form-check-input m-0 me-2" data-opt="receipt"> <i class="bi bi-check2-square"></i>' + esc(t('read_receipt')) + '</label></div></div>'
+      + '<label class="dropdown-item"><input type="checkbox" class="form-check-input m-0 me-2" data-opt="receipt"> <i class="bi bi-check2-square"></i>' + esc(t('read_receipt')) + '</label>'
+      + '<div class="dropdown-divider"></div><button type="button" class="dropdown-item" data-c="schedule"><i class="bi bi-clock"></i>' + esc(t('schedule_send')) + '</button></div></div>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="format" title="' + esc(t('formatting')) + '"><i class="bi bi-type"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="attach" title="' + esc(t('attach')) + '"><i class="bi bi-paperclip"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="image" title="' + esc(t('insert_image')) + '"><i class="bi bi-image"></i></button>'
@@ -179,6 +180,11 @@
       self.$el.find('[name=subject]').val(c.subject);
       self.$el.find('[name=from]').val(c.from);
       self.$el.find('[data-opt=priority]').prop('checked', +c.priority === 1);
+      self.$el.find('[data-opt=receipt]').prop('checked', !!+c.receipt);
+      if (+c.attach_original) self.state.attach_original = true;
+      self.state.scheduled_at = +c.scheduled_at || 0;
+      self.state.schedule_error = c.schedule_error || '';
+      self.renderSchedule();
       self.editor.setHTML(c.html || '');
       self.signature = r.signature || '';
       self.placeSignature();
@@ -222,7 +228,8 @@
       subject: this.$el.find('[name=subject]').val(), html: this.bodyHtml(), mode: s.mode, ref_id: s.ref_id,
       ref_parts: s.ref_attachments.map(function (a) { return a.part; }), attachments: s.attachments.filter(function (a) { return a.token; }).map(function (a) { return a.token; }),
       draft_id: s.draft_id, priority: this.$el.find('[data-opt=priority]').is(':checked') ? 1 : 3,
-      receipt: this.$el.find('[data-opt=receipt]').is(':checked') ? 1 : 0, attach_original: s.attach_original ? 1 : 0
+      receipt: this.$el.find('[data-opt=receipt]').is(':checked') ? 1 : 0, attach_original: s.attach_original ? 1 : 0,
+      scheduled_at: s.scheduled_at || 0
     };
   };
 
@@ -322,6 +329,8 @@
       if (c === 'link') self.editor.exec('link');
       if (c === 'format') { $el.find('[data-toolbar-slot]').toggleClass('d-none'); $(this).toggleClass('active'); }
       if (c === 'discard') self.discard();
+      if (c === 'schedule') { bootstrap.Dropdown.getOrCreateInstance($el.find('.dropdown-toggle-split')[0]).hide(); self.schedulePicker(); }
+      if (c === 'unschedule') { self.state.scheduled_at = 0; self.renderSchedule(); self.touch(); M4W.toast(t('schedule_cancelled'), 'info'); }
     });
     $el.find('[data-file]').on('change', function () { self.addFiles(this.files); this.value = ''; });
     $el.find('[name=subject]').on('input', function () { self.touch(); }).on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); self.editor.focus(true); } });
@@ -343,6 +352,57 @@
       if (e.key === 'Escape' && !$(e.target).closest('.dropdown-menu').length) { e.preventDefault(); self.close(); }
     });
     function hasFiles(e) { var dt = e.originalEvent.dataTransfer; return dt && Array.prototype.indexOf.call(dt.types || [], 'Files') !== -1; }
+  };
+
+  Compose.prototype.renderSchedule = function () {
+    var $b = this.$el.find('[data-sched-banner]'), s = this.state;
+    if (s.scheduled_at) {
+      $b.removeClass('d-none').html('<i class="bi bi-clock-history"></i><span>' + esc(t('scheduled_for', { date: M4W.date(s.scheduled_at, true) })) + '</span><button type="button" class="btn btn-link btn-sm p-0 ms-auto" data-c="unschedule">' + esc(t('cancel_schedule')) + '</button>');
+      this.$el.find('[data-c=send]').text(t('schedule_btn'));
+    } else if (s.schedule_error) {
+      $b.removeClass('d-none').addClass('error').html('<i class="bi bi-exclamation-triangle"></i><span>' + esc(t('schedule_failed', { error: s.schedule_error })) + '</span>');
+      this.$el.find('[data-c=send]').text(t('send'));
+    } else {
+      $b.addClass('d-none').empty();
+      this.$el.find('[data-c=send]').text(t('send'));
+    }
+  };
+
+  Compose.prototype.schedulePicker = function () {
+    var self = this;
+    var now = new Date(), d = function (days, h) { var x = new Date(now); x.setDate(x.getDate() + days); x.setHours(h, 0, 0, 0); return x; };
+    var monday = new Date(now); monday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7)); monday.setHours(8, 0, 0, 0);
+    var presets = [[t('tomorrow_morning'), d(1, 8)], [t('tomorrow_afternoon'), d(1, 13)], [t('monday_morning'), monday]];
+    if (now.getHours() < 16) presets.unshift([t('this_afternoon'), d(0, 17)]);
+    var fmt = function (x) { return x.toLocaleString(document.documentElement.lang, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+    var pad = function (n) { return ('0' + n).slice(-2); };
+    var local = function (x) { return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()) + 'T' + pad(x.getHours()) + ':' + pad(x.getMinutes()); };
+    var $m = $('<div class="modal fade" tabindex="-1"><div class="modal-dialog modal-dialog-centered" style="max-width:420px"><div class="modal-content">'
+      + '<div class="modal-header"><h5 class="modal-title"><i class="bi bi-clock me-2"></i>' + esc(t('schedule_send')) + '</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>'
+      + '<div class="modal-body"><div class="list-group mb-3">' + presets.map(function (p, i) { return '<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3" data-preset="' + i + '"><span class="fw-medium">' + esc(p[0]) + '</span><span class="text-muted small text-nowrap">' + esc(fmt(p[1])) + '</span></button>'; }).join('') + '</div>'
+      + '<label class="form-label">' + esc(t('pick_date')) + '</label><input type="datetime-local" class="form-control" min="' + local(new Date(Date.now() + 120000)) + '" value="' + local(d(1, 9)) + '"></div>'
+      + '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">' + esc(t('cancel')) + '</button><button type="button" class="btn btn-primary" data-go>' + esc(t('schedule_btn')) + '</button></div></div></div></div>').appendTo('body');
+    var modal = bootstrap.Modal.getOrCreateInstance($m[0]);
+    var pick = function (date) { modal.hide(); self.doSchedule(Math.floor(date.getTime() / 1000)); };
+    $m.on('click', '[data-preset]', function () { pick(presets[+$(this).data('preset')][1]); });
+    $m.on('click', '[data-go]', function () { var v = $m.find('input').val(); if (v) pick(new Date(v)); });
+    $m.on('hidden.bs.modal', function () { $m.remove(); });
+    modal.show();
+  };
+
+  Compose.prototype.doSchedule = function (ts) {
+    var self = this;
+    this.state.scheduled_at = ts;
+    this.validate().done(function (payload) {
+      payload.send_at = ts;
+      self.state.sending = true;
+      clearTimeout(self.saveTimer);
+      M4W.post('api/compose/schedule', payload).done(function () {
+        self.destroy();
+        M4W.toast(t('scheduled_ok', { date: M4W.date(ts, true) }), 'success');
+        if (M4W.reloadList) M4W.reloadList();
+      }).fail(function () { self.state.sending = false; self.state.scheduled_at = 0; self.renderSchedule(); });
+    }).fail(function () { self.state.scheduled_at = 0; });
   };
 
   Compose.prototype.toggleMax = function () {
@@ -402,6 +462,7 @@
   Compose.prototype.send = function () {
     var self = this;
     if (this.state.sending) return;
+    if (this.state.scheduled_at) { this.doSchedule(this.state.scheduled_at); return; }
     this.validate().done(function (payload) {
       self.state.sending = true;
       clearTimeout(self.saveTimer);

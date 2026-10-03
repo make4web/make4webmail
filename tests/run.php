@@ -398,6 +398,20 @@ test('draft save then send removes the draft', function () use ($alice) {
     Composer::send($alice, ['to' => 'bob@test.local', 'subject' => 'Brouillon', 'html' => '<p>done</p>', 'draft_id' => $id]);
     ok(Mailbox::get((int) $alice['id'], $id) === null);
 });
+test('scheduled send: stored as draft, sent by scheduler with signature', function () use ($alice, $bob) {
+    $id = Composer::schedule($alice, ['to' => 'bob@test.local', 'subject' => 'Plus tard', 'html' => '<p>programmé</p>'], time() + 3600);
+    $d = Mailbox::get((int) $alice['id'], $id);
+    ok((bool) $d['is_draft'] && json_decode($d['draft_meta'], true)['scheduled_at'] > time());
+    eq(Composer::processScheduled(), 0, 'sent too early');
+    $meta = json_decode($d['draft_meta'], true);
+    $meta['scheduled_at'] = time() - 5;
+    DB::update('messages', ['draft_meta' => json_encode($meta)], 'id = :id', ['id' => $id]);
+    eq(Composer::processScheduled(), 1);
+    ok(Mailbox::get((int) $alice['id'], $id) === null, 'draft not removed');
+    $got = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Plus tard'", ['u' => $bob['id']]);
+    ok($got && str_contains(MimeParser::parse(Mailbox::raw($got))->html(), 'data-m4w-signature'));
+    eq(Composer::processScheduled(), 0, 'sent twice');
+});
 test('invalid recipient refused', function () use ($alice) {
     $thrown = false;
     try {
