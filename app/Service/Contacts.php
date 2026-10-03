@@ -25,9 +25,9 @@ final class Contacts
         if ($q === '') {
             return [];
         }
-        $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q) . '%';
         $rows = DB::all(
-            "SELECT name, email, use_count FROM contacts WHERE user_id = :u AND (LOWER(name) LIKE :q ESCAPE '\\' OR LOWER(email) LIKE :q ESCAPE '\\')
+            "SELECT name, email, use_count FROM contacts WHERE user_id = :u AND (LOWER(name) LIKE :q ESCAPE '!' OR LOWER(email) LIKE :q ESCAPE '!')
              ORDER BY is_favorite DESC, use_count DESC, last_used_at DESC LIMIT $limit",
             ['u' => $userId, 'q' => $like]
         );
@@ -37,7 +37,7 @@ final class Contacts
         }
         $dir = DB::all(
             "SELECT display_name, first_name, last_name, email, job_title FROM users WHERE status = 'active' AND id <> :u
-             AND (LOWER(email) LIKE :q ESCAPE '\\' OR LOWER(display_name) LIKE :q ESCAPE '\\' OR LOWER(first_name) LIKE :q ESCAPE '\\' OR LOWER(last_name) LIKE :q ESCAPE '\\')
+             AND (LOWER(email) LIKE :q ESCAPE '!' OR LOWER(display_name) LIKE :q ESCAPE '!' OR LOWER(first_name) LIKE :q ESCAPE '!' OR LOWER(last_name) LIKE :q ESCAPE '!')
              LIMIT $limit",
             ['u' => $userId, 'q' => $like]
         );

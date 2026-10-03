@@ -184,21 +184,21 @@ final class Mailbox
                 continue;
             }
             $p = 's' . $i;
-            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_strtolower($val)) . '%';
+            $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($val)) . '%';
             switch ($key) {
                 case 'from':
                 case 'de':
-                    $where[] = "(LOWER(m.from_email) LIKE :$p ESCAPE '\\' OR LOWER(m.from_name) LIKE :$p ESCAPE '\\')";
+                    $where[] = "(LOWER(m.from_email) LIKE :$p ESCAPE '!' OR LOWER(m.from_name) LIKE :$p ESCAPE '!')";
                     $params[$p] = $like;
                     break;
                 case 'to':
                 case 'a':
-                    $where[] = "(LOWER(m.to_list) LIKE :$p ESCAPE '\\' OR LOWER(m.cc_list) LIKE :$p ESCAPE '\\')";
+                    $where[] = "(LOWER(m.to_list) LIKE :$p ESCAPE '!' OR LOWER(m.cc_list) LIKE :$p ESCAPE '!')";
                     $params[$p] = $like;
                     break;
                 case 'subject':
                 case 'objet':
-                    $where[] = "LOWER(m.subject) LIKE :$p ESCAPE '\\'";
+                    $where[] = "LOWER(m.subject) LIKE :$p ESCAPE '!'";
                     $params[$p] = $like;
                     break;
                 case 'has':
@@ -233,9 +233,9 @@ final class Mailbox
                     break;
                 default:
                     $term = $key !== '' ? $m[0] : $val;
-                    $params[$p] = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_strtolower($term)) . '%';
-                    $where[] = "(LOWER(m.subject) LIKE :$p ESCAPE '\\' OR LOWER(m.from_name) LIKE :$p ESCAPE '\\' OR LOWER(m.from_email) LIKE :$p ESCAPE '\\'"
-                        . " OR LOWER(m.to_list) LIKE :$p ESCAPE '\\' OR LOWER(m.body_text) LIKE :$p ESCAPE '\\' OR LOWER(m.attachments) LIKE :$p ESCAPE '\\')";
+                    $params[$p] = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)) . '%';
+                    $where[] = "(LOWER(m.subject) LIKE :$p ESCAPE '!' OR LOWER(m.from_name) LIKE :$p ESCAPE '!' OR LOWER(m.from_email) LIKE :$p ESCAPE '!'"
+                        . " OR LOWER(m.to_list) LIKE :$p ESCAPE '!' OR LOWER(m.body_text) LIKE :$p ESCAPE '!' OR LOWER(m.attachments) LIKE :$p ESCAPE '!')";
             }
         }
     }
