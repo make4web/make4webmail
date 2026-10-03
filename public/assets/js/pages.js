@@ -178,7 +178,7 @@
           + '<div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" data-toggle-rule ' + (+r.enabled ? 'checked' : '') + ' aria-label="' + esc(t('enabled')) + '"></div>'
           + '<div class="flex-grow-1 min-w-0"><div class="fw-semibold">' + esc(r.name) + (+r.stop_processing ? ' <span class="badge badge-soft-secondary ms-1">' + esc(t('stop_short')) + '</span>' : '') + '</div><div class="m4w-rule-summary text-truncate">' + summary(r) + '</div></div>'
           + '<span class="small text-muted text-nowrap d-none d-md-inline" title="' + esc(t('hits')) + '"><i class="bi bi-lightning"></i> ' + (+r.hits || 0) + '</span>'
-          + '<div class="dropdown"><button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown"><i class="bi bi-three-dots-vertical"></i></button><div class="dropdown-menu dropdown-menu-end">'
+          + '<div class="dropdown"><button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown" aria-label="' + esc(t('more_actions')) + '"><i class="bi bi-three-dots-vertical"></i></button><div class="dropdown-menu dropdown-menu-end">'
           + '<button class="dropdown-item" data-edit-rule><i class="bi bi-pencil"></i>' + esc(t('edit')) + '</button>'
           + '<button class="dropdown-item" data-run-rule><i class="bi bi-play-circle"></i>' + esc(t('run_now')) + '</button>'
           + '<button class="dropdown-item" data-dup-rule><i class="bi bi-copy"></i>' + esc(t('duplicate')) + '</button>'

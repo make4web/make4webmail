@@ -10,7 +10,7 @@
       <div>
         <div class="fw-semibold fs-5"><?= e($u['name']) ?></div>
         <div class="text-muted"><?= e($u['email']) ?></div>
-        <div class="small text-muted mt-1"><?= e($u['job_title']) ?><?= $u['department'] ? ' · ' . e($u['department']) : '' ?> <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="<?= te('settings.admin_managed') ?>"></i></div>
+        <div class="small text-muted mt-1"><?= e($u['job_title']) ?><?= $u['department'] ? ' · ' . e($u['department']) : '' ?> <i class="bi bi-info-circle ms-1" role="img" tabindex="0" data-bs-toggle="tooltip" title="<?= te('settings.admin_managed') ?>" aria-label="<?= te('settings.admin_managed') ?>"></i></div>
       </div>
     </div>
     <div class="m4w-section-title"><?= te('settings.profile') ?></div>

@@ -392,4 +392,5 @@ return [
     'compose.schedule_past' => 'Choisissez une date dans le futur.',
     'compose.schedule_far' => 'La date est trop éloignée (1 an maximum).',
     'audit.mail.schedule_failed' => 'Échec d\'un envoi programmé',
+    'js.more_actions' => 'Plus d\'actions',
 ];

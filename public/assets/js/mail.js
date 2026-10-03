@@ -76,7 +76,7 @@
     var count = f.role === 'drafts' ? f.total : f.unread;
     var showCount = count > 0 && f.role !== 'sent' && f.role !== 'trash' && (f.role !== 'archive');
     var icon = f.color ? '<span class="m4w-dot" style="background:' + esc(f.color) + '"></span>' : '<i class="bi bi-' + esc(f.icon) + (f.role === 'inbox' && f.unread ? '-fill' : '') + '"></i>';
-    var html = '<li class="m4w-nav-li"><a class="m4w-nav-item' + (f.unread && f.role !== 'drafts' ? ' has-unread' : '') + '" href="#f/' + f.id + '" data-folder="' + f.id + '" role="treeitem" style="' + (depth ? 'padding-left:' + (1.1 + depth * 1.1) + 'rem' : '') + '">'
+    var html = '<li class="m4w-nav-li"><a class="m4w-nav-item' + (f.unread && f.role !== 'drafts' ? ' has-unread' : '') + '" href="#f/' + f.id + '" data-folder="' + f.id + '" style="' + (depth ? 'padding-left:' + (1.1 + depth * 1.1) + 'rem' : '') + '">'
       + icon + '<span class="m4w-nav-label">' + esc(f.name) + '</span>'
       + (showCount ? '<span class="m4w-count">' + count + '</span>' : '') + '</a>'
       + '<div class="dropdown m4w-folder-dd" data-folder-id="' + f.id + '"><button class="btn btn-ghost btn-icon btn-sm m4w-folder-menu" data-bs-toggle="dropdown" aria-label="' + esc(t('folder_actions')) + '"><i class="bi bi-three-dots-vertical"></i></button>'
@@ -196,7 +196,7 @@
     if (m.answered) icons += '<i class="bi bi-reply" title="' + esc(t('answered')) + '"></i>';
     if (m.forwarded) icons += '<i class="bi bi-forward" title="' + esc(t('forwarded')) + '"></i>';
     var folderChip = (S.q && S.byId[m.folder_id] && S.byId[m.folder_id].role !== 'inbox') ? '<span class="m4w-chip-folder">' + esc(S.byId[m.folder_id].name) + '</span>' : '';
-    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" role="option" draggable="true" aria-selected="' + (S.activeId === m.id) + '">'
+    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
       + '<input type="checkbox" class="form-check-input m4w-check" ' + (S.selected[m.id] ? 'checked' : '') + ' aria-label="' + esc(t('select')) + '">'
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
       + M4W.avatar(who, whoEmail)
@@ -271,8 +271,8 @@
       return;
     }
     S.activeId = id;
-    $scroll.find('.m4w-row').removeClass('active').attr('aria-selected', 'false');
-    rowById(id).addClass('active').attr('aria-selected', 'true');
+    $scroll.find('.m4w-row').removeClass('active').removeAttr('aria-current');
+    rowById(id).addClass('active').attr('aria-current', 'true');
     S.cursor = S.items.findIndex(function (m) { return m.id === id; });
     $main.addClass('reading');
     $reader.addClass('is-open');
@@ -355,7 +355,7 @@
       + '<div class="d-flex align-items-start gap-1"><div class="m4w-msg-date pt-1">' + (msg.attachments.some(function (a) { return !a.inline; }) ? '<i class="bi bi-paperclip me-1"></i>' : '') + esc(M4W.date(msg.date)) + '<div class="small-2 d-none d-md-block">' + esc(M4W.relative(msg.date)) + '</div></div>'
       + '<span class="m4w-msg-actions-inline d-flex"><button class="btn btn-ghost btn-icon btn-sm" data-msg-act="star" title="' + esc(t('star')) + '"><i class="bi bi-star' + (msg.flagged ? '-fill text-warning' : '') + '"></i></button>'
       + '<button class="btn btn-ghost btn-icon btn-sm" data-msg-act="reply" title="' + esc(t('reply')) + '"><i class="bi bi-reply"></i></button>'
-      + '<span class="dropdown"><button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown"><i class="bi bi-three-dots-vertical"></i></button><span class="dropdown-menu dropdown-menu-end">'
+      + '<span class="dropdown"><button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown" aria-label="' + esc(t('more_actions')) + '"><i class="bi bi-three-dots-vertical"></i></button><span class="dropdown-menu dropdown-menu-end">'
       + '<button class="dropdown-item" data-msg-act="reply"><i class="bi bi-reply"></i>' + esc(t('reply')) + '</button>'
       + '<button class="dropdown-item" data-msg-act="reply_all"><i class="bi bi-reply-all"></i>' + esc(t('reply_all')) + '</button>'
       + '<button class="dropdown-item" data-msg-act="forward"><i class="bi bi-forward"></i>' + esc(t('forward')) + '</button>'

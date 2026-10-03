@@ -10,12 +10,12 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
     </button>
     <div id="m4w-vacation-flag"></div>
     <div class="m4w-sidebar-scroll">
-      <ul class="m4w-nav" id="m4w-folders" role="tree"></ul>
+      <ul class="m4w-nav" id="m4w-folders"></ul>
       <div class="m4w-nav-title">
         <span><?= te('mail.my_folders') ?></span>
         <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="new-folder" title="<?= te('mail.new_folder') ?>"><i class="bi bi-plus-lg"></i></button>
       </div>
-      <ul class="m4w-nav" id="m4w-user-folders" role="tree"></ul>
+      <ul class="m4w-nav" id="m4w-user-folders"></ul>
       <ul class="m4w-nav mt-2">
         <li><a class="m4w-nav-item" href="<?= e(url('contacts')) ?>"><i class="bi bi-people"></i><span class="m4w-nav-label"><?= te('nav.contacts') ?></span></a></li>
         <li><a class="m4w-nav-item" href="<?= e(url('settings/rules')) ?>"><i class="bi bi-funnel"></i><span class="m4w-nav-label"><?= te('nav.rules') ?></span></a></li>
@@ -75,7 +75,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
         <button class="m4w-chip" data-filter="flagged"><i class="bi bi-star"></i><?= te('mail.f_flagged') ?></button>
         <button class="m4w-chip" data-filter="attachments"><i class="bi bi-paperclip"></i><?= te('mail.f_attachments') ?></button>
       </div>
-      <div class="m4w-list-scroll" id="m4w-list-scroll" tabindex="-1" role="listbox" aria-multiselectable="true"></div>
+      <div class="m4w-list-scroll" id="m4w-list-scroll" tabindex="-1" aria-label="<?= te('mail.list') ?>"></div>
       <div class="d-flex align-items-center justify-content-between px-3 py-2 border-top m4w-pager" id="m4w-pager"></div>
     </section>
 

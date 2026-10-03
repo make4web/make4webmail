@@ -43,7 +43,7 @@ $presets = ['#2563eb', '#4f46e5', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#
         <?php foreach (['primary' => 'admin.brand_primary', 'accent' => 'admin.brand_accent'] as $k => $l): $val = (string) S::get('brand.' . $k); ?>
         <div class="mb-3"><label class="form-label"><?= te($l) ?></label>
           <div class="d-flex gap-3 flex-wrap align-items-center">
-            <div class="m4w-swatch-input"><input type="color" name="<?= $k ?>" value="<?= e($val) ?>" data-live="<?= $k ?>"><input class="form-control m4w-code" style="width:110px" value="<?= e($val) ?>" data-hex-for="<?= $k ?>" maxlength="7"></div>
+            <div class="m4w-swatch-input"><input type="color" name="<?= $k ?>" value="<?= e($val) ?>" data-live="<?= $k ?>"><input class="form-control m4w-code" style="width:110px" value="<?= e($val) ?>" data-hex-for="<?= $k ?>" maxlength="7" aria-label="<?= te($l) ?> (hex)"></div>
             <div class="d-flex gap-2 m4w-presets"><?php foreach ($presets as $c): ?><button type="button" style="background:<?= $c ?>" data-preset="<?= $k ?>" data-color="<?= $c ?>" title="<?= $c ?>"></button><?php endforeach; ?></div>
           </div></div>
         <?php endforeach; ?>

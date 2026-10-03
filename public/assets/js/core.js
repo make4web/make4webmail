@@ -33,7 +33,7 @@
     if (p.length > 1) i += p[1].charAt(0);
     return i.toUpperCase();
   };
-  var PALETTE = ['#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0d9488', '#0891b2', '#4f46e5'];
+  var PALETTE = ['#1d4ed8', '#6d28d9', '#be185d', '#b91c1c', '#c2410c', '#a16207', '#15803d', '#0f766e', '#0e7490', '#4338ca'];
   M4W.color = function (seed) {
     seed = String(seed || '').toLowerCase();
     var h = 0;
@@ -165,6 +165,22 @@
 
   // ---- global UI wiring
   $(function () {
+    // Accessibility: tie every .form-label to its control, name unlabeled checkboxes.
+    var uid = 0;
+    $('label.form-label:not([for])').each(function () {
+      var $c = $(this).parent().find('input:not([type=hidden]), select, textarea').first();
+      if (!$c.length) $c = $(this).next().find('input:not([type=hidden]), select, textarea').first();
+      if (!$c.length) return;
+      if (!$c.attr('id')) $c.attr('id', 'm4w-f' + (++uid));
+      $(this).attr('for', $c.attr('id'));
+    });
+    $('input[type=checkbox]:not([aria-label]):not([id])').each(function () { $(this).attr('aria-label', M4W.t('select')); });
+    $('.m4w-setting-row').each(function () {
+      var label = $(this).children('.label').first().clone().children().remove().end().text().trim();
+      if (!label) return;
+      $(this).find('select:not([aria-label]), input:not([type=hidden]):not([aria-label]):not([id])').each(function () { if (!$('label[for="' + this.id + '"]').length) $(this).attr('aria-label', label); });
+    });
+
     // Modals must live directly under <body> (animated containers create stacking contexts).
     $('.modal').appendTo(document.body);
     if (window.AOS) { AOS.init({ once: true, duration: 450, easing: 'ease-out-cubic', offset: 10 }); }

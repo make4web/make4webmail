@@ -85,7 +85,7 @@ function initials(string $name): string
 
 function avatar_color(string $seed): string
 {
-    $palette = ['#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0d9488', '#0891b2', '#4f46e5'];
+    $palette = ['#1d4ed8', '#6d28d9', '#be185d', '#b91c1c', '#c2410c', '#a16207', '#15803d', '#0f766e', '#0e7490', '#4338ca'];
     return $palette[abs(crc32(mb_strtolower($seed))) % count($palette)];
 }
 

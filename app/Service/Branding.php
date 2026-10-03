@@ -62,7 +62,7 @@ final class Branding
             . "--bs-focus-ring-color:rgba($r,$g,$b,.25);--bs-body-font-family:$font;"
             . "}\n";
         if ($sidebar === 'brand') {
-            $css .= ":root{--m4w-sidebar-bg:$p;--m4w-sidebar-fg:" . self::contrast($p) . ";--m4w-sidebar-hover:rgba(255,255,255,.12);--m4w-sidebar-active:rgba(255,255,255,.2);--m4w-sidebar-muted:rgba(255,255,255,.72)}\n";
+            $css .= ":root{--m4w-sidebar-bg:$p;--m4w-sidebar-fg:" . self::contrast($p) . ";--m4w-sidebar-hover:rgba(0,0,0,.1);--m4w-sidebar-active:rgba(0,0,0,.2);--m4w-sidebar-muted:" . (self::contrast($p) === '#ffffff' ? 'rgba(255,255,255,.88)' : 'rgba(15,23,42,.75)') . "}\n";
         } elseif ($sidebar === 'dark') {
             $css .= ":root{--m4w-sidebar-bg:#0f172a;--m4w-sidebar-fg:#e2e8f0;--m4w-sidebar-hover:rgba(255,255,255,.07);--m4w-sidebar-active:rgba($r,$g,$b,.35);--m4w-sidebar-muted:#94a3b8}\n";
         }

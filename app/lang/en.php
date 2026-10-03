@@ -319,4 +319,5 @@ return [
     'compose.schedule_past' => 'Pick a date in the future.',
     'compose.schedule_far' => 'That date is too far away (1 year max).',
     'audit.mail.schedule_failed' => 'Scheduled sending failed',
+    'js.more_actions' => 'More actions',
 ];
