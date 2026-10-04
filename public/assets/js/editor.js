@@ -1,202 +1,189 @@
-/*! Make4Web Mail — lightweight rich text editor (contenteditable) */
+/*! Make4Web Mail — rich text editor (TinyMCE, self-hosted in assets/vendor/tinymce) */
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W;
-  var t = M4W.t;
+  var uid = 0;
 
-  var COLORS = ['#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#d9d9d9', '#efefef', '#ffffff',
-    '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff',
-    '#9900ff', '#ff00ff', '#e6b8af', '#f4cccc', '#fce5cd', '#fff2cc', '#d9ead3', '#d0e0e3',
-    '#c9daf8', '#cfe2f3', '#d9d2e9', '#ead1dc', '#dc2626', '#16a34a', '#2563eb', '#7c3aed'];
-  var FONTS = [['Arial, Helvetica, sans-serif', 'Arial'], ['Calibri, Carlito, sans-serif', 'Calibri'], ['Georgia, serif', 'Georgia'],
-    ['Tahoma, Geneva, sans-serif', 'Tahoma'], ['"Times New Roman", Times, serif', 'Times New Roman'], ['Verdana, Geneva, sans-serif', 'Verdana'],
-    ['"Courier New", Courier, monospace', 'Courier New']];
-  var SIZES = [['1', 'small'], ['3', 'normal'], ['4', 'large'], ['6', 'huge']];
+  var LANG = (document.documentElement.lang || 'fr').slice(0, 2);
+  var BASE = M4W.url('assets/vendor/tinymce');
 
-  function Editor(container, opts) {
-    this.opts = $.extend({ placeholder: '', minimal: false, onChange: null, onImage: null, toolbarBottom: true, font: 'Arial, Helvetica, sans-serif', size: '14px' }, opts || {});
-    this.$wrap = $(container);
-    this.build();
+  // Styles applied inside the editing iframe (mail content stays light, like the sent result).
+  function contentStyle(font, size) {
+    return 'body{font-family:' + (font || 'Arial, Helvetica, sans-serif') + ';font-size:' + (size || '14px') + ';line-height:1.55;color:#1f2937;margin:12px 16px;word-wrap:break-word}'
+      + 'p{margin:0 0 .6em}blockquote{margin:0 0 0 .8ex;border-left:2px solid #cbd5e1;padding-left:1ex;color:#475569}'
+      + 'img{max-width:100%;height:auto}img.m4w-blocked{min-width:24px;min-height:24px;background:#f1f5f9;outline:1px dashed #cbd5e1}'
+      + '.m4w-sig-preview{margin:14px 0;padding:12px 14px;border:1px dashed #cbd5e1;border-radius:8px;position:relative;background:#f8fafc;cursor:default;user-select:none}'
+      + '.m4w-sig-preview::before{content:attr(data-label);position:absolute;top:-.65em;left:10px;font:600 10px/1.4 Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;background:#fff;padding:0 6px;color:#64748b;border-radius:4px}'
+      + '.m4w-sig-preview .m4w-sig-content{pointer-events:none;opacity:.92}'
+      + '.mce-content-body [contenteditable=false][data-mce-selected]{outline:2px solid #93c5fd}';
   }
 
-  Editor.prototype.build = function () {
-    var self = this, o = this.opts;
-    this.$area = $('<div class="m4w-editor" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true"></div>')
-      .attr('data-placeholder', o.placeholder).css({ fontFamily: o.font, fontSize: o.size });
-    this.$toolbar = $('<div class="m4w-editor-toolbar" role="toolbar"></div>');
-    var b = function (cmd, icon, title, extra) {
-      return '<button type="button" class="btn btn-sm" data-cmd="' + cmd + '"' + (extra || '') + ' title="' + M4W.esc(title) + '" aria-label="' + M4W.esc(title) + '"><i class="bi bi-' + icon + '"></i></button>';
-    };
-    var html = '';
-    if (!o.minimal) {
-      html += b('undo', 'arrow-counterclockwise', t('ed.undo') + ' (Ctrl+Z)') + b('redo', 'arrow-clockwise', t('ed.redo') + ' (Ctrl+Y)') + '<span class="sep"></span>';
-      html += '<select data-font title="' + M4W.esc(t('ed.font')) + '">' + FONTS.map(function (f) { return '<option value=\'' + f[0] + '\'>' + f[1] + '</option>'; }).join('') + '</select>';
-      html += '<select data-size title="' + M4W.esc(t('ed.size')) + '">' + SIZES.map(function (s) { return '<option value="' + s[0] + '"' + (s[0] === '3' ? ' selected' : '') + '>' + M4W.esc(t('ed.size_' + s[1])) + '</option>'; }).join('') + '</select><span class="sep"></span>';
-    }
-    html += b('bold', 'type-bold', t('ed.bold') + ' (Ctrl+B)') + b('italic', 'type-italic', t('ed.italic') + ' (Ctrl+I)') + b('underline', 'type-underline', t('ed.underline') + ' (Ctrl+U)');
-    if (!o.minimal) html += b('strikeThrough', 'type-strikethrough', t('ed.strike'));
-    html += '<div class="dropdown d-inline-block"><button type="button" class="btn btn-sm" data-bs-toggle="dropdown" title="' + M4W.esc(t('ed.color')) + '"><i class="bi bi-palette"></i></button><div class="dropdown-menu p-0">'
-      + '<div class="px-2 pt-2 small text-muted">' + M4W.esc(t('ed.text_color')) + '</div><div class="m4w-colors" data-colors="foreColor">' + COLORS.map(function (c) { return '<button type="button" data-color="' + c + '" style="background:' + c + '"></button>'; }).join('') + '</div>'
-      + '<div class="px-2 small text-muted">' + M4W.esc(t('ed.bg_color')) + '</div><div class="m4w-colors" data-colors="hiliteColor">' + COLORS.map(function (c) { return '<button type="button" data-color="' + c + '" style="background:' + c + '"></button>'; }).join('') + '</div></div></div>';
-    html += '<span class="sep"></span>' + b('insertUnorderedList', 'list-ul', t('ed.ul')) + b('insertOrderedList', 'list-ol', t('ed.ol'));
-    if (!o.minimal) {
-      html += '<div class="dropdown d-inline-block"><button type="button" class="btn btn-sm" data-bs-toggle="dropdown" title="' + M4W.esc(t('ed.align')) + '"><i class="bi bi-text-left"></i></button><div class="dropdown-menu p-1" style="min-width:auto"><div class="d-flex">'
-        + b('justifyLeft', 'text-left', t('ed.left')) + b('justifyCenter', 'text-center', t('ed.center')) + b('justifyRight', 'text-right', t('ed.right')) + b('justifyFull', 'justify', t('ed.justify')) + '</div></div></div>';
-      html += b('outdent', 'text-indent-right', t('ed.outdent')) + b('indent', 'text-indent-left', t('ed.indent')) + b('formatBlock', 'quote', t('ed.quote'), ' data-value="blockquote"');
-    }
-    html += '<span class="sep"></span>' + b('link', 'link-45deg', t('ed.link') + ' (Ctrl+K)');
-    if (o.onImage) html += b('image', 'image', t('ed.image'));
-    if (!o.minimal) html += b('insertHorizontalRule', 'dash-lg', t('ed.hr'));
-    html += b('removeFormat', 'eraser', t('ed.clear'));
-    this.$toolbar.html(html);
+  function isDark() { return document.documentElement.getAttribute('data-bs-theme') === 'dark'; }
 
-    this.$wrap.addClass('m4w-editor-host');
-    if (o.toolbarBottom) { this.$wrap.append(this.$area); } else { this.$wrap.append(this.$toolbar).append(this.$area); }
-    this.$file = $('<input type="file" accept="image/*" class="d-none">').appendTo(this.$wrap);
+  /**
+   * @param host   container element (an editor host div) or a <textarea>
+   * @param opts   placeholder, minimal, font, size, height, onChange(), onImage(file) -> promise(url),
+   *               onKey(event) -> true to swallow, onFiles(FileList) for dropped non-image files
+   */
+  function Editor(host, opts) {
+    var self = this;
+    this.opts = $.extend({ placeholder: '', minimal: false, onChange: null, onImage: null, onKey: null, onFiles: null, font: '', size: '', height: null }, opts || {});
+    this.$host = $(host);
+    this.queue = [];
+    this.pendingHtml = null;
+    var $target = this.$host.is('textarea') ? this.$host : $('<textarea></textarea>').appendTo(this.$host);
+    this.$target = $target;
+    if (!$target.attr('id')) $target.attr('id', 'm4w-ed-' + (++uid));
+    this.id = $target.attr('id');
 
-    this.$toolbar.on('mousedown', 'button[data-cmd], .m4w-colors button', function (e) { e.preventDefault(); });
-    this.$toolbar.on('click', 'button[data-cmd]', function () { self.exec($(this).data('cmd'), $(this).data('value')); });
-    this.$toolbar.on('click', '.m4w-colors button', function () {
-      var cmd = $(this).parent().data('colors');
-      self.restore();
-      document.execCommand('styleWithCSS', false, true);
-      document.execCommand(cmd, false, $(this).data('color'));
-      if (cmd === 'hiliteColor' && !document.queryCommandSupported('hiliteColor')) document.execCommand('backColor', false, $(this).data('color'));
-      self.changed();
-    });
-    this.$toolbar.on('change', 'select[data-font]', function () { self.restore(); document.execCommand('fontName', false, this.value); self.changed(); });
-    this.$toolbar.on('change', 'select[data-size]', function () { self.restore(); document.execCommand('fontSize', false, this.value); self.changed(); });
-    this.$file.on('change', function () { if (this.files[0]) self.insertImageFile(this.files[0]); this.value = ''; });
+    var o = this.opts;
+    // Most used first: on narrow windows the tail collapses into the "…" overflow menu.
+    var full = 'bold italic underline forecolor | bullist numlist | link image emoticons | fontfamily fontsize | align outdent indent blockquote | strikethrough backcolor table charmap | removeformat undo redo code';
+    var minimal = 'bold italic underline | forecolor | bullist numlist | link | removeformat';
 
-    this.$area.on('input', function () { self.changed(); })
-      .on('keyup mouseup', function () { self.save(); self.state(); })
-      .on('blur', function () { self.save(); })
-      .on('keydown', function (e) {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); self.exec('link'); }
-      })
-      .on('paste', function (e) { self.onPaste(e); })
-      .on('drop', function (e) {
-        var files = e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files;
-        if (files && files.length && /^image\//.test(files[0].type) && self.opts.onImage && !e.originalEvent.dataTransfer.types.includes('text/html')) {
-          // Inline image drop handled by the editor only when the host doesn't treat it as attachment.
-        }
-      })
-      .on('click', 'a', function (e) { if (e.ctrlKey || e.metaKey) window.open(this.href, '_blank', 'noopener'); });
-  };
-
-  Editor.prototype.save = function () {
-    var sel = window.getSelection();
-    if (sel.rangeCount && this.$area[0].contains(sel.anchorNode)) this.range = sel.getRangeAt(0).cloneRange();
-  };
-  Editor.prototype.restore = function () {
-    this.$area.trigger('focus');
-    if (this.range) { var s = window.getSelection(); s.removeAllRanges(); s.addRange(this.range); }
-  };
-  Editor.prototype.state = function () {
-    this.$toolbar.find('button[data-cmd]').each(function () {
-      var c = $(this).data('cmd');
-      if (['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'].indexOf(c) !== -1) {
-        try { $(this).toggleClass('active', document.queryCommandState(c)); } catch (e) {}
+    window.tinymce.init({
+      target: $target[0],
+      base_url: BASE,
+      suffix: '.min',
+      license_key: 'gpl',
+      language: LANG === 'fr' ? 'fr-FR' : undefined,
+      language_url: LANG === 'fr' ? BASE + '/langs/fr-FR.js' : undefined,
+      skin: isDark() ? 'oxide-dark' : 'oxide',
+      content_css: 'default',
+      content_style: contentStyle(o.font, o.size),
+      menubar: false,
+      statusbar: false,
+      branding: false,
+      promotion: false,
+      placeholder: o.placeholder,
+      height: o.height || (o.minimal ? 220 : '100%'),
+      min_height: o.minimal ? 160 : 200,
+      resize: false,
+      plugins: o.minimal ? 'lists link autolink autoresize' : 'lists advlist link autolink image table emoticons charmap code searchreplace quickbars' + (o.height ? ' autoresize' : ''),
+      toolbar: o.minimal ? minimal : full,
+      toolbar_mode: 'sliding',
+      quickbars_insert_toolbar: false,
+      quickbars_selection_toolbar: 'bold italic underline | forecolor | quicklink blockquote',
+      font_family_formats: 'Arial=Arial,Helvetica,sans-serif;Calibri=Calibri,Carlito,sans-serif;Georgia=Georgia,serif;Tahoma=Tahoma,Geneva,sans-serif;Times New Roman="Times New Roman",Times,serif;Verdana=Verdana,Geneva,sans-serif;Courier New="Courier New",Courier,monospace',
+      font_size_formats: '10px 12px 13px 14px 16px 18px 24px 32px',
+      link_default_target: '_blank',
+      link_assume_external_targets: 'https',
+      relative_urls: false,
+      remove_script_host: true,
+      convert_urls: false,
+      browser_spellcheck: true,
+      contextmenu: false,
+      table_default_styles: { 'border-collapse': 'collapse', width: '100%' },
+      paste_data_images: true,
+      automatic_uploads: true,
+      images_file_types: 'png,jpg,jpeg,gif,webp',
+      image_dimensions: false,
+      image_description: true,
+      file_picker_types: o.onImage ? 'image' : '',
+      file_picker_callback: o.onImage ? function (cb) {
+        var $f = $('<input type="file" accept="image/png,image/jpeg,image/gif,image/webp">');
+        $f.on('change', function () {
+          var file = this.files[0];
+          if (file) o.onImage(file).done(function (url) { cb(url, { alt: file.name }); });
+        }).trigger('click');
+      } : undefined,
+      images_upload_handler: o.onImage ? function (blobInfo) {
+        return new Promise(function (resolve, reject) {
+          var file = new File([blobInfo.blob()], blobInfo.filename(), { type: blobInfo.blob().type });
+          o.onImage(file).done(resolve).fail(function () { reject({ message: M4W.t('error_network'), remove: true }); });
+        });
+      } : undefined,
+      extended_valid_elements: 'div[class|style|align|dir|title|contenteditable|data-m4w-quote|data-m4w-q|data-m4w-sig-preview|data-m4w-signature|data-label],img[src|alt|title|width|height|style|class|data-m4w-src],a[href|target|rel|title|style|class]',
+      valid_children: '+body[style]',
+      setup: function (ed) {
+        self.ed = ed;
+        ed.on('init', function () {
+          if (self.pendingHtml !== null) { ed.setContent(self.pendingHtml); self.pendingHtml = null; ed.undoManager.clear(); }
+          self.ready = true;
+          var q = self.queue; self.queue = [];
+          q.forEach(function (fn) { fn(ed); });
+        });
+        ed.on('input change undo redo ExecCommand SetContent', function (e) {
+          if (e.type === 'setcontent' && !e.paste) return;
+          if (o.onChange) o.onChange();
+        });
+        ed.on('keydown', function (e) {
+          if (o.onKey && o.onKey(e) === true) { e.preventDefault(); e.stopPropagation(); }
+        });
+        ed.on('drop', function (e) {
+          var files = e.dataTransfer && e.dataTransfer.files;
+          if (!files || !files.length || !o.onFiles) return;
+          var others = Array.prototype.filter.call(files, function (f) { return !/^image\//.test(f.type); });
+          if (others.length) { e.preventDefault(); o.onFiles(others); }
+        });
+        // The signature preview block is display-only: never let it reach the saved HTML.
+        ed.on('GetContent', function (e) {
+          if (e.content && e.content.indexOf('data-m4w-sig-preview') !== -1) {
+            var $c = $('<div>').html(e.content);
+            $c.find('[data-m4w-sig-preview]').remove();
+            e.content = $c.html();
+          }
+        });
       }
     });
+  }
+
+  /** Run fn(editor) now, or as soon as TinyMCE is initialised. */
+  Editor.prototype.whenReady = function (fn) {
+    if (this.ready && this.ed) fn(this.ed); else this.queue.push(fn);
+    return this;
   };
-  Editor.prototype.exec = function (cmd, value) {
-    var self = this;
-    this.restore();
-    if (cmd === 'link') {
-      var sel = window.getSelection(), current = '';
-      var a = sel.anchorNode && $(sel.anchorNode).closest('a', this.$area[0])[0];
-      if (a) current = a.getAttribute('href');
-      var url = window.prompt(t('ed.link_prompt'), current || 'https://');
-      if (url === null) return;
-      url = url.trim();
-      if (url === '' || url === 'https://') { document.execCommand('unlink'); this.changed(); return; }
-      if (!/^(https?:|mailto:|tel:)/i.test(url)) url = (url.indexOf('@') > 0 ? 'mailto:' : 'https://') + url;
-      if (sel.isCollapsed && !a) { document.execCommand('insertHTML', false, '<a href="' + M4W.esc(url) + '">' + M4W.esc(url.replace(/^mailto:/, '')) + '</a>&nbsp;'); }
-      else { document.execCommand('createLink', false, url); }
-    } else if (cmd === 'image') {
-      this.$file.trigger('click');
-      return;
-    } else if (cmd === 'formatBlock') {
-      document.execCommand('formatBlock', false, value);
-    } else {
-      document.execCommand(cmd, false, value || null);
-    }
-    this.changed();
-    this.state();
-    setTimeout(function () { self.save(); }, 0);
-  };
-  Editor.prototype.insertImageFile = function (file) {
-    var self = this;
-    if (!/^image\//.test(file.type)) return;
-    if (this.opts.onImage) {
-      this.opts.onImage(file).done(function (url) { self.restore(); document.execCommand('insertHTML', false, '<img src="' + M4W.esc(url) + '" style="max-width:100%">'); self.changed(); });
-    }
-  };
-  Editor.prototype.onPaste = function (e) {
-    var cd = e.originalEvent.clipboardData;
-    if (!cd) return;
-    var self = this;
-    if (cd.files && cd.files.length && /^image\//.test(cd.files[0].type)) {
-      e.preventDefault();
-      if (this.opts.onImage) { this.insertImageFile(cd.files[0]); return; }
-      var reader = new FileReader();
-      reader.onload = function () { document.execCommand('insertHTML', false, '<img src="' + reader.result + '" style="max-width:100%">'); self.changed(); };
-      reader.readAsDataURL(cd.files[0]);
-      return;
-    }
-    var html = cd.getData('text/html');
-    if (html) {
-      e.preventDefault();
-      document.execCommand('insertHTML', false, Editor.cleanPaste(html));
-      this.changed();
-    }
-  };
-  Editor.cleanPaste = function (html) {
-    var doc = new DOMParser().parseFromString(html, 'text/html');
-    $(doc).find('script,style,meta,link,iframe,object,embed,form,input,button,textarea,select,o\\:p,xml,title').remove();
-    $(doc.body).find('*').each(function () {
-      var el = this;
-      Array.prototype.slice.call(el.attributes).forEach(function (a) {
-        var n = a.name.toLowerCase();
-        if (n.indexOf('on') === 0 || ['class', 'id', 'lang', 'data-start', 'data-end'].indexOf(n) !== -1 || n.indexOf('data-') === 0 && n !== 'data-m4w-src') el.removeAttribute(a.name);
-        if ((n === 'href' || n === 'src') && /^\s*(javascript|vbscript|data:(?!image\/))/i.test(a.value)) el.removeAttribute(a.name);
-      });
-      // Drop Office mso-* noise.
-      if (el.style) { for (var i = el.style.length - 1; i >= 0; i--) { if (/^mso-/.test(el.style[i])) el.style.removeProperty(el.style[i]); } }
-    });
-    return doc.body.innerHTML.replace(/<!--[\s\S]*?-->/g, '');
-  };
-  Editor.prototype.changed = function () { if (this.opts.onChange) this.opts.onChange(); };
   Editor.prototype.getHTML = function () {
-    var html = this.$area.html();
-    return html === '<br>' ? '' : html;
+    if (!this.ready) return this.pendingHtml !== null ? this.pendingHtml : this.$target.val();
+    return this.ed.getContent();
   };
-  Editor.prototype.setHTML = function (html) { this.$area.html(html || ''); };
-  Editor.prototype.isEmpty = function () { return String(this.$area.text()).trim() === '' && !this.$area.find('img').length; };
+  Editor.prototype.setHTML = function (html) {
+    if (!this.ready) { this.pendingHtml = html || ''; return; }
+    this.ed.setContent(html || '');
+    this.ed.undoManager.clear();
+  };
+  Editor.prototype.isEmpty = function () {
+    if (!this.ready) return !String(this.pendingHtml || this.$target.val() || '').replace(/<[^>]*>|&nbsp;/g, '').trim();
+    var body = this.ed.getBody();
+    var $b = $(body).clone();
+    $b.find('[data-m4w-sig-preview]').remove();
+    return $b.text().trim() === '' && !$b.find('img').length;
+  };
   Editor.prototype.focus = function (atStart) {
-    var el = this.$area[0];
-    el.focus();
-    var range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(!!atStart);
-    var s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
-    if (atStart) el.scrollTop = 0;
+    return this.whenReady(function (ed) {
+      ed.focus();
+      ed.selection.select(ed.getBody(), true);
+      ed.selection.collapse(!!atStart);
+      if (atStart) ed.getWin().scrollTo(0, 0);
+    });
   };
-  Editor.prototype.toolbar = function () { return this.$toolbar; };
+  /** jQuery-wrapped editable body (for inserting display-only blocks). */
+  Editor.prototype.body = function () { return this.ready ? $(this.ed.getBody()) : $(); };
+  Editor.prototype.exec = function (cmd) {
+    return this.whenReady(function (ed) {
+      if (cmd === 'image') ed.execCommand('mceImage');
+      else if (cmd === 'link') ed.execCommand('mceLink');
+      else ed.execCommand(cmd);
+    });
+  };
+  Editor.prototype.toggleToolbar = function (show) {
+    this.$host.toggleClass('m4w-ed-no-toolbar', show === undefined ? undefined : !show);
+  };
+  Editor.prototype.destroy = function () {
+    if (this.ed) { try { this.ed.remove(); } catch (e) {} }
+    this.ed = null; this.ready = false;
+  };
 
   M4W.Editor = Editor;
 
-  // Auto-init textareas marked data-editor (settings pages): keeps the textarea in sync.
+  // Settings pages: <textarea data-editor> / <textarea data-editor="minimal">.
   $(function () {
+    if (!window.tinymce) return;
     $('textarea[data-editor]').each(function () {
-      var $ta = $(this).addClass('d-none');
-      var $host = $('<div class="border rounded-3 overflow-hidden d-flex flex-column" style="min-height:220px;background:var(--m4w-surface)"></div>').insertAfter($ta);
-      var ed = new Editor($host, { minimal: $ta.data('editor') === 'minimal', toolbarBottom: false, placeholder: $ta.attr('placeholder') || '', onChange: function () { $ta.val(ed.getHTML()); } });
-      $host.prepend(ed.toolbar());
-      ed.$toolbar.css({ borderTop: 0, borderBottom: '1px solid var(--m4w-border)' });
-      ed.setHTML($ta.val());
-      $ta.closest('form').on('submit', function () { $ta.val(ed.getHTML()); });
+      var $ta = $(this);
+      var ed = new Editor($ta, { minimal: $ta.data('editor') === 'minimal', placeholder: $ta.attr('placeholder') || '', height: $ta.data('editor') === 'minimal' ? 200 : 320 });
+      $ta.data('m4wEditor', ed);
+      $ta.closest('form').on('submit', function () { if (ed.ed) ed.ed.save(); });
     });
   });
 })(jQuery, window, document);

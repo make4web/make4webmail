@@ -151,9 +151,14 @@
     var prefs = M4W.state.prefs || {};
     this.editor = new M4W.Editor(this.$el.find('[data-editor-host]'), {
       placeholder: t('compose_placeholder'), font: prefs.compose_font, size: prefs.compose_size,
-      onChange: function () { self.touch(); }, onImage: function (file) { return self.uploadInline(file); }
+      onChange: function () { self.touch(); }, onImage: function (file) { return self.uploadInline(file); },
+      onFiles: function (files) { self.addFiles(files); },
+      onKey: function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { self.send(); return true; }
+        if (e.key === 'Escape' && !document.querySelector('.tox-dialog, .tox-menu')) { self.close(); return true; }
+        return false;
+      }
     });
-    this.$el.find('[data-toolbar-slot]').append(this.editor.toolbar());
     this.rcpt = {};
     this.$el.find('[data-r]').each(function () { self.rcpt[$(this).data('r')] = new Recipients($(this), function () { self.touch(); }); });
     this.bind();
@@ -198,17 +203,27 @@
   };
 
   Compose.prototype.placeSignature = function () {
-    var $area = this.editor.$area;
-    $area.find('[data-m4w-sig-preview]').remove();
+    var self = this;
     var $out = this.$el.find('[data-sig-out]').addClass('d-none');
-    if (!this.signature) return;
-    var $quote = $area.find('[data-m4w-quote]').first();
-    if ($quote.length) {
-      $('<div class="m4w-sig-preview" contenteditable="false" data-m4w-sig-preview></div>').attr('data-label', t('signature_auto'))
-        .append($('<div class="m4w-sig-content"></div>').html(this.signature)).insertBefore($quote);
-    } else {
-      $out.removeClass('d-none').find('.m4w-sig-content').html(this.signature);
-    }
+    this.editor.whenReady(function () {
+      var $area = self.editor.body();
+      $area.find('[data-m4w-sig-preview]').remove();
+      if (!self.signature) return;
+      var $quote = $area.find('[data-m4w-quote]').first();
+      if ($quote.length) {
+        // Display-only block inside the editor, exactly where the server will inject the signature.
+        var doc = $area[0].ownerDocument;
+        var box = doc.createElement('div');
+        box.className = 'm4w-sig-preview';
+        box.setAttribute('contenteditable', 'false');
+        box.setAttribute('data-m4w-sig-preview', '1');
+        box.setAttribute('data-label', t('signature_auto'));
+        box.innerHTML = '<div class="m4w-sig-content">' + self.signature + '</div>';
+        $quote[0].parentNode.insertBefore(box, $quote[0]);
+      } else {
+        $out.removeClass('d-none').find('.m4w-sig-content').html(self.signature);
+      }
+    });
   };
 
   Compose.prototype.bodyHtml = function () {
@@ -327,7 +342,7 @@
       if (c === 'attach') $el.find('[data-file]').trigger('click');
       if (c === 'image') self.editor.exec('image');
       if (c === 'link') self.editor.exec('link');
-      if (c === 'format') { $el.find('[data-toolbar-slot]').toggleClass('d-none'); $(this).toggleClass('active'); }
+      if (c === 'format') { self.editor.toggleToolbar(); $(this).toggleClass('active', !self.editor.$host.hasClass('m4w-ed-no-toolbar')); }
       if (c === 'discard') self.discard();
       if (c === 'schedule') { bootstrap.Dropdown.getOrCreateInstance($el.find('.dropdown-toggle-split')[0]).hide(); self.schedulePicker(); }
       if (c === 'unschedule') { self.state.scheduled_at = 0; self.renderSchedule(); self.touch(); M4W.toast(t('schedule_cancelled'), 'info'); }
@@ -433,6 +448,7 @@
 
   Compose.prototype.destroy = function () {
     clearTimeout(this.saveTimer);
+    if (this.editor) this.editor.destroy();
     $('.m4w-compose-backdrop').remove();
     this.$el.remove();
     if (C === this) C = null;

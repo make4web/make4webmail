@@ -2,7 +2,7 @@
 
 Make4Web Mail est un webmail professionnel en PHP qui fonctionne seul : le stockage des messages, le serveur SMTP de réception et le client SMTP d'envoi sont intégrés. Il gère les règles de tri, les réponses d'absence, le transfert, les signatures centralisées, l'administration des utilisateurs et la personnalisation graphique.
 
-Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, Bootstrap 5.3, Bootstrap Icons, AOS, la police Inter et qrcode-generator sont fournis dans `public/assets/vendor/`. Une surcouche CSS (`public/assets/css/m4w.css`) personnalise Bootstrap, et les couleurs, l'arrondi et la police choisis par l'administrateur sont injectés via `/theme.css`.
+Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, Bootstrap 5.3, Bootstrap Icons, AOS, TinyMCE 8 (éditeur WYSIWYG, avec le pack de langue français), la police Inter et qrcode-generator sont fournis dans `public/assets/vendor/`. Une surcouche CSS (`public/assets/css/m4w.css`) personnalise Bootstrap, et les couleurs, l'arrondi et la police choisis par l'administrateur sont injectés via `/theme.css`.
 
 ---
 
@@ -16,7 +16,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Lecture sécurisée : le HTML est assaini côté serveur puis affiché dans une iframe isolée (sandbox + CSP stricte). Les images distantes et les pixels de suivi sont bloqués par défaut, avec un bouton « Afficher les images ». Le désabonnement en un clic (RFC 8058) est pris en charge.
 - Pièces jointes : vignettes, aperçu (images, PDF, texte), téléchargement à l'unité ou en archive ZIP.
 - Rédaction :
-  - éditeur riche ;
+  - éditeur WYSIWYG TinyMCE auto-hébergé : polices, tailles, couleurs, listes, alignement, citations, liens, images (collées, déposées ou importées, envoyées en pièces jointes inline), tableaux, émojis, code source ;
   - destinataires sous forme de pastilles, avec autocomplétion sur les contacts et l'annuaire ;
   - Cc et Cci ;
   - glisser-déposer de fichiers et collage d'images ;
@@ -73,6 +73,9 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Messages et pièces jointes stockés hors de la racine web. Requêtes préparées partout. Protection contre l'injection d'en-têtes, le SSRF (comptes IMAP, désabonnement) et le relais ouvert (le démon SMTP n'accepte que les domaines hébergés).
 
 ---
+
+## Licences tierces
+TinyMCE 8 est distribué sous **GPL v2 ou ultérieure** (`license_key: 'gpl'`), ou sous licence commerciale Tiny. Si votre usage n'est pas compatible avec la GPL (redistribution propriétaire), acquérez une licence commerciale ou remplacez `public/assets/vendor/tinymce` par TinyMCE 6.8 (licence MIT, mais plus maintenu). Les autres bibliothèques vendorisées sont sous licence MIT ou OFL.
 
 ## Prérequis
 PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.

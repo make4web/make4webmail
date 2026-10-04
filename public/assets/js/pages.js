@@ -91,9 +91,10 @@
       var tpls = {}; try { tpls = JSON.parse($('#vac-templates').text()); } catch (e) {}
       $('[data-vac-template]').on('click', function () {
         var html = tpls[$(this).data('vac-template')];
-        var $ed = $vac.find('.m4w-editor');
-        if ($ed.text().trim() && !window.confirm(t('replace_message'))) return;
-        $ed.html(html).trigger('input');
+        var ed = $vac.find('textarea[name=body_html]').data('m4wEditor');
+        if (!ed) return;
+        if (!ed.isEmpty() && !window.confirm(t('replace_message'))) return;
+        ed.setHTML(html);
         $vac.find('textarea[name=body_html]').val(html);
       });
     }

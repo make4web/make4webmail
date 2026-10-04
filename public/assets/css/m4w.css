@@ -677,3 +677,16 @@ textarea.m4w-code { min-height: 320px; tab-size: 2; line-height: 1.5; }
 /* Accessibility helpers */
 :focus-visible { outline: 2px solid var(--m4w-primary); outline-offset: 2px; }
 .m4w-row:focus-visible { outline-offset: -2px; }
+
+/* ---------------------------------------------------------------- TinyMCE integration */
+[data-editor-host] { min-height: 0; }
+[data-editor-host] > textarea { display: none; }
+.m4w-compose .tox-tinymce { flex: 1 1 auto; border: 0 !important; border-radius: 0 !important; min-height: 220px; }
+.m4w-compose .tox .tox-editor-header { box-shadow: none !important; border-bottom: 1px solid var(--m4w-border) !important; padding: 0 !important; }
+.m4w-ed-no-toolbar .tox-editor-header { display: none !important; }
+.tox-tinymce { border-color: var(--m4w-border-strong) !important; border-radius: var(--m4w-radius-sm) !important; }
+.tox .tox-toolbar, .tox .tox-toolbar__primary, .tox .tox-toolbar__overflow { background: var(--m4w-surface) !important; }
+.tox-tinymce-aux { z-index: 1100 !important; }
+.m4w-compose.maximized ~ .tox-tinymce-aux, .modal ~ .tox-tinymce-aux { z-index: 2000 !important; }
+.m4w-compose .tox .tox-edit-area::before { display: none !important; }
+.tox .tox-edit-area::before { border-color: var(--m4w-primary) !important; }
