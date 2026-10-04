@@ -678,15 +678,33 @@ textarea.m4w-code { min-height: 320px; tab-size: 2; line-height: 1.5; }
 :focus-visible { outline: 2px solid var(--m4w-primary); outline-offset: 2px; }
 .m4w-row:focus-visible { outline-offset: -2px; }
 
-/* ---------------------------------------------------------------- TinyMCE integration */
-[data-editor-host] { min-height: 0; }
-[data-editor-host] > textarea { display: none; }
-.m4w-compose .tox-tinymce { flex: 1 1 auto; border: 0 !important; border-radius: 0 !important; min-height: 220px; }
-.m4w-compose .tox .tox-editor-header { box-shadow: none !important; border-bottom: 1px solid var(--m4w-border) !important; padding: 0 !important; }
-.m4w-ed-no-toolbar .tox-editor-header { display: none !important; }
-.tox-tinymce { border-color: var(--m4w-border-strong) !important; border-radius: var(--m4w-radius-sm) !important; }
-.tox .tox-toolbar, .tox .tox-toolbar__primary, .tox .tox-toolbar__overflow { background: var(--m4w-surface) !important; }
-.tox-tinymce-aux { z-index: 1100 !important; }
-.m4w-compose.maximized ~ .tox-tinymce-aux, .modal ~ .tox-tinymce-aux { z-index: 2000 !important; }
-.m4w-compose .tox .tox-edit-area::before { display: none !important; }
-.tox .tox-edit-area::before { border-color: var(--m4w-primary) !important; }
+
+/* ---------------------------------------------------------------- Jodit integration */
+.jodit { --jd-color-background-default: var(--m4w-surface); --jd-color-panel: var(--m4w-surface); --jd-color-border: var(--m4w-border-strong);
+  --jd-color-text: var(--m4w-text); --jd-color-background-button-hover: var(--m4w-hover); --jd-color-background-selection: var(--m4w-primary);
+  --jd-color-button-background-hover: var(--m4w-hover); --jd-border-radius-default: var(--m4w-radius-sm); --jd-font-default: var(--m4w-font);
+  --jd-color-label: var(--m4w-muted); --jd-color-placeholder: var(--m4w-faint); }
+.jodit-container:not(.jodit_inline) { border-color: var(--m4w-border-strong); border-radius: var(--m4w-radius-sm); }
+.jodit-container:not(.jodit_inline) .jodit-workplace { border: 0; }
+.jodit-toolbar__box:not(:empty) { background: var(--m4w-surface) !important; border-bottom: 1px solid var(--m4w-border) !important; }
+.jodit-toolbar-button__button { border-radius: 6px; }
+.jodit-toolbar-button_with-trigger_true:hover:not([disabled]) { border-color: var(--m4w-border); }
+.jodit-wysiwyg { padding: 12px 16px !important; word-wrap: break-word; }
+.jodit-wysiwyg p { margin: 0 0 .6em; }
+.jodit-wysiwyg blockquote { margin: 0 0 0 .8ex; border-left: 2px solid #cbd5e1; padding-left: 1ex; color: #475569; }
+.jodit-wysiwyg img { max-width: 100%; height: auto; }
+.jodit-wysiwyg img.m4w-blocked { min-width: 24px; min-height: 24px; background: #f1f5f9; outline: 1px dashed #cbd5e1; }
+.jodit-wysiwyg a { color: #2563eb; text-decoration: underline; }
+.jodit-wysiwyg .m4w-sig-preview { margin: 14px 0; user-select: none; cursor: default; }
+/* The text area keeps the light "as sent" rendering, like the received mail. */
+.jodit_theme_dark .jodit-workplace, .jodit_theme_dark .jodit-wysiwyg { background: #fff !important; color: #1f2937 !important; }
+.jodit_theme_dark .jodit-wysiwyg .m4w-sig-preview { background: #f8fafc; }
+.jodit_theme_dark .jodit-wysiwyg .m4w-sig-preview::before { background: #fff; color: #64748b; }
+.m4w-compose [data-editor-host] .jodit-container { flex: 1 1 auto; display: flex; flex-direction: column; border: 0 !important; border-radius: 0 !important; min-height: 0; }
+.m4w-compose [data-editor-host] .jodit-workplace { flex: 1 1 auto; min-height: 200px !important; overflow: auto; }
+.m4w-compose [data-editor-host] .jodit-wysiwyg { min-height: 100% !important; }
+.m4w-ed-no-toolbar .jodit-toolbar__box { display: none !important; }
+.jodit-popup, .jodit-dialog { z-index: 1100 !important; }
+.jodit-dialog__box { z-index: 2000 !important; }
+.jodit-wysiwyg .m4w-sig-preview table, .jodit-wysiwyg .m4w-sig-preview td, .jodit-wysiwyg .m4w-sig-preview th,
+.jodit-wysiwyg [data-m4w-quote] table, .jodit-wysiwyg [data-m4w-quote] td, .jodit-wysiwyg [data-m4w-quote] th { border: 0 !important; }

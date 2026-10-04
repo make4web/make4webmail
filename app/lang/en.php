@@ -320,4 +320,5 @@ return [
     'compose.schedule_far' => 'That date is too far away (1 year max).',
     'audit.mail.schedule_failed' => 'Scheduled sending failed',
     'js.more_actions' => 'More actions',
+    'js.ed_link_prompt' => 'Link address:',
 ];

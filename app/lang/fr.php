@@ -393,4 +393,5 @@ return [
     'compose.schedule_far' => 'La date est trop éloignée (1 an maximum).',
     'audit.mail.schedule_failed' => 'Échec d\'un envoi programmé',
     'js.more_actions' => 'Plus d\'actions',
+    'js.ed_link_prompt' => 'Adresse du lien :',
 ];

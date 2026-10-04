@@ -155,7 +155,7 @@
       onFiles: function (files) { self.addFiles(files); },
       onKey: function (e) {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { self.send(); return true; }
-        if (e.key === 'Escape' && !document.querySelector('.tox-dialog, .tox-menu')) { self.close(); return true; }
+        if (e.key === 'Escape' && !document.querySelector('.jodit-popup, .jodit-dialog__panel')) { self.close(); return true; }
         return false;
       }
     });
