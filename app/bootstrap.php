@@ -15,6 +15,9 @@ if (PHP_VERSION_ID < 80100) {
     exit('Make4Web Mail requires PHP 8.1 or newer.');
 }
 
+// Messages, database and uploads must not be readable by other local accounts.
+umask(0027);
+
 spl_autoload_register(static function (string $class): void {
     if (!str_starts_with($class, 'M4W\\')) {
         return;

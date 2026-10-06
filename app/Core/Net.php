@@ -28,11 +28,35 @@ final class Net
             throw new \InvalidArgumentException(t('fetch.invalid'));
         }
         foreach ($ips as $ip) {
-            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)
-                || preg_match('/^(::ffff:|64:ff9b::)/i', $ip)) {
+            if (!self::isPublic($ip)) {
                 throw new \InvalidArgumentException(t('fetch.private_host'));
             }
         }
         return $ips[0];
     }
+
+    /** Globally routable unicast address only (no private, loopback, CGNAT, benchmark, multicast…). */
+    public static function isPublic(string $ip): bool
+    {
+        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+        if (defined('FILTER_FLAG_GLOBAL_RANGE')) {
+            $flags |= FILTER_FLAG_GLOBAL_RANGE;
+        }
+        if (!filter_var($ip, FILTER_VALIDATE_IP, $flags)) {
+            return false;
+        }
+        foreach (self::BLOCKED as $cidr) {
+            if (App::ipInCidr($ip, $cidr)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Ranges filter_var does not reject on every PHP version. */
+    private const BLOCKED = [
+        '0.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '192.0.0.0/24', '192.0.2.0/24', '198.18.0.0/15',
+        '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4', '255.255.255.255/32',
+        '::/128', '::1/128', '::ffff:0:0/96', '64:ff9b::/96', '100::/64', '2001:db8::/32', 'fc00::/7', 'fe80::/10', 'ff00::/8',
+    ];
 }

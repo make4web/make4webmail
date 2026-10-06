@@ -29,7 +29,8 @@
           <p class="text-muted"><?= te('sec.2fa_active_desc') ?></p>
           <form method="post" action="<?= e(url('settings/security/2fa/disable')) ?>" class="d-flex gap-2 flex-wrap" data-confirm="<?= te('sec.2fa_disable_confirm') ?>">
             <?= csrf_field() ?>
-            <input type="password" name="current" class="form-control" style="max-width:240px" placeholder="<?= te('pw.current') ?>" required>
+            <input type="password" name="current" class="form-control" style="max-width:240px" placeholder="<?= te('pw.current') ?>" aria-label="<?= te('pw.current') ?>" required autocomplete="current-password">
+            <input type="text" name="code" class="form-control" style="max-width:160px" placeholder="<?= te('sec.2fa_code') ?>" aria-label="<?= te('sec.2fa_code') ?>" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" required autocomplete="one-time-code">
             <button class="btn btn-outline-danger"><?= te('sec.2fa_disable') ?></button>
           </form>
         <?php elseif ($totpSetup): ?>

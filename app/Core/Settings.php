@@ -61,6 +61,11 @@ final class Settings
         'security.forward_whitelist' => '',
         'security.block_remote_images' => 1,
         'security.max_attachment_mb' => 25,
+        'files.max_file_mb' => 200,
+        'files.quota_gb' => 0,
+        'files.versions' => 10,
+        'files.trash_days' => 30,
+        'files.users_create_spaces' => 0,
         'security.allowed_ips_admin' => '',
         // Features
         'features.user_signature'    => 0,

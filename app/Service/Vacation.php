@@ -72,7 +72,7 @@ final class Vacation
             return false;
         }
         $sender = mb_strtolower($envelopeFrom !== '' ? $envelopeFrom : $msg->from()['email']);
-        if ($sender === '' || $sender === mb_strtolower($user['email']) || $msg->isAutomated() || $msg->isSpamFlagged()) {
+        if ($sender === '' || !is_valid_email($sender) || $sender === mb_strtolower($user['email']) || $msg->isAutomated() || $msg->isSpamFlagged()) {
             return false;
         }
         // RFC 3834: only respond if the user is an explicit recipient.

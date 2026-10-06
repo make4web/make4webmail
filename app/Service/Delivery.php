@@ -17,9 +17,14 @@ final class Delivery
      * @param string[] $recipients envelope recipients
      * @return array<string,string> recipient => 'ok' | error
      */
-    public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true): array
+    public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
-        $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+        $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        if ($auth !== null) {
+            $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
+        }
+        // Unauthenticated mail must not trigger forwarding of spoofed content to auto-replies, nor rule actions keyed on the sender.
+        $suspicious = $auth !== null && $auth['verdict'] !== 'ok';
         $parsed = MimeParser::parse($raw);
         $loopHeaders = array_map('mb_strtolower', $parsed->headerAll('X-M4W-Loop'));
         $results = [];
@@ -58,15 +63,19 @@ final class Delivery
 
             // 2. Default folder (spam detection by upstream filter headers).
             $folder = Folders::byRole($uid, 'inbox');
-            if ((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) {
+            if (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) || $suspicious) {
                 $folder = Folders::byRole($uid, 'spam');
             }
             $folderId = (int) $folder['id'];
 
             // 3. User rules.
             $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
-            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder'])) {
+            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && !$suspicious) {
                 $folderId = (int) $actions['folder'];
+            }
+            if ($suspicious) {
+                $actions['redirects'] = [];
+                $actions['replies'] = [];
             }
             $actions['copies'] = array_values(array_filter($actions['copies'], static fn($c) => (bool) Folders::find($uid, (int) $c)));
             if (!$isLoop) {
@@ -109,10 +118,22 @@ final class Delivery
         return $results;
     }
 
+    /** Remove every occurrence of a header (with continuation lines) from a LF-normalized message. */
+    public static function stripHeader(string $raw, string $name): string
+    {
+        $pos = strpos($raw, "\n\n");
+        $head = $pos === false ? $raw : substr($raw, 0, $pos);
+        if (stripos($head, $name . ':') === false) {
+            return $raw;
+        }
+        $head = preg_replace('/^' . preg_quote($name, '/') . ':.*(?:\n[ \t].*)*\n?/mi', '', $head) ?? $head;
+        return $pos === false ? $head : $head . substr($raw, $pos);
+    }
+
     private static function ruleReply(array $user, \M4W\Mail\ParsedMessage $msg, array $reply, string $envelopeFrom): void
     {
         $sender = $envelopeFrom !== '' ? $envelopeFrom : $msg->from()['email'];
-        if ($sender === '' || $msg->isAutomated()) {
+        if ($sender === '' || !is_valid_email($sender) || $msg->isAutomated()) {
             return;
         }
         // One rule reply per sender per day (backscatter protection).

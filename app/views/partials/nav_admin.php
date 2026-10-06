@@ -5,6 +5,7 @@ $items = [
     ['admin/domains', 'globe2', 'admin.nav_domains', 'domains'],
     ['admin/signatures', 'vector-pen', 'admin.nav_signatures', 'signatures'],
     ['admin/branding', 'palette', 'admin.nav_branding', 'branding'],
+    ['admin/files', 'folder2-open', 'admin.nav_files', 'files'],
     ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail'],
     ['admin/security', 'shield-check', 'admin.nav_security', 'security'],
     ['admin/logs', 'journal-text', 'admin.nav_logs', 'logs'],

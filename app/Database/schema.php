@@ -4,6 +4,7 @@
  *   {PK}   auto-increment primary key
  *   {TEXT} large text column
  *   {OPT}  table options
+ *   {BLOB} large binary column
  * All timestamps are unix epoch integers.
  */
 return [
@@ -274,5 +275,77 @@ return [
 2 => [
 "ALTER TABLE messages ADD COLUMN scheduled_at INTEGER NOT NULL DEFAULT 0",
 "CREATE INDEX messages_scheduled ON messages(scheduled_at)",
+],
+3 => [
+// Shared file space. Content lives in a pluggable blob store (database by default).
+"CREATE TABLE fs_blobs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  size INTEGER NOT NULL DEFAULT 0,
+  sha256 VARCHAR(64) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE TABLE fs_blob_chunks (
+  blob_id VARCHAR(64) NOT NULL,
+  seq INTEGER NOT NULL,
+  data {BLOB},
+  PRIMARY KEY (blob_id, seq)
+) {OPT}",
+"CREATE TABLE fs_folders (
+  id {PK},
+  parent_id INTEGER NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'folder',
+  owner_id INTEGER NULL,
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER NOT NULL DEFAULT 0,
+  deleted_by INTEGER NULL
+) {OPT}",
+"CREATE INDEX fs_folders_parent ON fs_folders(parent_id)",
+"CREATE INDEX fs_folders_kind ON fs_folders(kind, owner_id)",
+"CREATE TABLE fs_files (
+  id {PK},
+  folder_id INTEGER NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  mime VARCHAR(190) NOT NULL DEFAULT 'application/octet-stream',
+  size INTEGER NOT NULL DEFAULT 0,
+  blob_id VARCHAR(64) NOT NULL,
+  sha256 VARCHAR(64) NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  updated_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER NOT NULL DEFAULT 0,
+  deleted_by INTEGER NULL
+) {OPT}",
+"CREATE INDEX fs_files_folder ON fs_files(folder_id)",
+"CREATE INDEX fs_files_deleted ON fs_files(deleted_at)",
+"CREATE TABLE fs_versions (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  name VARCHAR(255) NOT NULL DEFAULT '',
+  mime VARCHAR(190) NOT NULL DEFAULT 'application/octet-stream',
+  size INTEGER NOT NULL DEFAULT 0,
+  blob_id VARCHAR(64) NOT NULL,
+  sha256 VARCHAR(64) NOT NULL DEFAULT '',
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX fs_versions_file ON fs_versions(file_id)",
+"CREATE TABLE fs_acl (
+  id {PK},
+  folder_id INTEGER NOT NULL,
+  principal_type VARCHAR(20) NOT NULL,
+  principal VARCHAR(190) NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX fs_acl_unique ON fs_acl(folder_id, principal_type, principal)",
+"CREATE INDEX fs_acl_principal ON fs_acl(principal_type, principal)",
 ],
 ];

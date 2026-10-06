@@ -27,6 +27,21 @@ final class Users
         'accent'         => '',
     ];
 
+    /** Allowed values for enumerated preferences (null = free value). */
+    private static function prefChoices(string $key): ?array
+    {
+        return match ($key) {
+            'theme' => ['light', 'dark', 'auto'],
+            'density' => ['comfortable', 'compact'],
+            'reading_pane' => ['right', 'bottom', 'off'],
+            'reply_position' => ['top', 'bottom'],
+            'compose_font' => array_keys(\M4W\Controller\SettingsController::fonts()),
+            'compose_size' => ['12px', '13px', '14px', '16px', '18px'],
+            'conversations', 'show_images', 'shortcuts', 'undo_send', 'notifications' => [0, 1],
+            default => null,
+        };
+    }
+
     public static function find(int $id): ?array
     {
         $u = DB::one('SELECT * FROM users WHERE id = :id', ['id' => $id]);
@@ -140,7 +155,19 @@ final class Users
         $clean = [];
         foreach ($prefs as $k => $v) {
             if (array_key_exists($k, self::PREF_DEFAULTS)) {
-                $clean[$k] = is_int(self::PREF_DEFAULTS[$k]) ? (int) $v : mb_substr((string) $v, 0, 200);
+                $v = is_int(self::PREF_DEFAULTS[$k]) ? (int) $v : mb_substr((string) $v, 0, 200);
+                $v = match ($k) {
+                    'page_size' => max(20, min(200, (int) $v)),
+                    'mark_read_delay' => max(-1, min(30, (int) $v)),
+                    'accent' => preg_match('/^#[0-9a-f]{6}$/i', (string) $v) ? (string) $v : '',
+                    'avatar' => '',
+                    default => $v,
+                };
+                $allowed = self::prefChoices($k);
+                if ($allowed !== null && !in_array($v, $allowed, true)) {
+                    continue; // values that end up in CSS or outgoing mail are whitelisted
+                }
+                $clean[$k] = $v;
             }
         }
         $merged = array_replace($u['prefs'], $clean);
@@ -149,6 +176,7 @@ final class Users
 
     public static function delete(int $id): void
     {
+        Files::deleteUser($id);
         DB::transaction(function () use ($id) {
             foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases'] as $t) {
                 DB::delete($t, 'user_id = :u', ['u' => $id]);

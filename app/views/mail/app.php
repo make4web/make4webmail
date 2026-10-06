@@ -17,6 +17,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
       </div>
       <ul class="m4w-nav" id="m4w-user-folders"></ul>
       <ul class="m4w-nav mt-2">
+        <li><a class="m4w-nav-item" href="<?= e(url('files')) ?>"><i class="bi bi-folder2-open"></i><span class="m4w-nav-label"><?= te('nav.files') ?></span></a></li>
         <li><a class="m4w-nav-item" href="<?= e(url('contacts')) ?>"><i class="bi bi-people"></i><span class="m4w-nav-label"><?= te('nav.contacts') ?></span></a></li>
         <li><a class="m4w-nav-item" href="<?= e(url('settings/rules')) ?>"><i class="bi bi-funnel"></i><span class="m4w-nav-label"><?= te('nav.rules') ?></span></a></li>
       </ul>
@@ -152,7 +153,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
 </div>
 
 <script type="application/json" id="m4w-boot"><?= json_encode([
-    'prefs' => array_diff_key($prefs, ['_recovery' => 1]),
+    'prefs' => array_diff_key($prefs, ['_recovery' => 1, '_totp_step' => 1]),
     'q' => (string) ($_GET['q'] ?? ''),
-    'compose' => isset($_GET['compose']) ? ['to' => (string) ($_GET['to'] ?? ''), 'subject' => (string) ($_GET['subject'] ?? '')] : null,
+    'compose' => isset($_GET['compose']) ? ['to' => (string) ($_GET['to'] ?? ''), 'subject' => (string) ($_GET['subject'] ?? ''), 'files' => array_values(array_filter(array_map('intval', explode(',', (string) ($_GET['files'] ?? '')))))] : null,
 ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?></script>

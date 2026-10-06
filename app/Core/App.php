@@ -232,6 +232,35 @@ final class App
         $r->post('/contacts/import', [Controller\ContactsController::class, 'import']);
         $r->get('/contacts/export', [Controller\ContactsController::class, 'export']);
 
+        // Shared file space
+        $r->get('/files', [Controller\FilesController::class, 'index']);
+        $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
+        $r->get('/files/folder/{id}/zip', [Controller\FilesController::class, 'zip']);
+        $r->get('/api/files/roots', [Controller\FilesController::class, 'roots']);
+        $r->get('/api/files/tree', [Controller\FilesController::class, 'tree']);
+        $r->get('/api/files/search', [Controller\FilesController::class, 'search']);
+        $r->get('/api/files/trash', [Controller\FilesController::class, 'trash']);
+        $r->get('/api/files/principals', [Controller\FilesController::class, 'principals']);
+        $r->get('/api/files/folder/{id}', [Controller\FilesController::class, 'folder']);
+        $r->get('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'acl']);
+        $r->post('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'saveAcl']);
+        $r->post('/api/files/space/{id}', [Controller\FilesController::class, 'updateSpace']);
+        $r->get('/api/files/file/{id}/versions', [Controller\FilesController::class, 'versions']);
+        $r->post('/api/files/file/{id}/restore-version', [Controller\FilesController::class, 'restoreVersion']);
+        $r->post('/api/files/folders', [Controller\FilesController::class, 'createFolder']);
+        $r->post('/api/files/spaces', [Controller\FilesController::class, 'createSpace']);
+        $r->post('/api/files/upload', [Controller\FilesController::class, 'upload']);
+        $r->post('/api/files/rename', [Controller\FilesController::class, 'rename']);
+        $r->post('/api/files/move', [Controller\FilesController::class, 'move']);
+        $r->post('/api/files/copy', [Controller\FilesController::class, 'copy']);
+        $r->post('/api/files/delete', [Controller\FilesController::class, 'delete']);
+        $r->post('/api/files/restore', [Controller\FilesController::class, 'restore']);
+        $r->post('/api/files/purge', [Controller\FilesController::class, 'purge']);
+        $r->post('/api/files/attach', [Controller\FilesController::class, 'attach']);
+        $r->post('/api/messages/{id}/save-to-files', [Controller\FilesController::class, 'saveAttachment']);
+        $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
+        $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
+
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);
         $r->post('/settings', [Controller\SettingsController::class, 'saveGeneral']);
@@ -313,6 +342,9 @@ final class App
         $res->header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
         $res->header('Cross-Origin-Opener-Policy', 'same-origin');
         $res->header('X-Permitted-Cross-Domain-Policies', 'none');
+        if ($res->getHeader('Cross-Origin-Resource-Policy') === null) {
+            $res->header('Cross-Origin-Resource-Policy', 'same-origin');
+        }
         if ($res->getHeader('Content-Security-Policy') === null) {
             $res->header('Content-Security-Policy', implode('; ', [
                 "default-src 'self'",

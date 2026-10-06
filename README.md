@@ -1,6 +1,8 @@
 # Make4Web Mail
 
-Make4Web Mail est un webmail professionnel en PHP qui fonctionne seul : le stockage des messages, le serveur SMTP de réception et le client SMTP d'envoi sont intégrés. Il gère les règles de tri, les réponses d'absence, le transfert, les signatures centralisées, l'administration des utilisateurs et la personnalisation graphique.
+Make4Web Mail est un webmail professionnel en PHP qui fonctionne seul : le stockage des messages, le serveur SMTP de réception et le client SMTP d'envoi sont intégrés. Il gère les règles de tri, les réponses d'absence, le transfert, les signatures centralisées, un espace de fichiers partagé avec droits par dossier, l'administration des utilisateurs et la personnalisation graphique.
+
+Chaque instance est dédiée à un client : une installation correspond à une organisation, avec sa propre base, son propre stockage et sa propre personnalisation. Rien n'est partagé entre deux instances.
 
 Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, Bootstrap 5.3, Bootstrap Icons, AOS, Jodit 4 (éditeur WYSIWYG, licence MIT, avec le français), la police Inter et qrcode-generator sont fournis dans `public/assets/vendor/`. Une surcouche CSS (`public/assets/css/m4w.css`) personnalise Bootstrap, et les couleurs, l'arrondi et la police choisis par l'administrateur sont injectés via `/theme.css`.
 
@@ -37,6 +39,15 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Double authentification TOTP avec codes de secours, gestion des sessions actives et historique des connexions.
 - Interface en français et en anglais.
 
+### Fichiers (espace partagé)
+- **Mes fichiers** (privé, invisible même pour les administrateurs), **Partagés avec moi**, **Espaces d'équipe** et **Corbeille**.
+- Droits par dossier, hérités par tout le contenu : **Lecture** (consulter, télécharger), **Modification** (ajouter, renommer, déplacer, supprimer), **Gestion** (modifier aussi les accès). Ils s'accordent à une personne, à un service (champ « service » des utilisateurs) ou à tout le monde. Les administrateurs gèrent tous les espaces d'équipe.
+- Import par glisser-déposer de fichiers et de dossiers entiers, avec progression. Un fichier du même nom peut devenir une nouvelle version (historique consultable et restaurable) ou être conservé à côté.
+- Vue liste ou vignettes, tri, sélection multiple, menu contextuel, déplacement par glisser-déposer (y compris sur le fil d'Ariane et la barre latérale), copie, renommage, recherche, aperçu (images, PDF, texte, audio, vidéo), téléchargement d'un dossier en ZIP.
+- Intégration à la messagerie : **joindre depuis Fichiers** dans la fenêtre de rédaction, **enregistrer dans Fichiers** une pièce jointe reçue, « Envoyer par e-mail » depuis Fichiers.
+- Stockage en base de données (blocs de 1 Mo) derrière une interface `BlobStore` : passer sur disque local se fait dans `config/config.php` (`'files' => ['storage' => 'local', 'path' => '/srv/files']`), et un stockage S3 ne demande qu'une nouvelle classe.
+- Administration : taille maximale, quota total, nombre de versions conservées, durée de la corbeille, création d'espaces par les utilisateurs.
+
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
@@ -46,7 +57,8 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
   - actions groupées et import CSV.
 - Domaines hébergés et alias.
 - **Modèles de signature** : éditeur HTML avec aperçu en direct pour n'importe quel utilisateur, variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Un modèle par défaut est défini, et l'attribution peut se faire par service.
-- **Personnalisation** avec aperçu en direct :
+- **Fichiers** : limites, conservation et liste des espaces d'équipe.
+- **Personnalisation** (propre à l'instance) avec aperçu en direct :
   - nom et accroche ;
   - logo clair et logo sombre, favicon, image de la page de connexion ;
   - couleurs principale et secondaire ;
@@ -70,7 +82,13 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Jeton CSRF sur toutes les requêtes qui modifient des données. CSP stricte sans script inline, `X-Frame-Options`, `nosniff`, `Referrer-Policy: no-referrer` et HSTS en HTTPS.
 - Assainisseur HTML par liste blanche (DOM), testé contre une vingtaine de vecteurs XSS connus. Iframe en sandbox sans scripts.
 - Secrets (mot de passe SMTP, clé DKIM, comptes IMAP, secret TOTP) chiffrés au repos avec libsodium.
-- Messages et pièces jointes stockés hors de la racine web. Requêtes préparées partout. Protection contre l'injection d'en-têtes, le SSRF (comptes IMAP, désabonnement) et le relais ouvert (le démon SMTP n'accepte que les domaines hébergés).
+- Messages et pièces jointes stockés hors de la racine web, fichiers créés avec `umask 027`. Requêtes préparées partout. Protection contre l'injection d'en-têtes et de commandes SMTP/IMAP, le SSRF (comptes IMAP, désabonnement : URL stricte, IP publique validée et connexion épinglée) et le relais ouvert (le démon SMTP n'accepte que les domaines hébergés).
+- **Authentification des messages entrants** : SPF, vérification DKIM et alignement DMARC. Un message qui se fait passer pour un domaine hébergé sans venir de ses serveurs, ou qui échoue DMARC avec une politique `quarantine`/`reject`, va dans les indésirables avec un bandeau d'alerte, ne déclenche ni règle ni réponse automatique, et n'est jamais traité comme un message « envoyé par soi ».
+- La signature DKIM n'est apposée que sur les messages dont l'expéditeur appartient au domaine signataire : les transferts conservent la signature d'origine et ne peuvent pas servir à usurper le domaine.
+- Codes TOTP non rejouables ; désactiver la 2FA demande le mot de passe et un code. Verrouillage par compte et par adresse IP (un tiers ne peut pas bloquer un compte), ralentissement progressif en cas d'attaque distribuée, temps de réponse identique que le compte existe ou non.
+- Espace fichiers : contrôle des droits côté serveur à chaque requête (404 si l'élément n'est pas visible), noms nettoyés, téléchargements en `attachment` sauf types sûrs, CSP `sandbox` sur tout fichier servi.
+- Démon SMTP : limites de connexions (globale et par IP), refus des commandes envoyées en clair après `STARTTLS`.
+- En-têtes HTTP : CSP stricte, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP, HSTS (nginx/Apache aussi sur les fichiers statiques), pas de `X-Powered-By` ni de version du serveur.
 
 ---
 
@@ -94,6 +112,7 @@ Déposez le projet sur le serveur, par exemple dans `/var/www/make4webmail`, et 
 
 ### 3. Serveur web
 - nginx : voir `deploy/nginx.conf`.
+- Pour l'espace fichiers, alignez `upload_max_filesize` et `post_max_size` (PHP), `client_max_body_size` (nginx) et la taille maximale choisie dans « Administration → Fichiers ». En base MySQL, prévoyez `max_allowed_packet` ≥ 4 Mo.
 - Apache : les fichiers `.htaccess` sont fournis.
 - En développement : `php -S 0.0.0.0:8080 -t public public/router.php`.
 
@@ -117,13 +136,13 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 |---|---|
 | `bin/install.php` | installation |
 | `bin/user.php create\|password\|enable\|disable\|delete\|list` | gestion des comptes |
-| `bin/smtpd.php` | serveur SMTP de réception |
+| `bin/smtpd.php [--max-clients=50 --max-per-ip=5]` | serveur SMTP de réception |
 | `bin/deliver.php` | agent de distribution locale (pipe MTA) |
 | `bin/cron.php [-v]` | maintenance planifiée |
 
 ## Tests
 ```bash
-php tests/run.php   # 64 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, TOTP, quotas…
+php tests/run.php   # 80 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -131,10 +150,11 @@ php tests/seed.php  # données de démonstration (développement)
 ```
 app/
   Core/        App (routeur + middlewares), Auth, Session, Csrf, Crypto, Totp, Database, Settings, I18n, View
-  Mail/        MimeParser, MimeBuilder, HtmlSanitizer, SmtpClient, ImapClient, DkimSigner, Address, Charset
+  Mail/        MimeParser, MimeBuilder, HtmlSanitizer, SmtpClient, ImapClient, DkimSigner, MailAuth (SPF/DKIM/DMARC), Address, Charset
+  Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
-               Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Settings, Admin, Install, Asset
+               Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits)
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)

@@ -590,6 +590,220 @@ test('quota enforcement on delivery', function () use ($bob, $sendTo) {
     Users::recalcUsage((int) $bob['id']);
 });
 
+// ---------------------------------------------------------------- File space
+use M4W\Service\Files;
+use M4W\Mail\MailAuth;
+
+$fsCarol = Users::find(Users::create(['email' => 'carol@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Carol', 'department' => 'Finance']));
+$fsAdmin = Users::findByEmail('admin@test.local');
+$fsBob = Users::find((int) $bob['id']);
+$fsFile = static function (string $content): string {
+    $p = tempnam(sys_get_temp_dir(), 'fst');
+    file_put_contents($p, $content);
+    return $p;
+};
+$fsState = [];
+test('files: space rights are inherited and enforced', function () use ($fsAdmin, $fsBob, $fsCarol, $fsFile, &$fsState) {
+    $space = Files::createSpace($fsAdmin, 'Finance', 'Budgets');
+    $sub = Files::createFolder($fsAdmin, $space, 'Contrats');
+    $deep = Files::createFolder($fsAdmin, $sub, 'Archives');
+    $f = Files::addFromPath($fsAdmin, $deep, $fsFile(str_repeat("\x00\xff binaire ", 300000)), 'contrat.pdf');
+    eq(Files::permission($fsBob, $deep), Files::NONE, 'no access by default');
+    Files::setAcl($fsAdmin, $space, [['type' => 'department', 'principal' => 'FINANCE', 'level' => 'write'], ['type' => 'user', 'principal' => $fsBob['id'], 'level' => 'read']]);
+    Files::resetCache();
+    eq(Files::permission($fsCarol, $deep), Files::WRITE, 'department grant inherited');
+    eq(Files::permission($fsBob, $deep), Files::READ, 'user grant inherited');
+    $thrown = false;
+    try { Files::createFolder($fsBob, $deep, 'x'); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    ok($thrown, 'reader cannot write');
+    $thrown = false;
+    try { Files::setAcl($fsCarol, $space, []); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    ok($thrown, 'writer cannot change access');
+    eq(Files::contents(Files::file($f['id'])['blob_id']), str_repeat("\x00\xff binaire ", 300000), 'binary roundtrip across chunks');
+    $fsState = ['space' => $space, 'sub' => $sub, 'deep' => $deep, 'file' => $f['id']];
+});
+test('files: personal space is private, even to administrators', function () use ($fsAdmin, $fsBob, $fsFile) {
+    $root = Files::personalRoot((int) $fsBob['id']);
+    Files::addFromPath($fsBob, (int) $root['id'], $fsFile('perso'), 'notes.txt');
+    eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE);
+    $thrown = false;
+    try { Files::listing($fsAdmin, (int) $root['id']); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 404; }
+    ok($thrown, '404, existence not revealed');
+    $shared = Files::createFolder($fsBob, (int) $root['id'], 'Pour Camille');
+    Files::setAcl($fsBob, $shared, [['type' => 'user', 'principal' => $fsAdmin['id'], 'level' => 'read']]);
+    Files::resetCache();
+    $mine = array_column(Files::sharedWithMe($fsAdmin), 'id');
+    ok(in_array($shared, $mine, true), 'listed in "shared with me"');
+    eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE, 'parent stays private');
+});
+test('files: versions, conflicts and restore', function () use ($fsAdmin, $fsFile, &$fsState) {
+    $a = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v1'), 'budget.xlsx');
+    $b = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v2'), 'budget.xlsx', true);
+    eq($b['id'], $a['id']);
+    eq($b['version'], 2);
+    $c = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('autre'), 'Budget.xlsx');
+    eq($c['name'], 'Budget (2).xlsx', 'case-insensitive conflict renamed');
+    $v = Files::versions($fsAdmin, $a['id']);
+    Files::restoreVersion($fsAdmin, $a['id'], $v[1]['version_id']);
+    eq(Files::contents(Files::file($a['id'])['blob_id']), 'v1');
+    eq((int) Files::file($a['id'])['version'], 3);
+});
+test('files: names are sanitized, moves cannot create cycles', function () use ($fsAdmin, &$fsState) {
+    eq(Files::cleanName("../../etc/pass\nwd"), '.. .. etc pass wd');
+    $thrown = false;
+    try { Files::cleanName(' .. '); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown);
+    $thrown = false;
+    try { Files::move($fsAdmin, [['type' => 'folder', 'id' => $fsState['sub']]], $fsState['deep']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'folder moved into its own descendant');
+});
+test('files: trash, restore and purge free storage', function () use ($fsAdmin, $fsBob, &$fsState) {
+    $before = Files::usage()['used'];
+    Files::delete($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
+    Files::resetCache();
+    eq(Files::permission($fsAdmin, $fsState['deep']), Files::NONE, 'deleted folder unreachable');
+    eq(count(array_filter(Files::trash($fsAdmin), static fn($i) => $i['type'] === 'folder' && $i['id'] === $fsState['deep'])), 1);
+    eq(count(Files::trash($fsBob)), 0, 'readers do not see the trash');
+    Files::restore($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
+    Files::resetCache();
+    eq(Files::permission($fsAdmin, $fsState['deep']), Files::MANAGE);
+    Files::delete($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
+    Files::purge($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
+    ok(Files::usage()['used'] < $before - 1000000, 'blobs removed');
+    eq((int) DB::value('SELECT COUNT(*) FROM fs_blob_chunks c LEFT JOIN fs_blobs b ON b.id = c.blob_id WHERE b.id IS NULL'), 0, 'no orphan chunks');
+});
+test('files: quota and size limits', function () use ($fsAdmin, $fsFile, &$fsState) {
+    Settings::set('files.max_file_mb', 1);
+    $thrown = false;
+    try { Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile(str_repeat('x', 1100000)), 'gros.bin'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'max file size');
+    Settings::set('files.max_file_mb', 200);
+    Settings::set('files.quota_gb', 1);
+    DB::insert('fs_blobs', ['id' => 'fake', 'size' => 1024 ** 3, 'sha256' => '', 'created_at' => 0]);
+    $thrown = false;
+    try { Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('x'), 'x.txt'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'quota');
+    DB::delete('fs_blobs', 'id = :i', ['i' => 'fake']);
+    Settings::set('files.quota_gb', 0);
+});
+test('files: attach to compose and user deletion cleanup', function () use ($fsAdmin, $fsFile, &$fsState) {
+    $f = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('piece'), 'piece.txt');
+    $up = Files::toUploads($fsAdmin, [$f['id']]);
+    eq(file_get_contents(storage_path(DB::value('SELECT path FROM uploads WHERE token = :t', ['t' => $up[0]['token']]))), 'piece');
+    $tmpUser = Users::find(Users::create(['email' => 'temp@test.local', 'password' => 'Secret!Pass123']));
+    $root = Files::personalRoot((int) $tmpUser['id']);
+    Files::addFromPath($tmpUser, (int) $root['id'], $fsFile('bye'), 'a.txt');
+    Files::setAcl($fsAdmin, $fsState['space'], [['type' => 'user', 'principal' => $tmpUser['id'], 'level' => 'read']]);
+    Users::delete((int) $tmpUser['id']);
+    eq((int) DB::value("SELECT COUNT(*) FROM fs_folders WHERE owner_id = :u AND kind = 'personal'", ['u' => $tmpUser['id']]), 0);
+    eq((int) DB::value("SELECT COUNT(*) FROM fs_acl WHERE principal_type = 'user' AND principal = :u", ['u' => (string) $tmpUser['id']]), 0);
+});
+
+// ---------------------------------------------------------- Inbound auth
+$dns = [];
+MailAuth::$resolver = static function (string $type, string $name) use (&$dns) {
+    return $dns[$type . ' ' . strtolower($name)] ?? [];
+};
+test('SPF: ip4, include, a, mx, redirect, all qualifiers', function () use (&$dns) {
+    $dns = [
+        'TXT ext.com' => ['v=spf1 ip4:203.0.113.0/24 include:_spf.mailer.net a mx -all'],
+        'TXT _spf.mailer.net' => ['v=spf1 ip6:2001:db8::/32 ~all'],
+        'A ext.com' => ['198.51.100.7'],
+        'MX ext.com' => ['mx.ext.com'], 'A mx.ext.com' => ['192.0.2.25'],
+        'TXT soft.com' => ['v=spf1 redirect=ext.com'],
+        'TXT loop.com' => ['v=spf1 include:loop.com -all'],
+    ];
+    eq(MailAuth::spf('203.0.113.9', 'ext.com'), 'pass');
+    eq(MailAuth::spf('2001:db8::1', 'ext.com'), 'pass', 'include');
+    eq(MailAuth::spf('198.51.100.7', 'ext.com'), 'pass', 'a');
+    eq(MailAuth::spf('192.0.2.25', 'ext.com'), 'pass', 'mx');
+    eq(MailAuth::spf('8.8.8.8', 'ext.com'), 'fail');
+    eq(MailAuth::spf('8.8.8.8', 'soft.com'), 'fail', 'redirect');
+    eq(MailAuth::spf('8.8.8.8', 'none.com'), 'none');
+    eq(MailAuth::spf('8.8.8.8', 'loop.com'), 'permerror', 'lookup limit');
+});
+test('DKIM verification and DMARC alignment', function () use (&$dns) {
+    [$priv, $txt] = DkimSigner::generateKeys();
+    $dns = ['TXT sel._domainkey.ext.com' => [$txt], 'TXT _dmarc.ext.com' => ['v=DMARC1; p=reject'], 'TXT ext.com' => ['v=spf1 -all']];
+    $msg = "From: Client <client@ext.com>\r\nTo: bob@test.local\r\nSubject: Signé\r\nDate: " . date('r') . "\r\nMessage-ID: <x@ext.com>\r\n\r\nBonjour  \r\nligne 2\r\n\r\n";
+    $signed = (new DkimSigner('ext.com', 'sel', $priv))->sign($msg);
+    $r = MailAuth::dkim($signed);
+    eq($r[0]['result'] ?? '', 'pass');
+    eq(MailAuth::dkim(str_replace('ligne 2', 'ligne 3', $signed))[0]['result'], 'fail', 'body tampered');
+    eq(MailAuth::dkim(str_replace('Subject: Signé', 'Subject: Modifié', $signed))[0]['result'], 'fail', 'header tampered');
+    eq(MailAuth::dmarc('ext.com', 'fail', 'ext.com', $r)['result'], 'pass', 'aligned DKIM is enough');
+    $d = MailAuth::dmarc('ext.com', 'fail', 'ext.com', []);
+    eq([$d['result'], $d['policy']], ['fail', 'reject']);
+    eq(MailAuth::orgDomain('mail.news.example.co.uk'), 'example.co.uk');
+});
+test('spoofed local sender goes to spam, gets no auto-reply and is flagged', function () use ($bob, &$dns) {
+    $dns = ['TXT test.local' => ['v=spf1 ip4:192.0.2.1 -all']];
+    Vacation::save((int) $bob['id'], ['enabled' => 1, 'subject' => 'Absent', 'body_html' => '<p>Absent</p>', 'interval_days' => 0]);
+    $raw = "From: Le PDG <admin@test.local>\r\nTo: bob@test.local\r\nSubject: Virement urgent\r\nX-M4W-Auth: verdict=ok\r\nMessage-ID: <spoof@x>\r\n\r\nFaites un virement.\r\n";
+    $auth = MailAuth::evaluate($raw, '203.0.113.66', 'attacker@evil.example', 'evil.example', [Users::class, 'isLocalDomain']);
+    eq($auth['verdict'], 'spoof');
+    $queued = (int) DB::value('SELECT COUNT(*) FROM mail_queue');
+    Delivery::deliver($raw, 'attacker@evil.example', ['bob@test.local'], 'smtp', true, $auth);
+    $m = DB::one("SELECT m.*, f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = 'Virement urgent'", ['u' => $bob['id']]);
+    eq($m['role'], 'spam');
+    eq((int) DB::value('SELECT COUNT(*) FROM mail_queue'), $queued, 'no vacation reply');
+    $p = Mailbox::parsed($m);
+    eq(count($p->headerAll('X-M4W-Auth')), 1, 'forged auth header stripped');
+    eq(MailAuth::parse((string) $p->header('X-M4W-Auth'))['verdict'], 'spoof');
+    $ok = MailAuth::evaluate($raw, '192.0.2.1', 'admin@test.local', 'mx.test.local', [Users::class, 'isLocalDomain']);
+    eq($ok['verdict'], 'ok', 'authorized server passes');
+    Vacation::save((int) $bob['id'], ['enabled' => 0]);
+});
+test('DKIM signs only aligned From domains (no signing of forwarded mail)', function () {
+    [$priv] = DkimSigner::generateKeys();
+    Settings::set('smtp.dkim_domain', 'test.local');
+    Settings::set('smtp.dkim_selector', 'm4w');
+    Settings::setSecret('smtp.dkim_private', $priv);
+    ok(str_starts_with(Transport::dkim("From: a@test.local\r\nSubject: x\r\n\r\nx\r\n"), 'DKIM-Signature:'));
+    ok(str_starts_with(Transport::dkim("From: a@sub.test.local\r\nSubject: x\r\n\r\nx\r\n"), 'DKIM-Signature:'), 'subdomain aligned');
+    ok(!str_contains(Transport::dkim("From: ceo@other.example\r\nSubject: x\r\n\r\nx\r\n"), 'DKIM-Signature:'), 'third-party From is never signed');
+    Settings::set('smtp.dkim_domain', '');
+});
+test('SSRF guard rejects non-global ranges', function () {
+    foreach (['100.64.1.1', '198.18.0.1', '224.0.0.1', '0.1.2.3', '::ffff:127.0.0.1', 'fd00::1', '169.254.169.254'] as $ip) {
+        ok(!\M4W\Core\Net::isPublic($ip), $ip);
+    }
+    ok(\M4W\Core\Net::isPublic('8.8.8.8') && \M4W\Core\Net::isPublic('2606:4700::1111'));
+});
+test('CSS sanitizer blocks image-set and escaped url()', function () {
+    $s = new HtmlSanitizer(true, static fn() => 'about:blank');
+    $css = $s->sanitizeCss('background:image-set("https://evil.example/a.png" 1x);background:\75 rl(https://evil.example/b.png)', false);
+    ok(!str_contains($css, 'evil.example/b') && !preg_match('/image-set\s*\(/i', $css), $css);
+});
+test('TOTP codes cannot be replayed', function () {
+    $secret = Totp::generateSecret();
+    $code = Totp::code($secret, time());
+    $step = Totp::match($secret, $code);
+    ok($step !== null);
+    ok(Totp::match($secret, $code, 1, $step) === null, 'same step refused');
+});
+test('preferences are whitelisted', function () use ($bob) {
+    Users::savePrefs((int) $bob['id'], ['compose_font' => 'x;}</style><script>', 'theme' => 'neon', 'page_size' => 9999, 'density' => 'compact']);
+    $p = Users::find((int) $bob['id'])['prefs'];
+    eq($p['compose_font'], 'Arial, Helvetica, sans-serif');
+    eq($p['theme'], 'auto');
+    eq($p['page_size'], 200);
+    eq($p['density'], 'compact');
+});
+test('login lockout is per account and address', function () {
+    $mk = static fn(string $ip) => new \M4W\Core\Request('POST', '/login', [], [], [], ['REMOTE_ADDR' => $ip]);
+    Settings::set('security.max_attempts', 3);
+    for ($i = 0; $i < 3; $i++) {
+        \M4W\Core\Auth::attempt('bob@test.local', 'wrong', $mk('203.0.113.10'));
+    }
+    $locked = \M4W\Core\Auth::attempt('bob@test.local', 'Secret!Pass123', $mk('203.0.113.10'));
+    ok(!$locked['ok'], 'attacker address locked');
+    $owner = \M4W\Core\Auth::attempt('bob@test.local', 'Secret!Pass123', $mk('198.51.100.20'));
+    ok($owner['ok'], 'owner can still sign in from elsewhere');
+    DB::run('DELETE FROM login_attempts');
+    Settings::set('security.max_attempts', 5);
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

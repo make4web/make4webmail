@@ -303,6 +303,11 @@ final class SettingsController extends Controller
         if (!Crypto::verifyPassword($this->req->raw('current'), $u['password_hash'])) {
             return $this->back('/settings/security#2fa', 'danger', t('pw.current_invalid'));
         }
+        // Both factors are required to remove the second one.
+        $secret = Crypto::decrypt((string) $u['totp_secret']);
+        if (!$secret || !Totp::verify($secret, $this->req->str('code'))) {
+            return $this->back('/settings/security#2fa', 'danger', t('auth.2fa_invalid'));
+        }
         if ($u['role'] === 'admin' && (int) Settings::get('security.enforce_2fa_admin', 0)) {
             return $this->back('/settings/security#2fa', 'danger', t('2fa.required_admin'));
         }

@@ -35,7 +35,7 @@ final class MailController extends Controller
         return $this->ok([
             'user' => [
                 'id' => (int) $u['id'], 'email' => $u['email'], 'name' => $u['name'], 'role' => $u['role'],
-                'prefs' => array_diff_key($u['prefs'], ['_recovery' => 1]), 'language' => I18n::language(),
+                'prefs' => array_diff_key($u['prefs'], ['_recovery' => 1, '_totp_step' => 1]), 'language' => I18n::language(),
                 'quota_mb' => (int) $u['quota_mb'], 'used_bytes' => (int) $u['used_bytes'],
             ],
             'identities' => Composer::identities($u),
@@ -191,6 +191,7 @@ final class MailController extends Controller
             'cc'          => json_decode((string) $m['cc_list'], true) ?: [],
             'bcc'         => json_decode((string) $m['bcc_list'], true) ?: [],
             'reply_to'    => $parsed->replyTo(),
+            'auth'        => ($a = $parsed->header('X-M4W-Auth')) ? \M4W\Mail\MailAuth::parse($a) : null,
             'date'        => (int) ($m['date_sent'] ?: $m['date_received']),
             'received'    => (int) $m['date_received'],
             'size'        => (int) $m['size'],
@@ -234,7 +235,7 @@ final class MailController extends Controller
         $imgSrc = $allowImages ? "'self' data: https: http:" : "'self' data:";
         return new Response($doc, 200, [
             'Content-Type' => 'text/html; charset=utf-8',
-            'Content-Security-Policy' => "default-src 'none'; img-src $imgSrc; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+            'Content-Security-Policy' => "default-src 'none'; img-src $imgSrc; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox",
             'X-Frame-Options' => 'SAMEORIGIN',
             'Cache-Control' => 'private, no-store',
         ]);
@@ -264,7 +265,7 @@ final class MailController extends Controller
             $content = $p->text();
         }
         $r = Response::download($content, $inline ? $mime : 'application/octet-stream', $name, $inline);
-        $r->header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; plugin-types application/pdf; frame-ancestors 'self'; sandbox");
+        $r->header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox");
         $r->header('X-Frame-Options', 'SAMEORIGIN');
         return $r;
     }
@@ -342,26 +343,38 @@ final class MailController extends Controller
         $header = (string) $parsed->header('List-Unsubscribe');
         $post = stripos((string) $parsed->header('List-Unsubscribe-Post'), 'One-Click') !== false;
         if ($post && preg_match('/<(https:[^>]+)>/i', $header, $mm)) {
-            // RFC 8058 one-click unsubscribe, performed server-side (hides the user's IP),
-            // pinned to a validated public IP (no SSRF / DNS rebinding), no redirects.
-            $host = (string) parse_url($mm[1], PHP_URL_HOST);
+            // RFC 8058 one-click unsubscribe, performed server-side (hides the user's IP).
+            // Strict URL shape first: parsers disagree on "user@host", backslashes, etc.
+            $url = $mm[1];
+            if (!preg_match('#^https://([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?)(?::(\d{1,5}))?(/[^\s\\\\@<>"]*)?$#i', $url, $um)) {
+                return $this->fail(t('mail.unsub_failed'));
+            }
+            $host = $um[1];
+            $port = (int) ($um[2] ?? '') ?: 443;
             try {
                 $ip = \M4W\Core\Net::publicIp($host);
             } catch (\InvalidArgumentException) {
                 return $this->fail(t('mail.unsub_failed'));
             }
             if (!function_exists('curl_init')) {
-                return $this->ok(['url' => $mm[1]]);
+                return $this->ok(['url' => $url]);
             }
-            $port = (int) (parse_url($mm[1], PHP_URL_PORT) ?: 443);
-            $ch = curl_init($mm[1]);
+            $pinned = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
+            $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_POST => true, CURLOPT_POSTFIELDS => 'List-Unsubscribe=One-Click', CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => false, CURLOPT_TIMEOUT => 10, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-                CURLOPT_RESOLVE => [$host . ':' . $port . ':' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip)],
+                CURLOPT_RESOLVE => [$host . ':' . $port . ':' . $pinned],
+                // Every connection goes to the validated address, whatever host curl derives from the URL.
+                CURLOPT_CONNECT_TO => ['::' . $pinned . ':' . $port],
             ]);
             curl_exec($ch);
+            $used = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
             curl_close($ch);
+            if ($used !== '' && $used !== $ip) {
+                error_log('[m4w] unsubscribe: connected to unexpected address ' . $used);
+                return $this->fail(t('mail.unsub_failed'));
+            }
             return $this->ok(['done' => true]);
         }
         if (preg_match('/<(https:[^>]+)>/i', $header, $mm)) {
@@ -454,6 +467,6 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Users::savePrefs((int) $u['id'], $this->req->arr('prefs'));
-        return $this->ok(['prefs' => Users::find((int) $u['id'])['prefs']]);
+        return $this->ok(['prefs' => array_diff_key(Users::find((int) $u['id'])['prefs'], ['_recovery' => 1, '_totp_step' => 1])]);
     }
 }

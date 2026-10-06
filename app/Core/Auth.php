@@ -79,22 +79,31 @@ final class Auth
         $max = max(3, (int) Settings::get('security.max_attempts', 5));
         $since = time() - $window;
 
-        $failsByEmail = (int) Database::value(
-            'SELECT COUNT(*) FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :s',
-            ['e' => $email, 's' => $since]
+        // Lock per account *and* address: a third party cannot lock someone out from elsewhere.
+        $failsByPair = (int) Database::value(
+            'SELECT COUNT(*) FROM login_attempts WHERE email = :e AND ip = :ip AND success = 0 AND created_at > :s',
+            ['e' => $email, 'ip' => $ip, 's' => $since]
         );
         $failsByIp = (int) Database::value(
             'SELECT COUNT(*) FROM login_attempts WHERE ip = :ip AND success = 0 AND created_at > :s',
             ['ip' => $ip, 's' => $since]
         );
-        if ($failsByEmail >= $max || $failsByIp >= $max * 4) {
+        if ($failsByPair >= $max || $failsByIp >= $max * 4) {
             Audit::log('login.locked', $email, ['ip' => $ip], null);
             return ['ok' => false, 'error' => t('auth.locked', ['minutes' => (int) ($window / 60)])];
         }
+        // Distributed guessing on one account: slow every attempt down instead of locking the owner out.
+        $failsByEmail = (int) Database::value(
+            'SELECT COUNT(*) FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :s',
+            ['e' => $email, 's' => $since]
+        );
+        if ($failsByEmail >= $max * 2) {
+            usleep(min(5_000_000, 250_000 * ($failsByEmail - $max * 2 + 1)));
+        }
 
         $user = Users::findByEmail($email);
-        // Constant-ish time: always run a hash verification.
-        $hash = $user['password_hash'] ?? Crypto::hashPassword(Crypto::token(8));
+        // Same cost whether the account exists or not: one verification against a stored dummy hash.
+        $hash = $user['password_hash'] ?? self::dummyHash();
         $valid = Crypto::verifyPassword($password, $hash) && $user !== null;
 
         if (!$valid || $user['status'] !== 'active') {
@@ -109,6 +118,16 @@ final class Auth
         }
         Database::insert('login_attempts', ['ip' => $ip, 'email' => $email, 'success' => 1, 'created_at' => time()]);
         return ['ok' => true, 'user' => $user];
+    }
+
+    private static function dummyHash(): string
+    {
+        $h = (string) Settings::get('system.dummy_hash', '');
+        if ($h === '' || Crypto::needsRehash($h)) {
+            $h = Crypto::hashPassword(Crypto::token(16));
+            Settings::set('system.dummy_hash', $h);
+        }
+        return $h;
     }
 
     public static function login(array $user, Request $req): void

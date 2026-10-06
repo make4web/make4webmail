@@ -225,6 +225,10 @@ final class AdminController extends Controller
                 continue;
             }
             $pw = ($c[6] ?? '') !== '' ? $c[6] : \M4W\Core\Crypto::token(12) . 'aA1!';
+            if (Auth::passwordPolicyError($pw) !== null) {
+                $errors[] = $email;
+                continue;
+            }
             Users::create([
                 'email' => $email, 'first_name' => $c[1] ?? '', 'last_name' => $c[2] ?? '', 'job_title' => $c[3] ?? '',
                 'department' => $c[4] ?? '', 'phone' => $c[5] ?? '', 'password' => $pw, 'must_change_password' => 1,
@@ -496,6 +500,50 @@ final class AdminController extends Controller
     }
 
     // ---- Security ------------------------------------------------------------
+
+    public function files(): Response
+    {
+        $spaces = [];
+        foreach (DB::all("SELECT f.*, u.display_name, u.email FROM fs_folders f LEFT JOIN users u ON u.id = f.created_by WHERE f.kind = 'space' ORDER BY f.deleted_at > 0, f.name") as $s) {
+            $s['members'] = (int) DB::value('SELECT COUNT(*) FROM fs_acl WHERE folder_id = :f', ['f' => $s['id']]);
+            $spaces[] = $s;
+        }
+        $stats = [
+            'files' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at = 0'),
+            'versions' => (int) DB::value('SELECT COUNT(*) FROM fs_versions'),
+            'trash' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at > 0'),
+        ];
+        return $this->page('files', [
+            'spaces' => $spaces, 'stats' => $stats, 'usage' => \M4W\Service\Files::usage(),
+            'driver' => \M4W\Storage\Storage::store()->name(),
+            'phpMax' => min(self::iniBytes((string) ini_get('upload_max_filesize')), self::iniBytes((string) ini_get('post_max_size'))),
+        ]);
+    }
+
+    private static function iniBytes(string $v): int
+    {
+        $n = (int) $v;
+        return match (strtolower(substr(trim($v), -1))) {
+            'g' => $n * 1073741824, 'm' => $n * 1048576, 'k' => $n * 1024, default => $n,
+        } ?: PHP_INT_MAX;
+    }
+
+    public function saveFiles(): Response
+    {
+        $r = $this->req;
+        $values = [
+            'files.max_file_mb' => max(1, min(10240, $r->int('max_file_mb', 200))),
+            'files.quota_gb' => max(0, min(100000, $r->int('quota_gb', 0))),
+            'files.versions' => max(0, min(100, $r->int('versions', 10))),
+            'files.trash_days' => max(1, min(365, $r->int('trash_days', 30))),
+            'files.users_create_spaces' => $r->bool('users_create_spaces') ? 1 : 0,
+        ];
+        foreach ($values as $k => $v) {
+            Settings::set($k, $v);
+        }
+        Audit::log('admin.files_saved');
+        return $this->back('/admin/files', 'success', t('settings.saved'));
+    }
 
     public function security(): Response
     {

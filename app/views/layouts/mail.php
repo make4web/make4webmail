@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="<?= e(asset('vendor/jodit/jodit.min.css')) ?>">
 <script src="<?= e(asset('vendor/jodit/jodit.min.js')) ?>"></script>
 <script src="<?= e(asset('js/editor.js')) ?>"></script>
+<script src="<?= e(asset('js/files-picker.js')) ?>"></script>
 <script src="<?= e(asset('js/mail.js')) ?>"></script>
 <script src="<?= e(asset('js/compose.js')) ?>"></script>
 </body>

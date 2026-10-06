@@ -29,17 +29,27 @@ final class Totp
 
     public static function verify(string $secret, string $code, int $window = 1): bool
     {
+        return self::match($secret, $code, $window) !== null;
+    }
+
+    /**
+     * Time step of the matching code, or null. Codes of a step <= $usedStep are refused,
+     * so an intercepted code cannot be replayed within its validity window.
+     */
+    public static function match(string $secret, string $code, int $window = 1, int $usedStep = 0): ?int
+    {
         $code = preg_replace('/\D/', '', $code) ?? '';
         if (strlen($code) !== 6) {
-            return false;
+            return null;
         }
-        $now = time();
+        $now = intdiv(time(), 30);
         for ($i = -$window; $i <= $window; $i++) {
-            if (hash_equals(self::code($secret, $now + $i * 30), $code)) {
-                return true;
+            $step = $now + $i;
+            if ($step > $usedStep && hash_equals(self::code($secret, $step * 30), $code)) {
+                return $step;
             }
         }
-        return false;
+        return null;
     }
 
     public static function uri(string $secret, string $account, string $issuer): string

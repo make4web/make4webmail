@@ -35,6 +35,7 @@ final class Migrator
                 '{PK}'   => 'INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY',
                 '{TEXT}' => 'MEDIUMTEXT NULL',
                 '{OPT}'  => 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+                '{BLOB}' => 'LONGBLOB NULL',
             ]);
             // MySQL cannot index long VARCHARs in utf8mb4 beyond 3072 bytes; ours are <=190 chars where indexed.
             return $sql;
@@ -43,6 +44,7 @@ final class Migrator
             '{PK}'   => 'INTEGER PRIMARY KEY AUTOINCREMENT',
             '{TEXT}' => 'TEXT NULL',
             '{OPT}'  => '',
+            '{BLOB}' => 'BLOB NULL',
         ]);
     }
 }

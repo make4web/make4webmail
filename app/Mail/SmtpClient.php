@@ -111,6 +111,12 @@ final class SmtpClient
         if (!$this->sock) {
             $this->connect();
         }
+        foreach (array_merge([$from], $recipients) as $addr) {
+            // Envelope addresses go verbatim into SMTP commands: no spaces, brackets or control characters.
+            if (preg_match('/[\s<>\x00-\x1f\x7f]/', (string) $addr)) {
+                throw new SmtpException('Invalid envelope address');
+            }
+        }
         $size = isset($this->ext['SIZE']) ? ' SIZE=' . strlen($data) : '';
         $body8 = isset($this->ext['8BITMIME']) ? ' BODY=8BITMIME' : '';
         $this->command('MAIL FROM:<' . Address::asciiEmail($from) . '>' . $size . $body8, [250]);

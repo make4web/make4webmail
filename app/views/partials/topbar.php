@@ -77,7 +77,7 @@ $prefs = $u['prefs'] ?? [];
       <div class="dropdown-menu dropdown-menu-end p-2" style="width:290px">
         <div class="row g-1 text-center">
           <?php
-          $apps = [['mail', 'envelope', 'nav.mail'], ['contacts', 'people', 'nav.contacts'], ['settings', 'sliders', 'nav.settings'], ['settings/rules', 'funnel', 'nav.rules']];
+          $apps = [['mail', 'envelope', 'nav.mail'], ['files', 'folder2-open', 'nav.files'], ['contacts', 'people', 'nav.contacts'], ['settings', 'sliders', 'nav.settings'], ['settings/rules', 'funnel', 'nav.rules']];
           if (($u['role'] ?? '') === 'admin') {
               $apps[] = ['admin', 'speedometer2', 'nav.admin'];
               $apps[] = ['admin/users', 'person-gear', 'nav.users'];

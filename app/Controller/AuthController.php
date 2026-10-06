@@ -23,10 +23,9 @@ final class AuthController extends Controller
     public function lang(string $code): Response
     {
         if (isset(I18n::LANGUAGES[$code])) {
+            // Session only: a GET link must not change stored account data (cross-site forgeable).
+            // Signed-in users change their language in Settings (POST + CSRF).
             Session::set('lang', $code);
-            if ($u = Auth::user()) {
-                Users::update((int) $u['id'], ['language' => $code]);
-            }
         }
         $back = (string) ($this->req->query['back'] ?? '/login');
         return Response::redirect(self::safePath($back) ?? '/login');
@@ -106,7 +105,13 @@ final class AuthController extends Controller
         }
         $secret = $user ? Crypto::decrypt((string) $user['totp_secret']) : null;
         $code = $this->req->str('recovery') !== '' ? $this->req->str('recovery') : $this->req->str('code');
-        $ok = $secret && Totp::verify($secret, $code);
+        $prefsRaw = $user ? (json_decode((string) DB::value('SELECT prefs FROM users WHERE id = :id', ['id' => $user['id']]), true) ?: []) : [];
+        $step = $secret ? Totp::match($secret, $code, 1, (int) ($prefsRaw['_totp_step'] ?? 0)) : null;
+        $ok = $step !== null;
+        if ($ok) {
+            $prefsRaw['_totp_step'] = $step;
+            DB::update('users', ['prefs' => json_encode($prefsRaw)], 'id = :id', ['id' => $user['id']]);
+        }
         // Recovery codes
         if (!$ok && $user) {
             $ok = $this->useRecoveryCode($user, $code);

@@ -31,7 +31,7 @@ final class Fetcher
             'apply_rules'   => !empty($d['apply_rules']) ? 1 : 0,
             'enabled'       => !empty($d['enabled']) ? 1 : 0,
         ];
-        if ($data['host'] === '' || $data['username'] === '' || !preg_match('/^[a-z0-9.-]+$/i', $data['host'])) {
+        if ($data['host'] === '' || $data['username'] === '' || preg_match('/[\r\n\x00]/', $data['username'] . $data['remote_folder'] . (string) ($d['password'] ?? '')) || !preg_match('/^[a-z0-9.-]+$/i', $data['host'])) {
             throw new \InvalidArgumentException(t('fetch.invalid'));
         }
         self::assertPublicHost($data['host']);

@@ -83,8 +83,9 @@ final class ComposeController extends Controller
 
         if ($mode === 'reply' || $mode === 'reply_all') {
             $replyTo = $parsed->replyTo() ?: [$from];
-            // Replying to one's own sent message: reply to its recipients.
-            if (in_array(mb_strtolower($from['email']), $me, true)) {
+            // Replying to one's own sent message: reply to its recipients. Mail received over SMTP
+            // (it carries our authentication header) is never "our own", even if its From: says so.
+            if (in_array(mb_strtolower($from['email']), $me, true) && $parsed->header('X-M4W-Auth') === null) {
                 $replyTo = $parsed->to();
             }
             $to = $replyTo;

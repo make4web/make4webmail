@@ -1,7 +1,7 @@
 <?php
 use M4W\Core\Settings;
 $path = $req->path;
-$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : 'settings');
+$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : 'settings'));
 ?>
 <!DOCTYPE html>
 <html lang="<?= e(M4W\Core\I18n::language()) ?>">
@@ -13,7 +13,7 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 <?php $topbarMode = 'page'; include __DIR__ . '/../partials/topbar.php'; ?>
 <div class="m4w-page">
   <nav class="m4w-page-nav m4w-sidebar" aria-label="<?= te('nav.section') ?>">
-    <a href="<?= e(url('mail')) ?>" class="m4w-compose-btn text-decoration-none"><i class="bi bi-arrow-left"></i><?= te('nav.back_mail') ?></a>
+    <?php if ($area !== 'files'): ?><a href="<?= e(url('mail')) ?>" class="m4w-compose-btn text-decoration-none"><i class="bi bi-arrow-left"></i><?= te('nav.back_mail') ?></a><?php endif; ?>
     <?php include __DIR__ . '/../partials/nav_' . $area . '.php'; ?>
   </nav>
   <main class="m4w-page-content" id="main">
@@ -30,5 +30,6 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 <script src="<?= e(asset('vendor/jodit/jodit.min.js')) ?>"></script>
 <script src="<?= e(asset('js/editor.js')) ?>"></script>
 <script src="<?= e(asset('js/pages.js')) ?>"></script>
+<?php if ($area === 'files'): ?><script src="<?= e(asset('js/files-picker.js')) ?>"></script><script src="<?= e(asset('js/files.js')) ?>"></script><?php endif; ?>
 </body>
 </html>

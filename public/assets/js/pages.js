@@ -335,7 +335,9 @@
       $pv.find('[data-pv-primary-text]').css('color', p);
       var sideBg = side === 'brand' ? p : (side === 'dark' ? '#0f172a' : 'transparent'), sideFg = side === 'brand' ? contrast(p) : (side === 'dark' ? '#e2e8f0' : 'var(--m4w-text-2)');
       $pv.find('[data-pv-side]').css({ background: sideBg, color: sideFg });
-      $pv.find('[data-pv-active]').css({ background: side === 'light' ? 'rgba(' + rgb + ',.12)' : 'rgba(255,255,255,.18)', color: side === 'light' ? p : sideFg });
+      // Same tints as the real sidebar (theme.css), so the preview keeps the WCAG AA contrast of the result.
+      var activeBg = side === 'light' ? 'rgba(' + rgb + ',.12)' : (side === 'brand' ? (contrast(p) === '#ffffff' ? 'rgba(0,0,0,.24)' : 'rgba(255,255,255,.35)') : 'rgba(255,255,255,.12)');
+      $pv.find('[data-pv-active]').css({ background: activeBg, color: side === 'light' ? 'var(--m4w-primary)' : (side === 'dark' ? '#ffffff' : sideFg) });
       $('[data-radius-val]').text(r + 'px');
       $pv.find('[data-pv-name]').text($f.find('[name=name]').val());
     }

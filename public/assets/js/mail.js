@@ -30,7 +30,7 @@
       route();
       poll(true);
       setInterval(function () { if (!document.hidden) poll(false); }, 30000);
-      if (boot.compose && M4W.Compose) M4W.Compose.open({ mode: 'new', to: boot.compose.to, subject: boot.compose.subject });
+      if (boot.compose && M4W.Compose) M4W.Compose.open({ mode: 'new', to: boot.compose.to, subject: boot.compose.subject, files: boot.compose.files });
       if ('Notification' in window && S.prefs.notifications && Notification.permission === 'default') {
         $(document).one('click', function () { try { Notification.requestPermission(); } catch (e) {} });
       }
@@ -323,9 +323,11 @@
       var previewable = /^image\/(png|jpe?g|gif|webp)$/.test(a.mime) || a.mime === 'application/pdf' || a.mime === 'text/plain';
       return '<div class="m4w-att" title="' + esc(a.name) + '"><a class="m4w-att-icon ' + ic[0] + '" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener">' + thumb + '</a>'
         + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + esc(M4W.bytes(a.size)) + '</div></a>'
-        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" download><i class="bi bi-download"></i></a></div>';
+        + (M4W.FilesPicker ? '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-save-files="' + msg.id + '" data-parts="' + esc(a.part) + '" title="' + esc(t('fs_save_to')) + '" aria-label="' + esc(t('fs_save_to')) + '"><i class="bi bi-folder-plus"></i></button>' : '')
+        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" aria-label="' + esc(t('download')) + '" download><i class="bi bi-download"></i></a></div>';
     }).join('');
     var zip = atts.length > 1 ? ' · <a href="' + esc(M4W.url('api/messages/' + msg.id + '/zip')) + '"><i class="bi bi-file-zip"></i> ' + esc(t('download_all')) + '</a>' : '';
+    if (atts.length > 1 && M4W.FilesPicker) zip += ' · <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-save-files="' + msg.id + '" data-parts="' + esc(atts.map(function (a) { return a.part; }).join(',')) + '"><i class="bi bi-folder-plus"></i> ' + esc(t('fs_save_all_to')) + '</button>';
     return '<div class="m4w-msg-atts"><div class="w-100 small text-muted mb-1"><i class="bi bi-paperclip"></i> ' + esc(t('n_attachments', { n: atts.length, size: M4W.bytes(total) })) + zip + '</div>' + html + '</div>';
   }
 
@@ -341,6 +343,10 @@
       + '<tr><td class="text-muted pe-2">' + esc(t('size')) + '</td><td>' + esc(M4W.bytes(msg.size)) + '</td></tr>'
       + '</table></div></span></div>';
     var banner = '';
+    var verdict = msg.auth && msg.auth.verdict;
+    if (verdict && verdict !== 'ok') {
+      banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-shield-exclamation"></i><span><strong>' + esc(t('auth_' + verdict + '_title')) + '</strong> ' + esc(t('auth_' + verdict + '_text', { domain: (from.email || '').split('@').pop() })) + '</span></div>';
+    }
     if (msg.blocked_images > 0) {
       banner = '<div class="m4w-msg-banner"><i class="bi bi-shield-lock text-primary"></i><span>' + esc(t('images_blocked', { n: msg.blocked_images })) + '</span>'
         + '<a href="#" data-show-images="' + msg.id + '" class="fw-semibold">' + esc(t('show_images')) + '</a> · <a href="#" data-always-images class="text-muted">' + esc(t('always_show_images')) + '</a></div>';
@@ -704,6 +710,14 @@
       });
     });
     $(document).on('click', '[data-action=compose]', function () { M4W.Compose.open({ mode: 'new' }); });
+    $(document).on('click', '[data-save-files]', function () {
+      var id = $(this).data('save-files'), parts = String($(this).data('parts')).split(',');
+      M4W.FilesPicker.pickFolder(t('fs_save_to'), t('fs_save')).done(function (folder) {
+        M4W.post('api/messages/' + id + '/save-to-files', { folder_id: folder, parts: parts }).done(function (r) {
+          M4W.toast(t('fs_saved_to'), 'success', { action: { label: t('open'), fn: function () { window.location.href = M4W.url('files') + '#f/' + folder; } } });
+        });
+      });
+    });
     $(document).on('click', '[data-action=shortcuts]', function () { bootstrap.Modal.getOrCreateInstance($('#m4w-shortcuts')[0]).show(); });
 
     // drag & drop to folders

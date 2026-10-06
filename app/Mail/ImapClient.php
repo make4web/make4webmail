@@ -9,6 +9,8 @@ namespace M4W\Mail;
  */
 final class ImapClient
 {
+    private const MAX_LITERAL = 64 * 1024 * 1024;
+
     /** @var resource|null */
     private $sock = null;
     private int $tag = 0;
@@ -117,6 +119,10 @@ final class ImapClient
 
     public static function quote(string $s): string
     {
+        // A quoted string can never contain line breaks or NUL: they would start a new command.
+        if (preg_match('/[\r\n\x00]/', $s)) {
+            throw new \InvalidArgumentException('IMAP: caractère interdit');
+        }
         return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $s) . '"';
     }
 
@@ -131,6 +137,10 @@ final class ImapClient
             $line = $this->readLine();
             if (preg_match('/\{(\d+)\}$/', $line, $m)) {
                 $len = (int) $m[1];
+                // A hostile server could announce an enormous literal to exhaust memory.
+                if ($len > self::MAX_LITERAL) {
+                    throw new \RuntimeException('IMAP: réponse trop volumineuse');
+                }
                 $data = '';
                 while (strlen($data) < $len) {
                     $chunk = fread($this->sock, min(65536, $len - strlen($data)));

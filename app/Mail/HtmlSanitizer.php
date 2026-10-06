@@ -282,9 +282,10 @@ final class HtmlSanitizer
         // Decode CSS escapes to detect obfuscation (e.g. "\6a avascript").
         $decoded = preg_replace_callback('/\\\\([0-9a-f]{1,6})\s?/i', static fn($m) => mb_chr((int) hexdec($m[1])) ?: '', $css) ?? $css;
         $decoded = str_replace('\\', '', $decoded);
-        if (preg_match('/expression\s*\(|javascript\s*:|vbscript\s*:|-moz-binding|behavior\s*:|@import|@charset|<\/?\s*style/i', $decoded)) {
-            $css = preg_replace('/expression\s*\([^)]*\)|javascript\s*:|vbscript\s*:|-moz-binding[^;]*|behavior\s*:[^;]*|@import[^;]*;?|@charset[^;]*;?|<\/?\s*style[^>]*>?/i', '', $decoded) ?? '';
-        }
+        // Always continue on the decoded text: what we check is exactly what the browser parses.
+        $css = preg_replace('/expression\s*\([^)]*\)|javascript\s*:|vbscript\s*:|-moz-binding[^;]*|behavior\s*:[^;]*|@import[^;]*;?|@charset[^;]*;?|<\/?\s*style[^>]*>?/i', '', $decoded) ?? '';
+        // Image functions that take bare strings as URLs (no url() wrapper to inspect).
+        $css = preg_replace('/(?:-webkit-|-moz-)?(?:image-set|cross-fade|image|element|src)\s*\(/i', 'none(', $css) ?? '';
         $css = preg_replace_callback('/url\s*\(\s*([\'"]?)(.*?)\1\s*\)/i', function ($m) {
             $u = $this->safeImageUrl($m[2]);
             return $u === null ? 'none' : 'url("' . str_replace(['"', '\\'], '', $u) . '")';

@@ -164,8 +164,9 @@ final class Contacts
             if ($c['auto_collected']) {
                 continue;
             }
-            $esc = static fn($s) => str_replace([',', ';', "\n"], ['\\,', '\\;', '\\n'], (string) $s);
-            $out .= "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:" . $esc($c['name'] ?: $c['email']) . "\r\nEMAIL;TYPE=INTERNET:" . $c['email'] . "\r\n";
+            // RFC 6350 escaping; CR and other control characters could otherwise inject properties.
+            $esc = static fn($s) => str_replace(['\\', ',', ';', "\r\n", "\n", "\r"], ['\\\\', '\\,', '\\;', '\\n', '\\n', '\\n'], preg_replace('/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/', '', (string) $s) ?? '');
+            $out .= "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:" . $esc($c['name'] ?: $c['email']) . "\r\nEMAIL;TYPE=INTERNET:" . $esc($c['email']) . "\r\n";
             if ($c['phone']) {
                 $out .= 'TEL:' . $esc($c['phone']) . "\r\n";
             }

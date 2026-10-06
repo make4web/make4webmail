@@ -30,7 +30,7 @@ if (!Config::installed()) {
     exit(1);
 }
 
-$opts = getopt('', ['listen::', 'foreground']);
+$opts = getopt('', ['listen::', 'foreground', 'max-clients::', 'max-per-ip::']);
 $listen = (string) ($opts['listen'] ?? Settings::get('inbound.listen', '0.0.0.0:2525'));
 $maxSize = max(1, (int) Settings::get('inbound.max_size_mb', 35)) * 1024 * 1024;
 $allowed = array_filter(array_map('trim', preg_split('/[\s,;]+/', (string) Settings::get('inbound.allowed_ips', '')) ?: []));
@@ -52,8 +52,9 @@ smtpd_log("listening on $listen" . ($tls ? ' (STARTTLS available)' : ''));
 $canFork = function_exists('pcntl_fork');
 if ($canFork) {
     pcntl_async_signals(true);
-    pcntl_signal(SIGCHLD, static function () {
-        while (pcntl_waitpid(-1, $status, WNOHANG) > 0) {
+    pcntl_signal(SIGCHLD, static function () use (&$children) {
+        while (($pid = pcntl_waitpid(-1, $status, WNOHANG)) > 0) {
+            unset($children[$pid]);
         }
     });
     $stop = static function () use ($server) {
@@ -65,13 +66,28 @@ if ($canFork) {
     pcntl_signal(SIGINT, $stop);
 }
 
+// Connection limits against slow or flooding clients.
+$maxClients = max(1, (int) ($opts['max-clients'] ?? 50));
+$maxPerIp = max(1, (int) ($opts['max-per-ip'] ?? 5));
+$children = [];
 while (true) {
     $client = @stream_socket_accept($server, 60, $peer);
     if (!$client) {
         continue;
     }
     if ($canFork) {
+        $peerIp = trim(preg_replace('/:\d+$/', '', (string) $peer) ?? '', '[]');
+        $sameIp = count(array_filter($children, static fn($ip) => $ip === $peerIp));
+        if (count($children) >= $maxClients || $sameIp >= $maxPerIp) {
+            @fwrite($client, "421 4.7.0 Too many connections, try again later\r\n");
+            fclose($client);
+            smtpd_log("refused $peerIp: " . count($children) . " sessions, $sameIp from this address");
+            continue;
+        }
         $pid = pcntl_fork();
+        if ($pid > 0) {
+            $children[$pid] = $peerIp;
+        }
         if ($pid === 0) {
             fclose($server);
             Database::reset();
@@ -99,7 +115,7 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
 {
     $ip = preg_replace('/:\d+$/', '', $peer) ?? $peer;
     $ip = trim($ip, '[]');
-    stream_set_timeout($c, 300);
+    stream_set_timeout($c, 120);
     $send = static function (string $line) use ($c) {
         @fwrite($c, $line . "\r\n");
     };
@@ -156,6 +172,15 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                     $send('454 4.7.0 TLS not available');
                     break;
                 }
+                // Anything pipelined after STARTTLS was sent in clear text: refuse it (CVE-2011-0411 class).
+                stream_set_blocking($c, false);
+                $leftover = fread($c, 1);
+                stream_set_blocking($c, true);
+                if ($leftover !== false && $leftover !== '') {
+                    $send('554 5.5.1 Pipelining not allowed after STARTTLS');
+                    fclose($c);
+                    return;
+                }
                 $send('220 2.0.0 Ready to start TLS');
                 if (!@stream_socket_enable_crypto($c, true, STREAM_CRYPTO_METHOD_TLSv1_2_SERVER | (defined('STREAM_CRYPTO_METHOD_TLSv1_3_SERVER') ? STREAM_CRYPTO_METHOD_TLSv1_3_SERVER : 0))) {
                     fclose($c);
@@ -178,6 +203,11 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                     break;
                 }
                 $from = mb_substr(trim($m[1]), 0, 255);
+                if ($from !== '' && !is_valid_email($from)) {
+                    $from = null;
+                    $send('553 5.1.7 Invalid sender address');
+                    break;
+                }
                 $rcpts = [];
                 $send('250 2.1.0 OK');
                 break;
@@ -195,6 +225,10 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                     break;
                 }
                 $addr = mb_strtolower(trim($m[1]));
+                if (!is_valid_email($addr)) {
+                    $send('553 5.1.3 Invalid recipient address');
+                    break;
+                }
                 $user = Users::resolveLocal($addr);
                 $domain = substr($addr, (int) strrpos($addr, '@') + 1);
                 if (!$user) {
@@ -239,10 +273,18 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                     $received = 'Return-Path: <' . $from . ">\r\n"
                         . 'Received: from ' . ($helo ?: 'unknown') . ' ([' . $ip . "])\r\n\tby $hostname (Make4Web Mail) with ESMTP" . ($secure ? 'S' : '') . " id $id\r\n\tfor <" . $rcpts[0] . '>; ' . date('r') . "\r\n";
                     try {
-                        $res = Delivery::deliver($received . $data, (string) $from, $rcpts, 'smtp');
+                        $auth = null;
+                        if ((int) M4W\Core\Settings::get('inbound.auth_checks', 1)) {
+                            try {
+                                $auth = M4W\Mail\MailAuth::evaluate($data, $ip, (string) $from, $helo, [Users::class, 'isLocalDomain']);
+                            } catch (\Throwable $e) {
+                                smtpd_log('auth check error: ' . $e->getMessage());
+                            }
+                        }
+                        $res = Delivery::deliver($received . $data, (string) $from, $rcpts, 'smtp', true, $auth);
                         $ok = count(array_filter($res, static fn($r) => $r === 'ok'));
                         $send($ok ? "250 2.0.0 OK queued as $id" : '451 4.3.0 Delivery failed');
-                        smtpd_log("from=<$from> ip=$ip rcpt=" . implode(',', $rcpts) . ' size=' . strlen($data) . " id=$id ok=$ok");
+                        smtpd_log("from=<$from> ip=$ip rcpt=" . implode(',', $rcpts) . ' size=' . strlen($data) . " id=$id ok=$ok" . ($auth ? ' auth=' . $auth['verdict'] . ' spf=' . $auth['spf'] . ' dmarc=' . $auth['dmarc'] : ''));
                         Transport::processQueue(20);
                     } catch (\Throwable $e) {
                         smtpd_log('delivery error: ' . $e->getMessage());

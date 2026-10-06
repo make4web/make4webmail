@@ -138,7 +138,26 @@ final class Transport
         if ($domain === '' || $selector === '' || $key === '' || str_starts_with($raw, 'DKIM-Signature:')) {
             return $raw;
         }
+        // Only sign what we author: the From: domain must align with the signing domain (DMARC relaxed).
+        $from = mb_strtolower(Address::domain(self::headerFrom($raw)));
+        $domain = mb_strtolower($domain);
+        if ($from === '' || ($from !== $domain && !str_ends_with($from, '.' . $domain))) {
+            return $raw;
+        }
         return (new DkimSigner($domain, $selector, $key))->sign($raw);
+    }
+
+    /** Address of the first From: header of a raw message ('' if none). */
+    public static function headerFrom(string $raw): string
+    {
+        $end = strpos($raw, "\r\n\r\n");
+        $head = $end === false ? $raw : substr($raw, 0, $end);
+        $head = preg_replace('/\r?\n[ \t]+/', ' ', $head) ?? $head;
+        if (!preg_match('/^From:[ \t]*(.+)$/mi', $head, $m)) {
+            return '';
+        }
+        $list = Address::parseList(trim($m[1]));
+        return (string) ($list[0]['email'] ?? '');
     }
 
     /** Queue a message for asynchronous delivery (forwards, auto-replies, retries). */
@@ -186,7 +205,8 @@ final class Transport
             }
             $rcpts = json_decode((string) $row['recipients'], true) ?: [];
             try {
-                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null);
+                // Relayed mail keeps its author's From: and their own signature; ours would vouch for it.
+                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null, $row['kind'] !== 'forward');
             } catch (\Throwable $e) {
                 DB::update('mail_queue', [
                     'status' => 'pending', 'attempts' => (int) $row['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500),

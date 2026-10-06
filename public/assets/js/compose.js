@@ -135,7 +135,8 @@
       + '<label class="dropdown-item"><input type="checkbox" class="form-check-input m-0 me-2" data-opt="receipt"> <i class="bi bi-check2-square"></i>' + esc(t('read_receipt')) + '</label>'
       + '<div class="dropdown-divider"></div><button type="button" class="dropdown-item" data-c="schedule"><i class="bi bi-clock"></i>' + esc(t('schedule_send')) + '</button></div></div>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="format" title="' + esc(t('formatting')) + '"><i class="bi bi-type"></i></button>'
-      + '<button type="button" class="btn btn-ghost btn-icon" data-c="attach" title="' + esc(t('attach')) + '"><i class="bi bi-paperclip"></i></button>'
+      + '<button type="button" class="btn btn-ghost btn-icon" data-c="attach" title="' + esc(t('attach')) + '" aria-label="' + esc(t('attach')) + '"><i class="bi bi-paperclip"></i></button>'
+      + (M4W.FilesPicker ? '<button type="button" class="btn btn-ghost btn-icon" data-c="attach-files" data-action="attach-files" title="' + esc(t('fs_attach_from')) + '" aria-label="' + esc(t('fs_attach_from')) + '"><i class="bi bi-folder2-open"></i></button>' : '')
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="image" title="' + esc(t('insert_image')) + '"><i class="bi bi-image"></i></button>'
       + '<button type="button" class="btn btn-ghost btn-icon" data-c="link" title="' + esc(t('insert_link')) + '"><i class="bi bi-link-45deg"></i></button>'
       + '<span class="m4w-saved" data-saved></span>'
@@ -196,6 +197,7 @@
       self.renderAtts();
       self.updateTitle();
       self.state.dirty = false;
+      if (opts.files && opts.files.length) self.addShared(opts.files);
       if (!c.to) self.rcpt.to.$input.trigger('focus');
       else if (!c.subject) self.$el.find('[name=subject]').trigger('focus');
       else self.editor.focus(true);
@@ -324,6 +326,18 @@
     });
   };
 
+  /** Attach files from the shared file space (copied server-side into compose uploads). */
+  Compose.prototype.addShared = function (ids) {
+    var self = this;
+    if (!ids || !ids.length) return;
+    M4W.post('api/files/attach', { ids: ids }).done(function (r) {
+      r.files.forEach(function (f) { self.state.attachments.push({ name: f.name, size: f.size, mime: f.mime, token: f.token, progress: 100 }); });
+      self.renderAtts();
+      self.touch();
+      M4W.toast(t('fs_attached', { n: r.files.length }), 'success');
+    });
+  };
+
   Compose.prototype.uploadInline = function (file) {
     return this.upload(file).then(function (f) { return f.url; });
   };
@@ -340,6 +354,7 @@
       if (c === 'cc' || c === 'bcc') { self.showField(c); self.rcpt[c].$input.trigger('focus'); }
       if (c === 'send') self.send();
       if (c === 'attach') $el.find('[data-file]').trigger('click');
+      if (c === 'attach-files') M4W.FilesPicker.pickFiles().done(function (ids) { self.addShared(ids); });
       if (c === 'image') self.editor.exec('image');
       if (c === 'link') self.editor.exec('link');
       if (c === 'format') { self.editor.toggleToolbar(); $(this).toggleClass('active', !self.editor.$host.hasClass('m4w-ed-no-toolbar')); }
