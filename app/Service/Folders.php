@@ -155,7 +155,7 @@ final class Folders
                 }
             }
             [$in, $params] = DB::in('f', $ids);
-            DB::run("UPDATE messages SET folder_id = :t WHERE user_id = :u AND folder_id IN $in", ['t' => $trash['id'], 'u' => $userId] + $params);
+            DB::run("UPDATE messages SET trashed_from = NULL, trashed_from_name = COALESCE((SELECT f.name FROM folders f WHERE f.id = messages.folder_id), ''), folder_id = :t WHERE user_id = :u AND folder_id IN $in", ['t' => $trash['id'], 'u' => $userId] + $params);
             DB::run("DELETE FROM folders WHERE user_id = :u AND id IN $in", ['u' => $userId] + $params);
             foreach (DB::all('SELECT id, actions FROM rules WHERE user_id = :u', ['u' => $userId]) as $rule) {
                 foreach (json_decode((string) $rule['actions'], true) ?: [] as $a) {

@@ -670,7 +670,7 @@ test('files: trash, restore and purge free storage', function () use ($fsAdmin, 
     Files::delete($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
     Files::purge($fsAdmin, [['type' => 'folder', 'id' => $fsState['deep']]]);
     ok(Files::usage()['used'] < $before - 1000000, 'blobs removed');
-    eq((int) DB::value('SELECT COUNT(*) FROM fs_blob_chunks c LEFT JOIN fs_blobs b ON b.id = c.blob_id WHERE b.id IS NULL'), 0, 'no orphan chunks');
+    eq((int) DB::value('SELECT COUNT(*) FROM fs_blob_chunks c LEFT JOIN fs_blobs b ON b.id = c.blob_id WHERE b.id IS NULL AND c.blob_id NOT IN (SELECT blob_id FROM deleted_messages)'), 0, 'no orphan chunks');
 });
 test('files: quota and size limits', function () use ($fsAdmin, $fsFile, &$fsState) {
     Settings::set('files.max_file_mb', 1);
@@ -880,6 +880,88 @@ test('delegation: mail sent from a delegated mailbox names its sender', function
     $raw = $b->build();
     ok(str_contains($raw, "From: ") && str_contains($raw, 'bob@test.local'), 'From is the mailbox');
     ok((bool) preg_match('/^Sender: .*' . preg_quote($fsAdmin['email'], '/') . '/m', $raw), 'Sender is the person acting');
+});
+
+// ---------------------------------------------------------- Retention ("second trash")
+use M4W\Service\Retention;
+
+test('retention: emptied trash is kept and restorable to its original folder', function () use ($bob, $sendTo, $fsAdmin) {
+    $uid = (int) $bob['id'];
+    $proj = Folders::create($uid, 'Projets');
+    Delivery::deliver($sendTo('bob@test.local', 'Contrat signé Leroy'), 'client@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Contrat signé Leroy'", ['u' => $uid]);
+    Mailbox::move($uid, [(int) $m['id']], $proj);
+    Mailbox::delete($uid, [(int) $m['id']]);
+    eq(DB::value('SELECT trashed_from_name FROM messages WHERE id = :id', ['id' => $m['id']]), 'Projets');
+    $before = (int) DB::value('SELECT COUNT(*) FROM deleted_messages');
+    Mailbox::emptyFolder($uid, (int) Folders::byRole($uid, 'trash')['id']);
+    ok(Mailbox::get($uid, (int) $m['id']) === null, 'gone for the user');
+    $r = DB::one("SELECT * FROM deleted_messages WHERE user_id = :u AND subject = 'Contrat signé Leroy'", ['u' => $uid]);
+    ok($r !== null && (int) DB::value('SELECT COUNT(*) FROM deleted_messages') === $before + 1, 'copy kept');
+    eq([$r['reason'], $r['folder_name'], (int) $r['original_folder_id']], ['emptied', 'Projets', $proj]);
+    eq(MimeParser::parse(Retention::raw($r))->subject(), 'Contrat signé Leroy', 'raw content kept (compressed)');
+    $newId = Retention::restore((int) $r['id'], $fsAdmin);
+    $back = Mailbox::get($uid, $newId);
+    eq((int) $back['folder_id'], $proj, 'restored into its original folder');
+    ok((int) Retention::find((int) $r['id'])['restored_at'] > 0);
+});
+test('retention: direct delete, rules, automatic purge and account deletion', function () use ($bob, $sendTo, $fsAdmin) {
+    $uid = (int) $bob['id'];
+    Delivery::deliver($sendTo('bob@test.local', 'Suppression directe'), 'client@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT id FROM messages WHERE user_id = :u AND subject = 'Suppression directe'", ['u' => $uid]);
+    Mailbox::delete($uid, [(int) $m['id']], true);
+    eq(DB::value("SELECT reason FROM deleted_messages WHERE subject = 'Suppression directe'"), 'deleted');
+    $rid = DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'Jeter', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'PROMO-XYZ']],
+        'actions' => [['type' => 'discard']]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Delivery::deliver($sendTo('bob@test.local', 'PROMO-XYZ imperdable'), 'spam@ext.com', ['bob@test.local']);
+    eq(DB::value("SELECT reason FROM deleted_messages WHERE subject = 'PROMO-XYZ imperdable'"), 'rule', 'rule discard kept');
+    DB::delete('rules', 'id = :id', ['id' => $rid]);
+    // Spam auto-purge is not kept by default; trash auto-purge is.
+    Delivery::deliver($sendTo('bob@test.local', 'Vieux spam'), 'x@ext.com', ['bob@test.local']);
+    Delivery::deliver($sendTo('bob@test.local', 'Vieille corbeille'), 'x@ext.com', ['bob@test.local']);
+    DB::run("UPDATE messages SET folder_id = :f, date_received = 1 WHERE user_id = :u AND subject = 'Vieux spam'", ['f' => Folders::byRole($uid, 'spam')['id'], 'u' => $uid]);
+    DB::run("UPDATE messages SET folder_id = :f, date_received = 1 WHERE user_id = :u AND subject = 'Vieille corbeille'", ['f' => Folders::byRole($uid, 'trash')['id'], 'u' => $uid]);
+    Mailbox::autoPurge(30);
+    eq((int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE subject = 'Vieux spam'"), 0);
+    eq(DB::value("SELECT reason FROM deleted_messages WHERE subject = 'Vieille corbeille'"), 'auto_purge');
+    // Departing user: mail kept, restorable into a colleague's mailbox.
+    $gone = Users::find(Users::create(['email' => 'depart@test.local', 'password' => 'Secret!Pass123']));
+    Delivery::deliver($sendTo('depart@test.local', 'Dossier en cours'), 'client@ext.com', ['depart@test.local']);
+    Users::delete((int) $gone['id']);
+    $r = DB::one("SELECT * FROM deleted_messages WHERE user_email = 'depart@test.local' AND subject = 'Dossier en cours'");
+    eq($r['reason'], 'account_deleted');
+    $thrown = false;
+    try { Retention::restore((int) $r['id'], $fsAdmin); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'no target when the account is gone');
+    $id = Retention::restore((int) $r['id'], $fsAdmin, $uid);
+    eq((int) Mailbox::get($uid, $id)['folder_id'], (int) Folders::byRole($uid, 'inbox')['id'], 'restored to a colleague inbox');
+});
+test('retention: drafts replaced at send are not kept, personal mail is masked, expiry', function () use ($bob, $sendTo, $fsAdmin) {
+    $uid = (int) $bob['id'];
+    $n = (int) DB::value('SELECT COUNT(*) FROM deleted_messages');
+    $d = Composer::saveDraft(Users::find($uid), ['to' => 'x@ext.com', 'subject' => 'Brouillon', 'html' => '<p>a</p>']);
+    Composer::saveDraft(Users::find($uid), ['to' => 'x@ext.com', 'subject' => 'Brouillon', 'html' => '<p>b</p>', 'draft_id' => $d]);
+    eq((int) DB::value('SELECT COUNT(*) FROM deleted_messages'), $n, 'draft replacement is not a deletion');
+    Delivery::deliver($sendTo('bob@test.local', '[Perso] Résultats médicaux'), 'doc@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT id FROM messages WHERE user_id = :u AND subject = '[Perso] Résultats médicaux'", ['u' => $uid]);
+    Mailbox::delete($uid, [(int) $m['id']], true);
+    $r = DB::one("SELECT * FROM deleted_messages WHERE subject = '[Perso] Résultats médicaux'");
+    ok(Retention::masked($r), 'masked for administrators');
+    eq(Retention::search(['q' => 'médicaux'])['total'], 0, 'personal subject not searchable');
+    $thrown = false;
+    try { Retention::restore((int) $r['id'], $fsAdmin, (int) $fsAdmin['id']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'personal mail only back to its owner');
+    ok(Retention::restore((int) $r['id'], $fsAdmin) > 0);
+    DB::run('UPDATE deleted_messages SET deleted_at = 1 WHERE id = :id', ['id' => $r['id']]);
+    $blob = $r['blob_id'];
+    ok(Retention::expire() >= 1);
+    ok(Retention::find((int) $r['id']) === null && !(new \M4W\Storage\DatabaseStore())->exists($blob), 'expired copy and content destroyed');
+    Settings::set('retention.enabled', 0);
+    Delivery::deliver($sendTo('bob@test.local', 'Sans conservation'), 'x@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT id FROM messages WHERE user_id = :u AND subject = 'Sans conservation'", ['u' => $uid]);
+    Mailbox::delete($uid, [(int) $m['id']], true);
+    eq((int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE subject = 'Sans conservation'"), 0, 'disabled');
+    Settings::set('retention.enabled', 1);
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

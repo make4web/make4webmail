@@ -60,6 +60,20 @@ Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisa
 - **Vie privée** (recommandations de la CNIL) : les messages dont l'objet commence par `[Perso]`, `[Privé]`, `[Personnel]`, `Perso :`… et les dossiers nommés « Perso », « Personnel » ou « Privé » (avec leurs sous-dossiers) sont invisibles et inaccessibles pour les délégués.
 - Réglages dans « Administration → Sécurité » : accès des administrateurs, motif obligatoire, information de l'utilisateur, masquage des éléments personnels. Retirer un délégué ou désactiver l'accès des administrateurs coupe immédiatement les sessions déléguées en cours.
 
+### Messages supprimés (seconde corbeille)
+- Quand un message est supprimé définitivement, une copie complète (.eml compressé) est conservée dans le stockage de l'instance. C'est le cas de la corbeille vidée, de la suppression directe, de la purge automatique à 30 jours, d'une règle « supprimer » ou de la suppression d'un compte.
+- La copie note qui a supprimé, quand, depuis quelle adresse IP, pour quel motif et depuis quel dossier d'origine. Elle est invisible pour les utilisateurs et ne compte pas dans leur quota.
+- « Administration → Messages supprimés » :
+  - recherche par boîte, motif, état et période ;
+  - aperçu assaini, sans images distantes ;
+  - téléchargement .eml ;
+  - restauration à l'unité ou en lot, dans le dossier d'origine (ou la boîte de réception), ou dans une autre boîte, par exemple après le départ d'un collaborateur ;
+  - destruction d'une copie.
+- Chaque consultation, téléchargement, restauration ou destruction est inscrit au journal d'audit.
+- Les messages marqués personnels (`[Perso]`, `[Privé]`…) restent masqués : objet caché, contenu non consultable, restauration uniquement dans la boîte de leur propriétaire.
+- Réglages : activation, durée de conservation (365 jours par défaut, 0 = illimité, destruction automatique par la tâche planifiée), conservation des comptes supprimés et des indésirables purgés.
+- Les brouillons remplacés à l'envoi ne sont pas conservés : ce n'est pas une suppression.
+
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
@@ -154,7 +168,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 85 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, TOTP, quotas…
+php tests/run.php   # 88 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -166,8 +180,8 @@ app/
   Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
                Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
-               Delegation (accès délégué aux boîtes, journal, éléments personnels)
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Settings, Admin, Install, Asset
+               Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille)
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)

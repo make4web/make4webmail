@@ -827,3 +827,5 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-check-item:last-child { border-bottom: 0; }
 .m4w-check-item:hover { background: var(--m4w-surface-2); }
 .m4w-check-item .form-check-input { margin: 0; flex-shrink: 0; }
+.m4w-ret-frame { width: 100%; height: 60vh; min-height: 360px; border: 0; border-top: 1px solid var(--m4w-border); background: #fff; border-radius: 0 0 var(--m4w-radius) var(--m4w-radius); }
+.m4w-bulk.d-flex { padding: .5rem .75rem; background: var(--m4w-primary-softer); border-radius: var(--m4w-radius-sm); }

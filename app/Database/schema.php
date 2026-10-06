@@ -383,4 +383,37 @@ static function (): void {
     }
 },
 ],
+5 => [
+// Retention of permanently deleted messages ("second trash", administrators only).
+"CREATE TABLE deleted_messages (
+  id {PK},
+  user_id INTEGER NULL,
+  user_email VARCHAR(190) NOT NULL DEFAULT '',
+  folder_name VARCHAR(255) NOT NULL DEFAULT '',
+  original_folder_id INTEGER NULL,
+  message_id VARCHAR(500) NOT NULL DEFAULT '',
+  subject VARCHAR(500) NOT NULL DEFAULT '',
+  from_name VARCHAR(255) NOT NULL DEFAULT '',
+  from_email VARCHAR(255) NOT NULL DEFAULT '',
+  to_list {TEXT},
+  date_sent INTEGER NOT NULL DEFAULT 0,
+  size INTEGER NOT NULL DEFAULT 0,
+  has_attachments INTEGER NOT NULL DEFAULT 0,
+  is_personal INTEGER NOT NULL DEFAULT 0,
+  blob_id VARCHAR(64) NOT NULL,
+  reason VARCHAR(30) NOT NULL DEFAULT 'deleted',
+  deleted_at INTEGER NOT NULL DEFAULT 0,
+  deleted_by INTEGER NULL,
+  deleted_by_name VARCHAR(190) NOT NULL DEFAULT '',
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  restored_at INTEGER NOT NULL DEFAULT 0,
+  restored_by INTEGER NULL,
+  restored_to VARCHAR(190) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX deleted_messages_user ON deleted_messages(user_id, deleted_at)",
+"CREATE INDEX deleted_messages_date ON deleted_messages(deleted_at)",
+"ALTER TABLE messages ADD COLUMN trashed_from INTEGER NULL",
+"ALTER TABLE messages ADD COLUMN trashed_from_name VARCHAR(255) NOT NULL DEFAULT ''",
+],
 ];
+

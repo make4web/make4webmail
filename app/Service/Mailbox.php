@@ -328,8 +328,19 @@ final class Mailbox
             throw new \InvalidArgumentException('Folder not found');
         }
         $ids = array_values(array_filter(array_map('intval', $ids)));
+        $target = Folders::find($userId, $folderId);
+        if (($target['role'] ?? '') === 'trash') {
+            [$in, $params] = DB::in('i', $ids);
+            $rows = DB::all("SELECT id, folder_id FROM messages WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId]);
+            foreach ($rows as $r) {
+                if ((int) $r['folder_id'] !== $folderId) {
+                    self::toTrash((int) $r['id'], (int) $r['folder_id'], $folderId);
+                }
+            }
+            return count($rows);
+        }
         [$in, $params] = DB::in('i', $ids);
-        return DB::run("UPDATE messages SET folder_id = :f WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId, 'f' => $folderId])->rowCount();
+        return DB::run("UPDATE messages SET folder_id = :f, trashed_from = NULL, trashed_from_name = '' WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId, 'f' => $folderId])->rowCount();
     }
 
     /** Move to trash, or delete permanently if already in trash/spam. */
@@ -346,17 +357,38 @@ final class Mailbox
         $n = 0;
         foreach ($rows as $r) {
             if ($permanent || (int) $r['folder_id'] === (int) $trash['id'] || (int) $r['folder_id'] === (int) $spam['id']) {
-                self::purge($userId, $r);
+                self::purge($userId, $r, 'deleted');
             } else {
-                DB::update('messages', ['folder_id' => $trash['id']], 'id = :id', ['id' => $r['id']]);
+                self::toTrash((int) $r['id'], (int) $r['folder_id'], (int) $trash['id']);
             }
             $n++;
         }
         return $n;
     }
 
-    public static function purge(int $userId, array $row): void
+    /** Move to trash, remembering where the message came from (for restores). */
+    private static function toTrash(int $id, int $fromFolder, int $trashId): void
     {
+        $name = (string) (DB::value('SELECT name FROM folders WHERE id = :f', ['f' => $fromFolder]) ?? '');
+        $role = DB::value('SELECT role FROM folders WHERE id = :f', ['f' => $fromFolder]);
+        DB::update('messages', [
+            'folder_id' => $trashId, 'trashed_from' => $fromFolder,
+            'trashed_from_name' => mb_substr(Folders::displayName(['name' => $name, 'role' => $role]), 0, 255),
+        ], 'id = :id', ['id' => $id]);
+    }
+
+    /**
+     * Remove a message for good. With a $retain reason, a copy goes to the
+     * administrators' retention store first (see Retention).
+     */
+    public static function purge(int $userId, array $row, ?string $retain = null): void
+    {
+        if ($retain !== null) {
+            $full = DB::one('SELECT * FROM messages WHERE id = :id AND user_id = :u', ['id' => $row['id'], 'u' => $userId]);
+            if ($full) {
+                Retention::keep($full, $retain);
+            }
+        }
         DB::delete('messages', 'id = :id AND user_id = :u', ['id' => $row['id'], 'u' => $userId]);
         $path = storage_path($row['storage_path']);
         if ($row['storage_path'] !== '' && is_file($path)) {
@@ -368,9 +400,9 @@ final class Mailbox
 
     public static function emptyFolder(int $userId, int $folderId): int
     {
-        $rows = DB::all('SELECT id, storage_path, size FROM messages WHERE user_id = :u AND folder_id = :f', ['u' => $userId, 'f' => $folderId]);
+        $rows = DB::all('SELECT id, storage_path, size FROM messages WHERE user_id = :u AND folder_id = :f' . self::privacySql($userId), ['u' => $userId, 'f' => $folderId]);
         foreach ($rows as $r) {
-            self::purge($userId, $r);
+            self::purge($userId, $r, 'emptied');
         }
         return count($rows);
     }
@@ -385,7 +417,7 @@ final class Mailbox
             ['l' => $limit]
         );
         foreach ($rows as $r) {
-            self::purge((int) $r['user_id'], $r);
+            self::purge((int) $r['user_id'], $r, 'auto_purge');
         }
         return count($rows);
     }

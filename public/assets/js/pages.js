@@ -18,7 +18,10 @@
       var $b = $(this), $f = $b.closest('form');
       if ($f[0]._confirmed) return;
       e.preventDefault();
-      M4W.confirm($b.data('confirm-bulk'), '', t('confirm')).done(function () { $f[0]._confirmed = true; $f[0].submit(); });
+      M4W.confirm($b.data('confirm-bulk'), '', t('confirm')).done(function () {
+        if ($b.attr('formaction')) $f.attr('action', $b.attr('formaction'));
+        $f[0]._confirmed = true; $f[0].submit();
+      });
     });
     $(document).on('input', '[data-live-filter]', function () {
       var q = this.value.toLowerCase();

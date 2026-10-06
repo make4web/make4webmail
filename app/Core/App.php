@@ -263,6 +263,13 @@ final class App
         $r->post('/api/files/purge', [Controller\FilesController::class, 'purge']);
         $r->post('/api/files/attach', [Controller\FilesController::class, 'attach']);
         $r->post('/api/messages/{id}/save-to-files', [Controller\FilesController::class, 'saveAttachment']);
+        $r->get('/admin/deleted', [Controller\RetentionController::class, 'index'], $admin);
+        $r->get('/admin/deleted/{id}', [Controller\RetentionController::class, 'show'], $admin);
+        $r->get('/admin/deleted/{id}/body', [Controller\RetentionController::class, 'body'], $admin);
+        $r->get('/admin/deleted/{id}/eml', [Controller\RetentionController::class, 'eml'], $admin);
+        $r->post('/admin/deleted/restore', [Controller\RetentionController::class, 'restore'], $admin);
+        $r->post('/admin/deleted/purge', [Controller\RetentionController::class, 'purge'], $admin);
+        $r->post('/admin/deleted/settings', [Controller\RetentionController::class, 'settings'], $admin);
         $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
         $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
 

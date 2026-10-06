@@ -93,6 +93,7 @@ final class Delivery
                 }
             }
             if ($actions['discard']) {
+                Retention::keepIncoming($user, $userRaw);
                 $results[$rcpt] = 'ok';
                 Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', 'discarded by rule');
                 continue;
