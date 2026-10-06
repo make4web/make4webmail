@@ -233,6 +233,9 @@ final class App
         $r->post('/contacts/import', [Controller\ContactsController::class, 'import']);
         $r->get('/contacts/export', [Controller\ContactsController::class, 'export']);
 
+        // User guide
+        $r->get('/help', [Controller\HelpController::class, 'index']);
+
         // Mailbox delegation
         $r->post('/delegation/open', [Controller\DelegationController::class, 'open']);
         $r->post('/delegation/close', [Controller\DelegationController::class, 'close']);

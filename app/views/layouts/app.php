@@ -1,7 +1,7 @@
 <?php
 use M4W\Core\Settings;
 $path = $req->path;
-$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : 'settings'));
+$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : (str_starts_with($path, '/help') ? 'help' : 'settings')));
 ?>
 <!DOCTYPE html>
 <html lang="<?= e(M4W\Core\I18n::language()) ?>">

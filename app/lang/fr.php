@@ -733,4 +733,6 @@ return [
     'audit.retention.viewed' => 'Message supprimé consulté',
     'audit.retention.downloaded' => 'Message supprimé téléchargé',
     'audit.retention.settings' => 'Conservation des messages modifiée',
+    'nav.guide' => 'Notice d\'utilisation',
+    'nav.admin_guide' => 'Guide d\'administration',
 ];

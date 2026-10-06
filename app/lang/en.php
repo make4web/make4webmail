@@ -660,4 +660,6 @@ return [
     'audit.retention.viewed' => 'Deleted message viewed',
     'audit.retention.downloaded' => 'Deleted message downloaded',
     'audit.retention.settings' => 'Message retention changed',
+    'nav.guide' => 'User guide',
+    'nav.admin_guide' => 'Administration guide',
 ];

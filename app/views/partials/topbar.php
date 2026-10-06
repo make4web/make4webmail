@@ -86,7 +86,7 @@ $prefs = $u['prefs'] ?? [];
       <div class="dropdown-menu dropdown-menu-end p-2" style="width:290px">
         <div class="row g-1 text-center">
           <?php
-          $apps = [['mail', 'envelope', 'nav.mail'], ['files', 'folder2-open', 'nav.files'], ['contacts', 'people', 'nav.contacts'], ['settings', 'sliders', 'nav.settings'], ['settings/rules', 'funnel', 'nav.rules']];
+          $apps = [['mail', 'envelope', 'nav.mail'], ['files', 'folder2-open', 'nav.files'], ['contacts', 'people', 'nav.contacts'], ['settings', 'sliders', 'nav.settings'], ['settings/rules', 'funnel', 'nav.rules'], ['help', 'book', 'nav.guide']];
           if (($u['role'] ?? '') === 'admin') {
               $apps[] = ['admin', 'speedometer2', 'nav.admin'];
               $apps[] = ['admin/users', 'person-gear', 'nav.users'];
@@ -123,6 +123,7 @@ $prefs = $u['prefs'] ?? [];
         <a class="dropdown-item" href="<?= e(url('settings')) ?>"><i class="bi bi-person-circle"></i><?= te('nav.profile') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/vacation')) ?>"><i class="bi bi-airplane"></i><?= te('nav.vacation') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/security')) ?>"><i class="bi bi-shield-lock"></i><?= te('nav.security') ?></a>
+        <a class="dropdown-item" href="<?= e(url('help')) ?>"><i class="bi bi-book"></i><?= te('nav.guide') ?></a>
         <?php if (($u['role'] ?? '') === 'admin'): ?><a class="dropdown-item" href="<?= e(url('admin')) ?>"><i class="bi bi-speedometer2"></i><?= te('nav.admin') ?></a><?php endif; ?>
         <div class="dropdown-divider"></div>
         <form method="post" action="<?= e(url('logout')) ?>"><?= csrf_field() ?><button class="dropdown-item text-danger" type="submit"><i class="bi bi-box-arrow-right text-danger"></i><?= te('nav.logout') ?></button></form>

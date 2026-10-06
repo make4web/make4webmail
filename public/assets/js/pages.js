@@ -32,6 +32,42 @@
       var q = this.value.toLowerCase();
       $($(this).data('filter-list')).find('[data-filter-text]').each(function () { $(this).toggleClass('d-none', String($(this).data('filter-text')).indexOf(q) === -1); });
     }).on('keydown', '[data-filter-list]', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+    // ---------------------------------------------------------- user guide
+    var $help = $('[data-help]');
+    if ($help.length) {
+      var $sections = $help.find('.m4w-help-section'), $toc = $('[data-help-toc] a');
+      var norm = function (v) { return String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); };
+      $sections.each(function () { $(this).data('text', norm($(this).text())); });
+      $(document).on('input', '[data-help-search]', function () {
+        var q = norm(this.value.trim()), shown = 0;
+        $sections.each(function () {
+          var hit = !q || $(this).data('text').indexOf(q) !== -1;
+          $(this).toggleClass('d-none', !hit);
+          $toc.filter('[href="#' + this.id + '"]').closest('li').toggleClass('d-none', !hit);
+          if (hit) shown++;
+          $(this).find('details').each(function () { if (q) this.open = norm($(this).text()).indexOf(q) !== -1; });
+        });
+        $help.find('.m4w-help-cards, .m4w-help-divider').toggleClass('d-none', !!q);
+        $help.find('[data-help-noresult]').toggleClass('d-none', shown > 0);
+      }).on('keydown', '[data-help-search]', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); var $f = $sections.not('.d-none').first(); if ($f.length) $f[0].scrollIntoView({ behavior: 'smooth' }); }
+      });
+      // Highlight the chapter being read in the side menu.
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (!en.isIntersecting) return;
+            $toc.removeClass('active').removeAttr('aria-current');
+            $toc.filter('[href="#' + en.target.id + '"]').addClass('active').attr('aria-current', 'location');
+          });
+        }, { rootMargin: '-10% 0px -75% 0px' });
+        $sections.each(function () { io.observe(this); });
+      }
+      $toc.on('click', function () { $('body').removeClass('sidebar-open'); });
+      $(document).on('click', '[data-help-print]', function () { window.print(); });
+      $(window).on('beforeprint', function () { $help.find('details').attr('open', ''); });
+    }
+
     $(document).on('change', '[data-autosubmit]', function () { this.form.submit(); });
     $(document).on('click', '[data-submit-form]', function () { $($(this).data('submit-form')).trigger('submit'); });
     $(document).on('click', '[data-copy]', function () {

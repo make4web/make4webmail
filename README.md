@@ -74,6 +74,14 @@ Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisa
 - Réglages : activation, durée de conservation (365 jours par défaut, 0 = illimité, destruction automatique par la tâche planifiée), conservation des comptes supprimés et des indésirables purgés.
 - Les brouillons remplacés à l'envoi ne sont pas conservés : ce n'est pas une suppression.
 
+### Notice d'utilisation intégrée
+- Page `/help`, accessible depuis le menu du compte, la grille des applications, la fenêtre des raccourcis clavier (touche `?`) et la console d'administration.
+- Elle reprend la charte de l'instance (nom, couleurs, thème clair ou sombre), s'adapte au mobile et s'imprime proprement (bouton « Imprimer », FAQ dépliée).
+- Les valeurs citées (délai d'annulation d'envoi, tailles maximales, durées de corbeille et de conservation, options activées) sont lues dans la configuration de l'instance.
+- Quinze chapitres pour les utilisateurs, avec recherche dans la notice et suivi du chapitre en cours.
+- Les douze chapitres d'administration ne sont générés côté serveur que pour les administrateurs : un utilisateur ne reçoit jamais ce contenu.
+- Le texte est en français (`app/views/help/index.php`).
+
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
@@ -181,7 +189,7 @@ app/
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
                Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
                Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille)
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Settings, Admin, Install, Asset
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)

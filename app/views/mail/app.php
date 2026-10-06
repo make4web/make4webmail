@@ -97,7 +97,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
 <div class="modal fade" id="m4w-shortcuts" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-keyboard me-2"></i><?= te('sc.title') ?></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-keyboard me-2"></i><?= te('sc.title') ?></h5><a class="btn btn-link btn-sm ms-auto me-2" href="<?= e(url('help')) ?>"><i class="bi bi-book me-1"></i><?= te('nav.guide') ?></a><button class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <div class="row">
           <?php $groups = [
