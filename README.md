@@ -1,6 +1,6 @@
-# Make4Web Mail
+# Make4WebMail
 
-Make4Web Mail est un webmail professionnel en PHP qui fonctionne seul : le stockage des messages, le serveur SMTP de réception et le client SMTP d'envoi sont intégrés. Il gère les règles de tri, les réponses d'absence, le transfert, les signatures centralisées, un espace de fichiers partagé avec droits par dossier, l'administration des utilisateurs et la personnalisation graphique.
+Make4WebMail est un webmail professionnel en PHP qui fonctionne seul : le stockage des messages, le serveur SMTP de réception et le client SMTP d'envoi sont intégrés. Il gère les règles de tri, les réponses d'absence, le transfert, les signatures centralisées, un espace de fichiers partagé avec droits par dossier, l'administration des utilisateurs et la personnalisation graphique.
 
 Chaque instance est dédiée à un client : une installation correspond à une organisation, avec sa propre base, son propre stockage et sa propre personnalisation. Rien n'est partagé entre deux instances.
 

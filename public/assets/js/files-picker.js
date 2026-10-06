@@ -1,4 +1,4 @@
-/*! Make4Web Mail — file space pickers (choose files to attach, choose a destination folder) */
+/*! Make4WebMail — file space pickers (choose files to attach, choose a destination folder) */
 (function ($, window) {
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;

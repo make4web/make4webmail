@@ -1,5 +1,5 @@
 <?php
-// Make4Web Mail — English
+// Make4WebMail — English
 return [
     'common.back' => 'Back', 'common.cancel' => 'Cancel', 'common.close' => 'Close', 'common.confirm' => 'Confirm', 'common.copy' => 'Copy',
     'common.delete' => 'Delete', 'common.disabled' => 'Disabled', 'common.edit' => 'Edit', 'common.enabled' => 'Enabled', 'common.none' => 'None',
@@ -41,7 +41,7 @@ return [
     'pw.change_sub' => 'For your security, choose a new password before continuing.', 'pw.current' => 'Current password', 'pw.new' => 'New password',
     'pw.confirm' => 'Confirm password', 'pw.update' => 'Update password', 'pw.policy' => 'At least :n characters, mix upper case, digits and symbols.',
 
-    'install.title' => 'Install Make4Web Mail', 'install.subtitle' => 'A few details and your mail system is ready.', 'install.requirements' => 'Requirements',
+    'install.title' => 'Install Make4WebMail', 'install.subtitle' => 'A few details and your mail system is ready.', 'install.requirements' => 'Requirements',
     'install.requirement' => 'Missing requirement: :name', 'install.org' => 'Organization', 'install.brand' => 'Mail system name', 'install.domain' => 'Primary domain',
     'install.language' => 'Default language', 'install.timezone' => 'Time zone', 'install.admin' => 'Administrator account', 'install.admin_name' => 'Full name',
     'install.admin_email' => 'Email address', 'install.database' => 'Database', 'install.zero_conf' => 'zero configuration', 'install.db_name' => 'Database name',

@@ -1,7 +1,7 @@
 <?php
 use M4W\Core\Settings;
 use M4W\Service\Branding;
-$brand = (string) Settings::get('brand.name', 'Make4Web Mail');
+$brand = (string) Settings::get('brand.name', 'Make4WebMail');
 $bg = (string) Settings::get('brand.login_bg', '');
 $logo = Branding::logoUrl();
 ?>

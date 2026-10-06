@@ -1,6 +1,6 @@
 # /etc/systemd/system/m4w-smtpd.service — built-in inbound SMTP daemon
 [Unit]
-Description=Make4Web Mail inbound SMTP
+Description=Make4WebMail inbound SMTP
 After=network.target
 
 [Service]

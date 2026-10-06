@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Make4Web Mail — self-contained test suite (no dependencies).
+ * Make4WebMail — self-contained test suite (no dependencies).
  *   php tests/run.php
  * Runs against an isolated temporary installation.
  */

@@ -1,4 +1,4 @@
-/*! Make4Web Mail — rich text editor (Jodit, MIT, self-hosted in assets/vendor/jodit) */
+/*! Make4WebMail — rich text editor (Jodit, MIT, self-hosted in assets/vendor/jodit) */
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W;

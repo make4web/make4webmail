@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Make4Web Mail — built-in inbound SMTP server.
+ * Make4WebMail — built-in inbound SMTP server.
  *
  *   php bin/smtpd.php [--listen=0.0.0.0:2525] [--foreground]
  *
@@ -26,7 +26,7 @@ use M4W\Service\Transport;
 use M4W\Service\Users;
 
 if (!Config::installed()) {
-    fwrite(STDERR, "Make4Web Mail is not installed.\n");
+    fwrite(STDERR, "Make4WebMail is not installed.\n");
     exit(1);
 }
 
@@ -134,7 +134,7 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
             return;
         }
     }
-    $send("220 $hostname ESMTP Make4Web Mail ready");
+    $send("220 $hostname ESMTP Make4WebMail ready");
     $helo = '';
     $from = null;
     $rcpts = [];
@@ -271,7 +271,7 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                 } else {
                     $id = bin2hex(random_bytes(6));
                     $received = 'Return-Path: <' . $from . ">\r\n"
-                        . 'Received: from ' . ($helo ?: 'unknown') . ' ([' . $ip . "])\r\n\tby $hostname (Make4Web Mail) with ESMTP" . ($secure ? 'S' : '') . " id $id\r\n\tfor <" . $rcpts[0] . '>; ' . date('r') . "\r\n";
+                        . 'Received: from ' . ($helo ?: 'unknown') . ' ([' . $ip . "])\r\n\tby $hostname (Make4WebMail) with ESMTP" . ($secure ? 'S' : '') . " id $id\r\n\tfor <" . $rcpts[0] . '>; ' . date('r') . "\r\n";
                     try {
                         $auth = null;
                         if ((int) M4W\Core\Settings::get('inbound.auth_checks', 1)) {

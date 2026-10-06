@@ -1,7 +1,7 @@
 <?php
 /** @var string|null $title */
 use M4W\Core\Settings;
-$brandName = (string) Settings::get('brand.name', 'Make4Web Mail');
+$brandName = (string) Settings::get('brand.name', 'Make4WebMail');
 $favicon = (string) Settings::get('brand.favicon', '');
 $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 ?>

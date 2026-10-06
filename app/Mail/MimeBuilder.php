@@ -77,7 +77,7 @@ final class MimeBuilder
             $h[] = $k . ': ' . str_replace(["\r", "\n"], '', $v);
         }
         $h[] = 'MIME-Version: 1.0';
-        $h[] = 'X-Mailer: Make4Web Mail ' . (defined('M4W_VERSION') ? M4W_VERSION : '');
+        $h[] = 'X-Mailer: Make4WebMail ' . (defined('M4W_VERSION') ? M4W_VERSION : '');
 
         [$ctype, $body] = $this->buildBody();
         $h[] = $ctype;

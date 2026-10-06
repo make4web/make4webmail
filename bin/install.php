@@ -33,7 +33,7 @@ if (isset($o['force']) && $db['driver'] === 'sqlite' && is_file($db['path'])) {
 }
 M4W\Core\I18n::setLanguage($o['lang'] ?? 'fr');
 M4W\Service\Installer::install([
-    'lang' => $o['lang'] ?? 'fr', 'brand' => $o['brand'] ?? 'Make4Web Mail', 'domain' => strtolower($o['domain']),
+    'lang' => $o['lang'] ?? 'fr', 'brand' => $o['brand'] ?? 'Make4WebMail', 'domain' => strtolower($o['domain']),
     'admin_email' => strtolower($o['admin']), 'admin_password' => $o['password'], 'admin_name' => $o['name'] ?? 'Administrateur', 'db' => $db,
 ]);
-echo "Make4Web Mail installed. Sign in as {$o['admin']}.\n";
+echo "Make4WebMail installed. Sign in as {$o['admin']}.\n";

@@ -12,7 +12,7 @@ final class Settings
 
     public const DEFAULTS = [
         // Branding
-        'brand.name'           => 'Make4Web Mail',
+        'brand.name'           => 'Make4WebMail',
         'brand.tagline'        => 'Votre messagerie professionnelle, simple et sécurisée.',
         'brand.logo'           => '',
         'brand.logo_dark'      => '',

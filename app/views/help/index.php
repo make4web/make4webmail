@@ -13,8 +13,8 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <header class="m4w-help-hero">
     <div class="m4w-help-hero-icon"><i class="bi bi-book"></i></div>
     <div>
-      <h1>Notice d'utilisation</h1>
-      <p>Tout ce qu'il faut savoir pour utiliser la messagerie <?= $b ?> au quotidien<?= $isAdmin ? ', et pour l\'administrer' : '' ?>. Les valeurs citées (délais, tailles, durées) sont celles configurées sur votre espace.</p>
+      <h1>Notice d'utilisation de Make4WebMail</h1>
+      <p>Tout ce qu'il faut savoir pour utiliser <strong>Make4WebMail</strong><?= $brand !== 'Make4WebMail' ? ' (votre messagerie ' . $b . ')' : '' ?> au quotidien<?= $isAdmin ? ', et pour l\'administrer' : '' ?>. Les valeurs citées (délais, tailles, durées) sont celles configurées sur votre espace.</p>
     </div>
     <button type="button" class="btn btn-light m4w-help-print" data-help-print><i class="bi bi-printer me-1"></i>Imprimer</button>
   </header>
@@ -457,7 +457,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
 <?php endif; ?>
 
   <footer class="m4w-help-footer">
-    <span><?= $b ?> · Make4Web Mail v<?= e(M4W_VERSION) ?></span>
+    <span><?= $b ?> · Make4WebMail v<?= e(M4W_VERSION) ?></span>
     <a href="#start" class="ms-auto"><i class="bi bi-arrow-up me-1"></i>Haut de page</a>
   </footer>
 </div>

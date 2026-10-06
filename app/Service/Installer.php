@@ -57,7 +57,7 @@ final class Installer
         Migrator::migrate();
         Settings::flush();
         Settings::setMany([
-            'brand.name' => $d['brand'] ?: 'Make4Web Mail',
+            'brand.name' => $d['brand'] ?: 'Make4WebMail',
             'brand.company' => $d['brand'] ?: 'Make4Web',
             'features.default_language' => $d['lang'],
             'smtp.helo' => $d['domain'],

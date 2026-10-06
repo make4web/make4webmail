@@ -395,7 +395,7 @@ final class AdminController extends Controller
         $r = $this->req;
         $color = static fn(string $v, string $d) => preg_match('/^#[0-9a-f]{6}$/i', $v) ? strtolower($v) : $d;
         $values = [
-            'brand.name' => mb_substr($r->str('name'), 0, 100) ?: 'Make4Web Mail',
+            'brand.name' => mb_substr($r->str('name'), 0, 100) ?: 'Make4WebMail',
             'brand.tagline' => mb_substr($r->str('tagline'), 0, 200),
             'brand.company' => mb_substr($r->str('company'), 0, 190),
             'brand.website' => preg_match('#^https?://#i', $r->str('website')) ? mb_substr($r->str('website'), 0, 190) : '',

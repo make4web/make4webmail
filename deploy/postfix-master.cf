@@ -1,5 +1,5 @@
 # Postfix integration (master.cf) — Postfix receives on :25 (antispam, TLS, greylisting…)
-# and hands local domains to Make4Web Mail.
+# and hands local domains to Make4WebMail.
 m4w   unix  -       n       n       -       -       pipe
   flags=Rq user=www-data argv=/usr/bin/php /var/www/make4webmail/bin/deliver.php -f ${sender} -- ${recipient}
 

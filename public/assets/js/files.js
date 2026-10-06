@@ -1,4 +1,4 @@
-/*! Make4Web Mail — shared file space */
+/*! Make4WebMail — shared file space */
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;

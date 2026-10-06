@@ -1,5 +1,5 @@
 <?php
-// Make4Web Mail — Français (langue de référence)
+// Make4WebMail — Français (langue de référence)
 return [
     // Commun
     'common.back' => 'Retour', 'common.cancel' => 'Annuler', 'common.close' => 'Fermer', 'common.confirm' => 'Confirmer',
@@ -55,7 +55,7 @@ return [
     'pw.update' => 'Mettre à jour le mot de passe', 'pw.policy' => 'Au moins :n caractères, mélangez majuscules, chiffres et symboles.',
 
     // Installation
-    'install.title' => 'Installation de Make4Web Mail', 'install.subtitle' => 'Quelques informations et votre messagerie est prête.',
+    'install.title' => 'Installation de Make4WebMail', 'install.subtitle' => 'Quelques informations et votre messagerie est prête.',
     'install.requirements' => 'Prérequis', 'install.requirement' => 'Prérequis manquant : :name', 'install.org' => 'Organisation',
     'install.brand' => 'Nom de la messagerie', 'install.domain' => 'Domaine principal', 'install.language' => 'Langue par défaut',
     'install.timezone' => 'Fuseau horaire', 'install.admin' => 'Compte administrateur', 'install.admin_name' => 'Nom complet',

@@ -1,4 +1,4 @@
-/*! Make4Web Mail — webmail single page application */
+/*! Make4WebMail — webmail single page application */
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;

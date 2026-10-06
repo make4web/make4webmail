@@ -1,4 +1,4 @@
-/*! Make4Web Mail — login / 2FA pages */
+/*! Make4WebMail — login / 2FA pages */
 (function ($) {
   'use strict';
   $(function () {

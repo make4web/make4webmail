@@ -1,4 +1,4 @@
-/*! Make4Web Mail — settings & admin pages */
+/*! Make4WebMail — settings & admin pages */
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;

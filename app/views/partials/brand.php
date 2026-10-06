@@ -2,7 +2,7 @@
 use M4W\Service\Branding;
 $logo = Branding::logoUrl();
 $logoDark = (string) M4W\Core\Settings::get('brand.logo_dark', '');
-$name = (string) M4W\Core\Settings::get('brand.name', 'Make4Web Mail');
+$name = (string) M4W\Core\Settings::get('brand.name', 'Make4WebMail');
 ?>
 <a class="m4w-brand" href="<?= e(url('mail')) ?>" aria-label="<?= e($name) ?>">
 <?php if ($logo !== ''): ?>

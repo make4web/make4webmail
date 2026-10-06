@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Make4Web Mail — application bootstrap.
+ * Make4WebMail — application bootstrap.
  * Loaded by every entry point (web front controller and CLI tools).
  */
 
@@ -12,7 +12,7 @@ define('M4W_APP', __DIR__);
 
 if (PHP_VERSION_ID < 80100) {
     http_response_code(500);
-    exit('Make4Web Mail requires PHP 8.1 or newer.');
+    exit('Make4WebMail requires PHP 8.1 or newer.');
 }
 
 // Messages, database and uploads must not be readable by other local accounts.

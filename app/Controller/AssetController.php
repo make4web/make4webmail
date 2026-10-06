@@ -41,7 +41,7 @@ final class AssetController extends Controller
 
     public function manifest(): Response
     {
-        $name = (string) Settings::get('brand.name', 'Make4Web Mail');
+        $name = (string) Settings::get('brand.name', 'Make4WebMail');
         $icon = Branding::logoUrl() ?: url('assets/img/icon.svg');
         return new Response(json_encode([
             'name' => $name,

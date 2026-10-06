@@ -25,7 +25,7 @@
         <div class="card-body">
           <h2 class="h6 fw-semibold mb-3"><i class="bi bi-building me-2 text-primary"></i><?= te('install.org') ?></h2>
           <div class="row g-3 mb-4">
-            <div class="col-md-6"><label class="form-label"><?= te('install.brand') ?></label><input class="form-control" name="brand" value="<?= $v('brand', 'Make4Web Mail') ?>" required></div>
+            <div class="col-md-6"><label class="form-label"><?= te('install.brand') ?></label><input class="form-control" name="brand" value="<?= $v('brand', 'Make4WebMail') ?>" required></div>
             <div class="col-md-6"><label class="form-label"><?= te('install.domain') ?></label><input class="form-control" name="domain" value="<?= $v('domain') ?>" placeholder="entreprise.fr" required></div>
             <div class="col-md-6"><label class="form-label"><?= te('install.language') ?></label>
               <select class="form-select" name="lang"><?php foreach (M4W\Core\I18n::LANGUAGES as $c => $l): ?><option value="<?= $c ?>" <?= ($o['lang'] ?? 'fr') === $c ? 'selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?></select></div>

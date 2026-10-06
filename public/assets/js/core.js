@@ -1,4 +1,4 @@
-/*! Make4Web Mail — core helpers (jQuery) */
+/*! Make4WebMail — core helpers (jQuery) */
 (function ($, window, document) {
   'use strict';
 

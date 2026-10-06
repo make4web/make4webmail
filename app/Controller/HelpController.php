@@ -49,7 +49,7 @@ final class HelpController extends Controller
         return $this->view('help/index', [
             'isAdmin' => $isAdmin,
             'toc' => ['user' => self::USER_TOC, 'admin' => $isAdmin ? self::ADMIN_TOC : []],
-            'brand' => (string) Settings::get('brand.name', 'Make4Web Mail'),
+            'brand' => (string) Settings::get('brand.name', 'Make4WebMail'),
             'cfg' => [
                 'undo' => (int) Settings::get('features.undo_send_seconds', 5),
                 'attach' => (int) Settings::get('security.max_attachment_mb', 25),
