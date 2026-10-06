@@ -1047,8 +1047,11 @@ final class Files
     // ------------------------------------------------------------ mail links
 
     /** Copy files into compose uploads; returns upload descriptors like Composer::storeUpload. */
-    public static function toUploads(array $user, array $fileIds): array
+    public static function toUploads(array $user, array $fileIds, ?int $uploadOwner = null): array
     {
+        // Rights are the reader's; the compose uploads belong to the mailbox being written from
+        // (a delegated mailbox when one is open).
+        $uploadOwner ??= (int) $user['id'];
         $out = [];
         $max = max(1, (int) Settings::get('security.max_attachment_mb', 25)) * 1024 * 1024;
         foreach (array_slice(array_unique(array_map('intval', $fileIds)), 0, 50) as $id) {
@@ -1057,7 +1060,7 @@ final class Files
                 throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
             }
             $token = bin2hex(random_bytes(16));
-            $rel = 'tmp/up-' . $user['id'] . '-' . $token;
+            $rel = 'tmp/up-' . $uploadOwner . '-' . $token;
             $dest = storage_path($rel);
             if (!is_dir(dirname($dest))) {
                 mkdir(dirname($dest), 0750, true);
@@ -1069,7 +1072,7 @@ final class Files
             fclose($fh);
             $name = str_replace(['"', "\r", "\n"], '_', $f['name']);
             DB::insert('uploads', [
-                'user_id' => (int) $user['id'], 'token' => $token, 'filename' => $name, 'mime' => $f['mime'],
+                'user_id' => $uploadOwner, 'token' => $token, 'filename' => $name, 'mime' => $f['mime'],
                 'size' => (int) $f['size'], 'path' => $rel, 'created_at' => time(),
             ]);
             $out[] = ['token' => $token, 'name' => $name, 'size' => (int) $f['size'], 'mime' => $f['mime']];

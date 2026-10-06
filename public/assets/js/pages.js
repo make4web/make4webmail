@@ -25,6 +25,10 @@
       $($(this).data('live-filter')).find('tbody tr').each(function () { $(this).toggle(($(this).data('filter-text') || '').indexOf(q) !== -1); });
     });
     $('[data-live-filter]').closest('form').on('submit', function (e) { e.preventDefault(); });
+    $(document).on('input', '[data-filter-list]', function () {
+      var q = this.value.toLowerCase();
+      $($(this).data('filter-list')).find('[data-filter-text]').each(function () { $(this).toggleClass('d-none', String($(this).data('filter-text')).indexOf(q) === -1); });
+    }).on('keydown', '[data-filter-list]', function (e) { if (e.key === 'Enter') e.preventDefault(); });
     $(document).on('change', '[data-autosubmit]', function () { this.form.submit(); });
     $(document).on('click', '[data-submit-form]', function () { $($(this).data('submit-form')).trigger('submit'); });
     $(document).on('click', '[data-copy]', function () {

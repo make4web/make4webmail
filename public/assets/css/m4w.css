@@ -811,3 +811,19 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 [data-bs-theme="dark"] .m4w-msg-banner.danger { color: #fca5a5; }
 /* Light logo without a dark variant: keep it readable on dark backgrounds. */
 [data-bs-theme="dark"] .m4w-brand .m4w-logo-light:not(.has-dark) { background: #fff; border-radius: 8px; padding: 3px 8px; }
+
+/* ------------------------------------------------------- Delegation */
+.m4w-topbar.is-delegated { box-shadow: inset 0 -3px 0 #f59e0b; }
+.m4w-deleg-pill { display: flex; align-items: center; gap: .5rem; min-width: 0; max-width: 420px; padding: .2rem .25rem .2rem .3rem; border-radius: 999px; background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; font-size: .86rem; margin: 0; }
+.m4w-deleg-pill .btn { --bs-btn-padding-y: .15rem; --bs-btn-padding-x: .6rem; border-radius: 999px; background: #78350f; color: #fff; border: 0; white-space: nowrap; }
+.m4w-deleg-pill .btn:hover { background: #451a03; color: #fff; }
+[data-bs-theme="dark"] .m4w-deleg-pill { background: rgba(245, 158, 11, .16); color: #fde68a; border-color: rgba(245, 158, 11, .45); }
+[data-bs-theme="dark"] .m4w-deleg-pill .btn { background: #f59e0b; color: #1c1917; }
+.m4w-deleg-notice { display: flex; gap: .5rem; padding: .6rem .75rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-2); border: 1px solid var(--m4w-border); color: var(--m4w-text-2); }
+.m4w-deleg-notice .bi { color: var(--m4w-primary); }
+@media (max-width: 767.98px) { .m4w-deleg-pill .m4w-deleg-label { display: none; } .m4w-deleg-pill { max-width: 46vw; } }
+.m4w-check-list { max-height: 240px; overflow-y: auto; border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius-sm); }
+.m4w-check-item { display: flex; align-items: center; gap: .6rem; padding: .45rem .7rem; border-bottom: 1px solid var(--m4w-border); cursor: pointer; margin: 0; font-size: .86rem; }
+.m4w-check-item:last-child { border-bottom: 0; }
+.m4w-check-item:hover { background: var(--m4w-surface-2); }
+.m4w-check-item .form-check-input { margin: 0; flex-shrink: 0; }

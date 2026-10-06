@@ -88,3 +88,19 @@
     </div>
   </div>
 </div>
+<div class="card mt-4" id="delegation">
+  <div class="card-header"><i class="bi bi-person-badge me-2 text-primary"></i><?= te('deleg.my_title') ?></div>
+  <div class="card-body pb-2">
+    <p class="small text-muted mb-2"><?= te(M4W\Service\Delegation::adminsByDefault() ? 'deleg.my_admins_on' : 'deleg.my_admins_off') ?><?= M4W\Core\Settings::get('delegation.hide_personal', 1) ? ' ' . te('deleg.my_private') : '' ?></p>
+    <?php if ($delegates): ?>
+    <div class="small fw-semibold mb-1"><?= te('deleg.my_delegates') ?></div>
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      <?php foreach ($delegates as $d): $dn = $d['display_name'] ?: $d['email']; ?>
+      <span class="m4w-chip"><span class="m4w-avatar sm" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($dn)) ?></span><?= e($dn) ?></span>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php include __DIR__ . '/../partials/delegation_journal.php'; ?>
+</div>
+

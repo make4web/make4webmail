@@ -37,6 +37,10 @@ final class Composer
         }
         $b = new MimeBuilder();
         $b->from = ['email' => $from, 'name' => $user['name']];
+        if (!empty($user['_actor'])) {
+            // Sent from a delegated mailbox: RFC 5322 "Sender" names who actually sent it.
+            $b->extraHeaders['Sender'] = Address::encode($user['_actor']['email'], $user['_actor']['name']);
+        }
         $b->to = Address::parseInput($in['to'] ?? '');
         $b->cc = Address::parseInput($in['cc'] ?? '');
         $b->bcc = Address::parseInput($in['bcc'] ?? '');
@@ -202,6 +206,10 @@ final class Composer
         if (!$res['sent'] && $res['failed']) {
             throw new \RuntimeException(t('compose.send_failed') . ' ' . implode(' — ', array_unique($res['failed'])));
         }
+        if (!empty($user['_actor'])) {
+            Delegation::countSent($user);
+            \M4W\Core\Audit::log('delegation.sent', $user['email'], ['subject' => mb_substr($b->subject, 0, 120), 'to' => count($rcpts)], (int) $user['_actor']['id']);
+        }
         $uid = (int) $user['id'];
         $sent = Folders::byRole($uid, 'sent');
         $id = Mailbox::store($uid, (int) $sent['id'], $b->build(true), ['read' => true]);
@@ -240,6 +248,8 @@ final class Composer
             'ref_parts' => array_values((array) ($in['ref_parts'] ?? [])), 'priority' => $b->priority,
             'receipt' => !empty($in['receipt']) ? 1 : 0, 'attach_original' => !empty($in['attach_original']) ? 1 : 0,
             'scheduled_at' => max(0, (int) ($in['scheduled_at'] ?? 0)),
+            // Written from a delegated mailbox: the scheduler must still name the real sender.
+            'actor' => !empty($user['_actor']) ? ['id' => (int) $user['_actor']['id'], 'email' => $user['_actor']['email'], 'name' => $user['_actor']['name'], 'role' => $user['_actor']['role']] : null,
         ];
         $id = Mailbox::store($uid, (int) $drafts['id'], $b->build(true), ['read' => true, 'draft' => true, 'draft_meta' => $meta]);
         if (!empty($in['draft_id'])) {
@@ -284,6 +294,9 @@ final class Composer
             $user = Users::find((int) $row['user_id']);
             if (!$user || $user['status'] !== 'active') {
                 continue;
+            }
+            if (!empty($meta['actor']['id']) && DB::value('SELECT 1 FROM users WHERE id = :i', ['i' => (int) $meta['actor']['id']])) {
+                $user['_actor'] = $meta['actor'];
             }
             // Claim: clear the schedule first so a concurrent worker cannot send it twice.
             $meta['scheduled_at'] = 0;

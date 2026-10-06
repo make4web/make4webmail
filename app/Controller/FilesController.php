@@ -266,7 +266,9 @@ final class FilesController extends Controller
     public function attach(): Response
     {
         try {
-            $items = Files::toUploads($this->user(), $this->req->arr('ids'));
+            $actor = $this->user();
+            $mailbox = \M4W\Service\Delegation::mailbox($actor);
+            $items = Files::toUploads($actor, $this->req->arr('ids'), (int) $mailbox['id']);
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
@@ -280,7 +282,8 @@ final class FilesController extends Controller
     public function saveAttachment(string $id): Response
     {
         $user = $this->user();
-        $m = Mailbox::get((int) $user['id'], (int) $id);
+        $mailbox = \M4W\Service\Delegation::mailbox($user);
+        $m = Mailbox::get((int) $mailbox['id'], (int) $id);
         if (!$m) {
             throw new HttpException(404, t('mail.not_found'));
         }

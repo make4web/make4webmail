@@ -48,6 +48,18 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Stockage en base de données (blocs de 1 Mo) derrière une interface `BlobStore` : passer sur disque local se fait dans `config/config.php` (`'files' => ['storage' => 'local', 'path' => '/srv/files']`), et un stockage S3 ne demande qu'une nouvelle classe.
 - Administration : taille maximale, quota total, nombre de versions conservées, durée de la corbeille, création d'espaces par les utilisateurs.
 
+### Délégation des boîtes aux lettres
+Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisation : en cas d'absence ou d'urgence, il faut pouvoir les gérer.
+- **Par défaut, les administrateurs peuvent ouvrir n'importe quelle boîte**, depuis la liste des utilisateurs ou la fiche d'un utilisateur. L'administrateur reste connecté sous son identité : seuls les écrans de messagerie passent sur la boîte ouverte (bandeau « Boîte de … » et bouton « Quitter » dans la barre du haut).
+- **Délégués nommés** : l'administrateur peut désigner pour chaque boîte des délégués (assistant, collègue qui assure l'intérim). Ils retrouvent ces boîtes dans le menu de leur compte.
+- Dans la boîte ouverte, on peut lire, classer, répondre et envoyer, et gérer la réponse d'absence, le transfert, les règles, la signature et les dossiers. Les messages partent avec le `From:` de la boîte et un en-tête `Sender:` qui nomme la personne qui les a envoyés, y compris pour les envois programmés.
+- **Traçabilité** :
+  - chaque ouverture est journalisée avec son motif (obligatoire pour les administrateurs, réglable), l'adresse IP, la durée et le nombre de messages envoyés ;
+  - chaque action est inscrite au journal d'audit ;
+  - l'utilisateur voit ce journal dans « Paramètres → Sécurité » et reçoit un message dans sa boîte à chaque ouverture (réglable).
+- **Vie privée** (recommandations de la CNIL) : les messages dont l'objet commence par `[Perso]`, `[Privé]`, `[Personnel]`, `Perso :`… et les dossiers nommés « Perso », « Personnel » ou « Privé » (avec leurs sous-dossiers) sont invisibles et inaccessibles pour les délégués.
+- Réglages dans « Administration → Sécurité » : accès des administrateurs, motif obligatoire, information de l'utilisateur, masquage des éléments personnels. Retirer un délégué ou désactiver l'accès des administrateurs coupe immédiatement les sessions déléguées en cours.
+
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
@@ -142,7 +154,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 80 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, TOTP, quotas…
+php tests/run.php   # 85 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -153,8 +165,9 @@ app/
   Mail/        MimeParser, MimeBuilder, HtmlSanitizer, SmtpClient, ImapClient, DkimSigner, MailAuth (SPF/DKIM/DMARC), Address, Charset
   Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
-               Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits)
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Settings, Admin, Install, Asset
+               Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
+               Delegation (accès délégué aux boîtes, journal, éléments personnels)
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)

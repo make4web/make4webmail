@@ -48,6 +48,10 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <div class="input-group mt-2" style="max-width:520px"><input class="form-control" name="address" form="alias-form" placeholder="contact@<?= e(explode('@', $u['email'])[1] ?? '') ?>" type="email"><button class="btn btn-light" form="alias-form"><i class="bi bi-plus-lg me-1"></i><?= te('admin.add_alias') ?></button></div>
         </div>
       </div>
+      <div class="card mb-4">
+        <div class="card-header"><i class="bi bi-clock-history me-2 text-primary"></i><?= te('deleg.journal') ?><small class="text-muted fw-normal ms-2"><?= te('deleg.journal_desc') ?></small></div>
+        <?php include __DIR__ . '/../partials/delegation_journal.php'; ?>
+      </div>
       <?php endif; ?>
     </div>
     <div class="col-xl-4">
@@ -66,6 +70,24 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
         </div>
       </div>
       <?php if (!$isNew): ?>
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center"><i class="bi bi-person-badge me-2 text-primary"></i><?= te('deleg.card_title') ?></div>
+        <div class="card-body">
+          <p class="small text-muted"><?= te(M4W\Service\Delegation::adminsByDefault() ? 'deleg.card_admins_on' : 'deleg.card_admins_off') ?></p>
+          <?php if ((int) $u['id'] !== (int) $currentUser['id'] && M4W\Service\Delegation::via($currentUser, (int) $u['id'])): ?>
+          <button type="button" class="btn btn-soft w-100 mb-3" data-open-mailbox="<?= (int) $u['id'] ?>" data-name="<?= e($u['name']) ?>" data-email="<?= e($u['email']) ?>" data-reason="<?= M4W\Service\Delegation::reasonRequired($currentUser, (int) $u['id']) ? 1 : 0 ?>"><i class="bi bi-box-arrow-in-right me-1"></i><?= te('deleg.open_this') ?></button>
+          <?php endif; ?>
+          <div class="fw-semibold small mb-1"><?= te('deleg.delegates') ?></div>
+          <div class="form-text mt-0 mb-2"><?= te('deleg.delegates_desc') ?></div>
+          <input type="hidden" name="delegates_present" value="1">
+          <input class="form-control form-control-sm mb-2" type="search" placeholder="<?= te('deleg.filter_users') ?>" aria-label="<?= te('deleg.filter_users') ?>" data-filter-list="#deleg-list">
+          <div class="m4w-check-list" id="deleg-list">
+            <?php foreach ($others as $o): $on = $o['display_name'] ?: $o['email']; ?>
+            <label class="m4w-check-item" data-filter-text="<?= e(mb_strtolower($on . ' ' . $o['email'])) ?>"><input class="form-check-input" type="checkbox" name="delegates[]" value="<?= (int) $o['id'] ?>" <?= in_array((int) $o['id'], $delegates, true) ? 'checked' : '' ?>><span class="min-w-0"><span class="d-block text-truncate"><?= e($on) ?><?= $o['role'] === 'admin' ? ' <span class="badge badge-soft ms-1">Admin</span>' : '' ?></span><small class="text-muted d-block text-truncate"><?= e($o['email']) ?></small></span></label>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      </div>
       <div class="card mb-4">
         <div class="card-header"><i class="bi bi-info-circle me-2 text-primary"></i><?= te('admin.info') ?></div>
         <ul class="list-group list-group-flush small">

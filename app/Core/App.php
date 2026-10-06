@@ -84,6 +84,7 @@ final class App
         $user = Config::installed() ? Auth::user() : null;
         I18n::setLanguage($user['language'] ?? (Session::get('lang') ?: I18n::detect($req->header('Accept-Language'))));
         View::share('currentUser', $user);
+        View::share('delegation', $user ? \M4W\Service\Delegation::banner($user) : null);
         View::share('req', $req);
 
         $match = $router->match($req);
@@ -231,6 +232,10 @@ final class App
         $r->post('/contacts/delete', [Controller\ContactsController::class, 'delete']);
         $r->post('/contacts/import', [Controller\ContactsController::class, 'import']);
         $r->get('/contacts/export', [Controller\ContactsController::class, 'export']);
+
+        // Mailbox delegation
+        $r->post('/delegation/open', [Controller\DelegationController::class, 'open']);
+        $r->post('/delegation/close', [Controller\DelegationController::class, 'close']);
 
         // Shared file space
         $r->get('/files', [Controller\FilesController::class, 'index']);

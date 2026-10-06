@@ -8,6 +8,11 @@ use M4W\Service\Contacts;
 
 final class ContactsController extends Controller
 {
+    protected function delegable(): bool
+    {
+        return true;
+    }
+
     public function index(): Response
     {
         $q = (string) ($this->req->query['q'] ?? '');

@@ -96,6 +96,9 @@ final class AdminController extends Controller
         return $this->page('user_form', [
             'user' => $user,
             'aliases' => $aliases,
+            'delegates' => $user ? array_map('intval', array_column(\M4W\Service\Delegation::delegates((int) $user['id']), 'id')) : [],
+            'journal' => $user ? \M4W\Service\Delegation::journal((int) $user['id'], 10) : [],
+            'others' => $user ? DB::all("SELECT id, email, display_name, role FROM users WHERE id <> :u AND status = 'active' ORDER BY display_name, email", ['u' => $user['id']]) : [],
             'templates' => Signatures::all(),
             'domains' => DB::all('SELECT * FROM domains WHERE active = 1 ORDER BY name'),
             'languages' => I18n::LANGUAGES,
@@ -137,6 +140,9 @@ final class AdminController extends Controller
                 $data['password'] = $pw;
             }
             Users::update($id, $data);
+            if ($r->bool('delegates_present')) {
+                \M4W\Service\Delegation::setDelegates($id, $r->arr('delegates'), $this->uid());
+            }
             if ($data['status'] === 'disabled' || $pw !== '') {
                 Auth::revokeOtherSessions($id, 0);
             }
@@ -573,6 +579,10 @@ final class AdminController extends Controller
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
             'features.user_signature' => $r->bool('user_signature') ? 1 : 0,
+            'delegation.admins' => $r->bool('deleg_admins') ? 1 : 0,
+            'delegation.require_reason' => $r->bool('deleg_reason') ? 1 : 0,
+            'delegation.notify_owner' => $r->bool('deleg_notify') ? 1 : 0,
+            'delegation.hide_personal' => $r->bool('deleg_private') ? 1 : 0,
             'features.fetch_accounts' => $r->bool('fetch_accounts') ? 1 : 0,
             'features.undo_send_seconds' => max(0, min(30, $r->int('undo_send_seconds', 5))),
             'features.default_language' => isset(I18n::LANGUAGES[$r->str('default_language')]) ? $r->str('default_language') : 'fr',

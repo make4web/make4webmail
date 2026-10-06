@@ -177,6 +177,7 @@ final class Users
     public static function delete(int $id): void
     {
         Files::deleteUser($id);
+        Delegation::deleteUser($id);
         DB::transaction(function () use ($id) {
             foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases'] as $t) {
                 DB::delete($t, 'user_id = :u', ['u' => $id]);

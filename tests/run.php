@@ -804,6 +804,84 @@ test('login lockout is per account and address', function () {
     Settings::set('security.max_attempts', 5);
 });
 
+// ---------------------------------------------------------- Delegation
+use M4W\Service\Delegation;
+
+test('delegation: administrators reach every mailbox, delegates only theirs', function () use ($fsAdmin, $fsBob, $fsCarol) {
+    $_SESSION = [];
+    eq(Delegation::via($fsAdmin, (int) $fsBob['id']), 'admin');
+    eq(Delegation::via($fsCarol, (int) $fsBob['id']), null, 'plain user has no access');
+    eq(Delegation::via($fsAdmin, (int) $fsAdmin['id']), null, 'not your own mailbox');
+    Delegation::setDelegates((int) $fsBob['id'], [(int) $fsCarol['id'], (int) $fsBob['id']], (int) $fsAdmin['id']);
+    eq(Delegation::via($fsCarol, (int) $fsBob['id']), 'delegate');
+    eq(count(Delegation::delegates((int) $fsBob['id'])), 1, 'owner cannot be their own delegate');
+    Settings::set('delegation.admins', 0);
+    eq(Delegation::via($fsAdmin, (int) $fsBob['id']), null, 'policy off');
+    Settings::set('delegation.admins', 1);
+});
+test('delegation: opening requires a reason, is journaled and notified', function () use ($fsAdmin, $fsBob) {
+    $_SESSION = [];
+    $thrown = false;
+    try { Delegation::open($fsAdmin, (int) $fsBob['id'], '  '); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'reason required for administrators');
+    $before = (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $fsBob['id']]);
+    Delegation::open($fsAdmin, (int) $fsBob['id'], 'Arrêt maladie, suivi client urgent', '203.0.113.5');
+    $owner = Delegation::current($fsAdmin);
+    eq((int) $owner['id'], (int) $fsBob['id']);
+    eq($owner['_actor']['email'], $fsAdmin['email']);
+    $j = Delegation::journal((int) $fsBob['id'], 1)[0];
+    eq([$j['via'], $j['reason'], (int) $j['actor_id']], ['admin', 'Arrêt maladie, suivi client urgent', (int) $fsAdmin['id']]);
+    eq((int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $fsBob['id']]), $before + 1, 'owner notified in their inbox');
+    Delegation::close($fsAdmin);
+    ok(Delegation::current($fsAdmin) === null);
+    ok((int) Delegation::journal((int) $fsBob['id'], 1)[0]['closed_at'] > 0);
+});
+test('delegation: withdrawn rights end the session', function () use ($fsAdmin, $fsBob, $fsCarol) {
+    $_SESSION = [];
+    Delegation::open($fsCarol, (int) $fsBob['id'], '');
+    ok(Delegation::current($fsCarol) !== null, 'delegate needs no reason');
+    Delegation::setDelegates((int) $fsBob['id'], [], (int) $fsAdmin['id']);
+    $r = new \ReflectionProperty(Delegation::class, 'current');
+    $r->setValue(null, []);
+    ok(Delegation::current($fsCarol) === null, 'revoked on next request');
+});
+test('delegation: personal messages and folders stay hidden', function () use ($fsAdmin, $fsBob, $sendTo) {
+    $_SESSION = [];
+    Delivery::deliver($sendTo('bob@test.local', '[Perso] Rendez-vous médical'), 'a@ext.com', ['bob@test.local']);
+    Delivery::deliver($sendTo('bob@test.local', 'Re: Privé : vacances'), 'a@ext.com', ['bob@test.local']);
+    Delivery::deliver($sendTo('bob@test.local', 'Devis 2026'), 'a@ext.com', ['bob@test.local']);
+    $uid = (int) $fsBob['id'];
+    $perso = Folders::create($uid, 'Personnel');
+    $pm = (int) DB::value("SELECT id FROM messages WHERE user_id = :u AND subject = 'Devis 2026'", ['u' => $uid]);
+    $secret = DB::one("SELECT id FROM messages WHERE user_id = :u AND subject = '[Perso] Rendez-vous médical'", ['u' => $uid]);
+    $sub = Folders::create($uid, 'Santé', $perso);
+    Delivery::deliver($sendTo('bob@test.local', 'Dans perso'), 'a@ext.com', ['bob@test.local']);
+    $inPerso = (int) DB::value("SELECT id FROM messages WHERE user_id = :u AND subject = 'Dans perso'", ['u' => $uid]);
+    Mailbox::move($uid, [$inPerso], $sub);
+    Delegation::open($fsAdmin, $uid, 'Absence');
+    Delegation::mailbox($fsAdmin);
+    $inbox = Folders::byRole($uid, 'inbox');
+    $list = Mailbox::list($uid, ['folder' => (int) $inbox['id'], 'limit' => 200]);
+    $subjects = array_column($list['items'] ?? $list['messages'] ?? [], 'subject');
+    ok(in_array('Devis 2026', $subjects, true), 'business mail visible');
+    ok(!in_array('[Perso] Rendez-vous médical', $subjects, true) && !in_array('Re: Privé : vacances', $subjects, true), 'personal subjects hidden');
+    ok(Mailbox::get($uid, (int) $secret['id']) === null, 'direct access refused');
+    ok(Folders::find($uid, $sub) === null && !in_array($perso, array_column(Folders::listWithCounts($uid), 'id'), true), 'personal folders hidden');
+    ok(Mailbox::get($uid, $inPerso) === null, 'message in personal sub-folder hidden');
+    eq(Mailbox::setFlags($uid, [(int) $secret['id']], ['is_read' => 1]), 0, 'no blind changes');
+    ok(Mailbox::get($uid, $pm) !== null);
+    Delegation::close($fsAdmin);
+    ok(Mailbox::get($uid, (int) $secret['id']) !== null, 'owner still sees everything');
+});
+test('delegation: mail sent from a delegated mailbox names its sender', function () use ($fsAdmin, $fsBob) {
+    $owner = Users::find((int) $fsBob['id']);
+    $owner['_actor'] = ['id' => (int) $fsAdmin['id'], 'email' => $fsAdmin['email'], 'name' => $fsAdmin['name'], 'role' => 'admin'];
+    $b = Composer::build($owner, ['to' => 'client@ext.com', 'subject' => 'Réponse', 'html' => '<p>ok</p>'], true)['builder'];
+    $raw = $b->build();
+    ok(str_contains($raw, "From: ") && str_contains($raw, 'bob@test.local'), 'From is the mailbox');
+    ok((bool) preg_match('/^Sender: .*' . preg_quote($fsAdmin['email'], '/') . '/m', $raw), 'Sender is the person acting');
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

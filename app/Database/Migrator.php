@@ -20,6 +20,10 @@ final class Migrator
                 continue;
             }
             foreach ($statements as $sql) {
+                if ($sql instanceof \Closure) {
+                    $sql(); // data migration step
+                    continue;
+                }
                 $pdo->exec(self::expand($sql, $driver));
             }
             Database::run('INSERT INTO schema_version (version) VALUES (:v)', ['v' => $version]);

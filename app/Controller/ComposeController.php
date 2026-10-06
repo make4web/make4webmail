@@ -184,6 +184,11 @@ final class ComposeController extends Controller
         ];
     }
 
+    protected function delegable(): bool
+    {
+        return true;
+    }
+
     public function upload(): Response
     {
         $u = $this->user();

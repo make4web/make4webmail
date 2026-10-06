@@ -21,6 +21,11 @@ use M4W\Service\Vacation;
 
 final class MailController extends Controller
 {
+    protected function delegable(): bool
+    {
+        return $this->req->path !== '/api/prefs';
+    }
+
     public function shell(): Response
     {
         $u = $this->user();

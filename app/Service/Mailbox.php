@@ -38,6 +38,7 @@ final class Mailbox
             'in_reply_to'     => $inReply,
             'thread_key'      => $threadKey,
             'subject'         => mb_substr($parsed->subject(), 0, 500),
+            'is_personal'     => Delegation::isPersonalSubject($parsed->subject()) ? 1 : 0,
             'from_name'       => mb_substr($from['name'], 0, 255),
             'from_email'      => mb_substr($from['email'], 0, 255),
             'to_list'         => json_encode($parsed->to(), JSON_UNESCAPED_UNICODE),
@@ -88,9 +89,27 @@ final class Mailbox
         return substr(sha1($msgId !== '' ? $msgId : uniqid('', true) . $subject), 0, 32);
     }
 
+    /** Set while a delegate works in the mailbox: personal messages and folders are invisible. */
+    public static bool $privacy = false;
+
+    /** SQL condition hiding personal items from delegates ('' when not delegated). */
+    public static function privacySql(int $userId, string $alias = ''): string
+    {
+        if (!self::$privacy) {
+            return '';
+        }
+        $p = $alias !== '' ? $alias . '.' : '';
+        $sql = " AND {$p}is_personal = 0";
+        $ids = Folders::personalIds($userId);
+        if ($ids) {
+            $sql .= " AND {$p}folder_id NOT IN (" . implode(',', array_map('intval', $ids)) . ')';
+        }
+        return $sql;
+    }
+
     public static function get(int $userId, int $id): ?array
     {
-        return DB::one('SELECT * FROM messages WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $userId]);
+        return DB::one('SELECT * FROM messages WHERE id = :id AND user_id = :u' . self::privacySql($userId), ['id' => $id, 'u' => $userId]);
     }
 
     public static function raw(array $msg): string
@@ -143,7 +162,7 @@ final class Mailbox
         if ($q !== '') {
             self::applySearch($q, $where, $params);
         }
-        $whereSql = implode(' AND ', $where);
+        $whereSql = implode(' AND ', $where) . self::privacySql($userId, 'm');
         $limit = max(10, min(200, (int) ($opts['limit'] ?? 50)));
         $offset = max(0, (int) ($opts['offset'] ?? 0));
         $sort = ($opts['sort'] ?? 'date') === 'from' ? 'm.from_name' : (($opts['sort'] ?? '') === 'subject' ? 'm.subject' : 'm.date_received');
@@ -272,7 +291,7 @@ final class Mailbox
     {
         $rows = DB::all(
             "SELECT m.id FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE m.user_id = :u AND m.thread_key = :t AND (f.role IS NULL OR f.role NOT IN ('trash','spam'))
+             WHERE m.user_id = :u AND m.thread_key = :t AND (f.role IS NULL OR f.role NOT IN ('trash','spam'))" . self::privacySql($userId, 'm') . "
              ORDER BY m.date_received ASC, m.id ASC",
             ['u' => $userId, 't' => $threadKey]
         );
@@ -300,7 +319,7 @@ final class Mailbox
             $sets[] = "$k = :v_$k";
             $params["v_$k"] = $v;
         }
-        return DB::run('UPDATE messages SET ' . implode(', ', $sets) . " WHERE user_id = :u AND id IN $in", $params + ['u' => $userId])->rowCount();
+        return DB::run('UPDATE messages SET ' . implode(', ', $sets) . " WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId])->rowCount();
     }
 
     public static function move(int $userId, array $ids, int $folderId): int
@@ -310,7 +329,7 @@ final class Mailbox
         }
         $ids = array_values(array_filter(array_map('intval', $ids)));
         [$in, $params] = DB::in('i', $ids);
-        return DB::run("UPDATE messages SET folder_id = :f WHERE user_id = :u AND id IN $in", $params + ['u' => $userId, 'f' => $folderId])->rowCount();
+        return DB::run("UPDATE messages SET folder_id = :f WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId, 'f' => $folderId])->rowCount();
     }
 
     /** Move to trash, or delete permanently if already in trash/spam. */
@@ -323,7 +342,7 @@ final class Mailbox
         $trash = Folders::byRole($userId, 'trash');
         $spam = Folders::byRole($userId, 'spam');
         [$in, $params] = DB::in('i', $ids);
-        $rows = DB::all("SELECT id, folder_id, storage_path, size FROM messages WHERE user_id = :u AND id IN $in", $params + ['u' => $userId]);
+        $rows = DB::all("SELECT id, folder_id, storage_path, size FROM messages WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId]);
         $n = 0;
         foreach ($rows as $r) {
             if ($permanent || (int) $r['folder_id'] === (int) $trash['id'] || (int) $r['folder_id'] === (int) $spam['id']) {

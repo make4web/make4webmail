@@ -16,13 +16,42 @@ abstract class Controller
     {
     }
 
+    /**
+     * Mailbox owner of the request: the signed-in user, or the mailbox they opened
+     * through delegation when this controller action works on mailbox data.
+     */
     protected function user(): array
+    {
+        $actor = $this->actor();
+        if ($this->delegable()) {
+            $owner = \M4W\Service\Delegation::mailbox($actor);
+            if ($owner !== $actor) {
+                // Every change made in a delegated mailbox is traced to the person who made it.
+                static $logged = false;
+                if (!$logged && !in_array($this->req->method, ['GET', 'HEAD'], true)) {
+                    $logged = true;
+                    \M4W\Core\Audit::log('delegation.action', $owner['email'], ['path' => $this->req->path], (int) $actor['id']);
+                }
+                return $owner;
+            }
+        }
+        return $actor;
+    }
+
+    /** The person actually signed in (security, profile, administration, files). */
+    protected function actor(): array
     {
         $u = Auth::user();
         if (!$u) {
             throw new HttpException(401, t('auth.session_expired'));
         }
         return $u;
+    }
+
+    /** Whether this action works on mailbox data and follows an opened delegation. */
+    protected function delegable(): bool
+    {
+        return false;
     }
 
     protected function uid(): int

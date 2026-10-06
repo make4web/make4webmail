@@ -28,6 +28,17 @@ final class SettingsController extends Controller
         return $this->view('settings/' . $tpl, $data + ['section' => $tpl], 'layouts/app');
     }
 
+    /** Mailbox settings a delegate manages for the owner (absence, forwarding, rules…). */
+    protected function delegable(): bool
+    {
+        foreach (['/settings/rules', '/settings/vacation', '/settings/forwarding', '/settings/signature', '/settings/folders'] as $p) {
+            if ($this->req->path === $p || str_starts_with($this->req->path, $p . '/')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function general(): Response
     {
         return $this->page('general', ['languages' => I18n::LANGUAGES]);
@@ -246,6 +257,8 @@ final class SettingsController extends Controller
             'sessions' => $sessions, 'logins' => $logins, 'currentSession' => (int) $u['_session_id'],
             'totpSetup' => is_string($pending) ? ['secret' => $pending, 'uri' => Totp::uri($pending, $u['email'], (string) Settings::get('brand.name'))] : null,
             'recovery' => $recovery,
+            'delegates' => \M4W\Service\Delegation::delegates((int) $u['id']),
+            'journal' => \M4W\Service\Delegation::journal((int) $u['id'], 20),
         ]);
     }
 

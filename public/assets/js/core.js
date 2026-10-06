@@ -186,6 +186,23 @@
     if (window.AOS) { AOS.init({ once: true, duration: 450, easing: 'ease-out-cubic', offset: 10 }); }
     $('[data-bs-toggle="tooltip"]').each(function () { bootstrap.Tooltip.getOrCreateInstance(this); });
 
+    // Server flashes on pages without a flash area (mail shell) become toasts.
+    $('[data-flash-toast]').each(function () { M4W.toast($(this).text(), $(this).data('flash-toast')); $(this).remove(); });
+
+    // Open a delegated mailbox: reason dialog (required for administrators by default).
+    $(document).on('click', '[data-open-mailbox]', function (e) {
+      e.preventDefault();
+      var $b = $(this), $m = $('#m4w-open-mailbox'), need = String($b.data('reason')) === '1';
+      $m.find('[name=user_id]').val($b.data('open-mailbox'));
+      $m.find('[data-mb-name]').text($b.data('name'));
+      $m.find('[data-mb-email]').text($b.data('email'));
+      $m.find('[data-mb-avatar]').text(M4W.initials($b.data('name') || $b.data('email'))).css('background', M4W.color($b.data('email')));
+      $m.find('[data-mb-required]').toggle(need);
+      $m.find('[name=reason]').prop('required', need).val('');
+      $m.one('shown.bs.modal', function () { $m.find('[name=reason]').trigger('focus'); });
+      bootstrap.Modal.getOrCreateInstance($m[0]).show();
+    });
+
     $(document).on('click', '[data-action="toggle-sidebar"]', function () { $('body').toggleClass('sidebar-open'); });
     $(document).on('click', function (e) {
       if ($('body').hasClass('sidebar-open') && !$(e.target).closest('.m4w-sidebar, [data-action="toggle-sidebar"]').length) $('body').removeClass('sidebar-open');

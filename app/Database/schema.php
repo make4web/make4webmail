@@ -348,4 +348,39 @@ return [
 "CREATE UNIQUE INDEX fs_acl_unique ON fs_acl(folder_id, principal_type, principal)",
 "CREATE INDEX fs_acl_principal ON fs_acl(principal_type, principal)",
 ],
+4 => [
+// Mailbox delegation: explicit delegates and an access journal shown to the owner.
+"CREATE TABLE mailbox_delegates (
+  id {PK},
+  owner_id INTEGER NOT NULL,
+  delegate_id INTEGER NOT NULL,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mailbox_delegates_pair ON mailbox_delegates(owner_id, delegate_id)",
+"CREATE INDEX mailbox_delegates_delegate ON mailbox_delegates(delegate_id)",
+"CREATE TABLE delegation_log (
+  id {PK},
+  owner_id INTEGER NOT NULL,
+  actor_id INTEGER NOT NULL,
+  actor_name VARCHAR(190) NOT NULL DEFAULT '',
+  via VARCHAR(20) NOT NULL DEFAULT 'admin',
+  reason VARCHAR(500) NOT NULL DEFAULT '',
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  sent INTEGER NOT NULL DEFAULT 0,
+  opened_at INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER NOT NULL DEFAULT 0,
+  closed_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX delegation_log_owner ON delegation_log(owner_id, opened_at)",
+"ALTER TABLE messages ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0",
+// Back-fill the personal marker of existing messages (PHP step, see Migrator).
+static function (): void {
+    foreach (\M4W\Core\Database::all('SELECT id, subject FROM messages') as $m) {
+        if (\M4W\Service\Delegation::isPersonalSubject((string) $m['subject'])) {
+            \M4W\Core\Database::run('UPDATE messages SET is_personal = 1 WHERE id = :id', ['id' => $m['id']]);
+        }
+    }
+},
+],
 ];

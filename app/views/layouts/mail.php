@@ -10,6 +10,7 @@
 <?php $topbarMode = 'mail'; include __DIR__ . '/../partials/topbar.php'; ?>
 <?= $content ?>
 <div class="m4w-toasts" id="m4w-toasts" aria-live="polite"></div>
+<?php foreach ($flash ?? [] as $f): ?><div hidden data-flash-toast="<?= e($f['type']) ?>"><?= e($f['message']) ?></div><?php endforeach; ?>
 <?php include __DIR__ . '/../partials/scripts.php'; ?>
 <script src="<?= e(asset('vendor/qrcode/qrcode.js')) ?>"></script>
 <link rel="stylesheet" href="<?= e(asset('vendor/jodit/jodit.min.css')) ?>">

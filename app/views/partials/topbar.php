@@ -4,7 +4,8 @@ $u = $currentUser;
 $isMail = ($topbarMode ?? '') === 'mail';
 $prefs = $u['prefs'] ?? [];
 ?>
-<header class="m4w-topbar" role="banner">
+<?php $deleg = $delegation ?? null; $delegatedTo = M4W\Service\Delegation::delegatedTo((int) $u['id']); ?>
+<header class="m4w-topbar<?= $deleg ? ' is-delegated' : '' ?>" role="banner">
   <button class="btn btn-ghost btn-icon m4w-mobile-only" type="button" data-action="toggle-sidebar" aria-label="<?= te('nav.menu') ?>"><i class="bi bi-list"></i></button>
   <?php include __DIR__ . '/brand.php'; ?>
   <form class="m4w-search" role="search" action="<?= e(url('mail')) ?>" method="get" id="m4w-search-form" autocomplete="off">
@@ -36,6 +37,14 @@ $prefs = $u['prefs'] ?? [];
       <?php endif; ?>
     </div>
   </form>
+  <?php if ($deleg): ?>
+  <form method="post" action="<?= e(url('delegation/close')) ?>" class="m4w-deleg-pill" role="status">
+    <?= csrf_field() ?>
+    <span class="m4w-avatar sm" style="background:<?= e(avatar_color($deleg['email'])) ?>" aria-hidden="true"><?= e(initials($deleg['name'] ?: $deleg['email'])) ?></span>
+    <span class="text-truncate"><span class="m4w-deleg-label"><?= te('deleg.mailbox_of') ?></span> <strong><?= e($deleg['name'] ?: $deleg['email']) ?></strong></span>
+    <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span></button>
+  </form>
+  <?php endif; ?>
   <div class="m4w-top-actions">
     <?php if ($isMail): ?>
     <button class="btn btn-ghost btn-icon m4w-hide-xs" type="button" data-action="shortcuts" title="<?= te('nav.help') ?>" aria-label="<?= te('nav.help') ?>"><i class="bi bi-question-circle"></i></button>
@@ -98,6 +107,19 @@ $prefs = $u['prefs'] ?? [];
           <div class="min-w-0"><div class="fw-semibold text-truncate"><?= e($u['name']) ?></div><div class="small text-muted text-truncate"><?= e($u['email']) ?></div></div>
         </div>
         <div class="dropdown-divider"></div>
+        <?php if ($deleg): ?>
+        <form method="post" action="<?= e(url('delegation/close')) ?>"><?= csrf_field() ?><button class="dropdown-item fw-semibold" type="submit"><i class="bi bi-box-arrow-left"></i><?= te('deleg.back_mine') ?></button></form>
+        <?php endif; ?>
+        <?php if ($delegatedTo || ($u['role'] ?? '') === 'admin'): ?>
+        <h6 class="dropdown-header"><?= te('deleg.mailboxes') ?></h6>
+        <?php foreach ($delegatedTo as $d): $dn = $d['display_name'] ?: trim($d['first_name'] . ' ' . $d['last_name']) ?: $d['email']; ?>
+        <button class="dropdown-item" type="button" data-open-mailbox="<?= (int) $d['id'] ?>" data-name="<?= e($dn) ?>" data-email="<?= e($d['email']) ?>" data-reason="0"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($dn)) ?></span><span class="text-truncate"><?= e($dn) ?></span></button>
+        <?php endforeach; ?>
+        <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Delegation::adminsByDefault()): ?>
+        <a class="dropdown-item" href="<?= e(url('admin/users')) ?>"><i class="bi bi-person-badge"></i><?= te('deleg.open_other') ?></a>
+        <?php endif; ?>
+        <div class="dropdown-divider"></div>
+        <?php endif; ?>
         <a class="dropdown-item" href="<?= e(url('settings')) ?>"><i class="bi bi-person-circle"></i><?= te('nav.profile') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/vacation')) ?>"><i class="bi bi-airplane"></i><?= te('nav.vacation') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/security')) ?>"><i class="bi bi-shield-lock"></i><?= te('nav.security') ?></a>
@@ -108,3 +130,18 @@ $prefs = $u['prefs'] ?? [];
     </div>
   </div>
 </header>
+
+<div class="modal fade" id="m4w-open-mailbox" tabindex="-1" aria-hidden="true" aria-labelledby="m4w-open-mailbox-title">
+  <div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="<?= e(url('delegation/open')) ?>">
+    <?= csrf_field() ?>
+    <input type="hidden" name="user_id" value="">
+    <div class="modal-header"><h2 class="modal-title fs-5" id="m4w-open-mailbox-title"><?= te('deleg.open_title') ?></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?= te('common.close') ?>"></button></div>
+    <div class="modal-body">
+      <div class="d-flex align-items-center gap-3 mb-3"><span class="m4w-avatar lg" data-mb-avatar></span><div class="min-w-0"><div class="fw-semibold text-truncate" data-mb-name></div><div class="small text-muted text-truncate" data-mb-email></div></div></div>
+      <label class="form-label" for="m4w-mb-reason"><?= te('deleg.reason') ?> <span class="text-danger" data-mb-required>*</span></label>
+      <textarea class="form-control" id="m4w-mb-reason" name="reason" rows="2" maxlength="500" placeholder="<?= te('deleg.reason_ph') ?>"></textarea>
+      <div class="m4w-deleg-notice mt-3 small"><i class="bi bi-shield-check"></i><span><?= te(M4W\Core\Settings::get('delegation.notify_owner', 1) ? 'deleg.notice_notified' : 'deleg.notice_logged') ?><?= M4W\Core\Settings::get('delegation.hide_personal', 1) ? ' ' . te('deleg.notice_private') : '' ?></span></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal"><?= te('common.cancel') ?></button><button class="btn btn-primary" type="submit"><i class="bi bi-box-arrow-in-right me-1"></i><?= te('deleg.open') ?></button></div>
+  </form></div>
+</div>

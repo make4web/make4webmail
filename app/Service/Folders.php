@@ -40,7 +40,29 @@ final class Folders
 
     public static function find(int $userId, int $id): ?array
     {
+        if (Mailbox::$privacy && in_array($id, self::personalIds($userId), true)) {
+            return null;
+        }
         return DB::one('SELECT * FROM folders WHERE user_id = :u AND id = :id', ['u' => $userId, 'id' => $id]);
+    }
+
+    /** User folders named as personal ("Perso", "Personnel", "Privé"…) and their sub-folders. */
+    public static function personalIds(int $userId): array
+    {
+        $rows = DB::all('SELECT id, parent_id, name, role FROM folders WHERE user_id = :u', ['u' => $userId]);
+        $byId = array_column($rows, null, 'id');
+        $out = [];
+        foreach ($rows as $r) {
+            $n = $r;
+            for ($depth = 0; $n && $depth < 20; $depth++) {
+                if ($n['role'] === null && Delegation::isPersonalName((string) $n['name'])) {
+                    $out[] = (int) $r['id'];
+                    break;
+                }
+                $n = $n['parent_id'] !== null ? ($byId[$n['parent_id']] ?? null) : null;
+            }
+        }
+        return $out;
     }
 
     public static function displayName(array $f): string
@@ -59,7 +81,11 @@ final class Folders
             ['u' => $userId]
         );
         $out = [];
+        $hidden = Mailbox::$privacy ? self::personalIds($userId) : [];
         foreach ($rows as $r) {
+            if (in_array((int) $r['id'], $hidden, true)) {
+                continue;
+            }
             $out[] = [
                 'id'        => (int) $r['id'],
                 'parent_id' => $r['parent_id'] !== null ? (int) $r['parent_id'] : null,
