@@ -1,0 +1,5 @@
+# If the document root points to the project root instead of /public, forward everything to /public.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

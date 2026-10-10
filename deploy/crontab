@@ -1,0 +1,2 @@
+# Make4WebMail scheduler: outgoing queue, scheduled sends, external IMAP accounts, purge.
+* * * * * www-data /usr/bin/php /var/www/make4webmail/bin/cron.php
