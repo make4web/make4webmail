@@ -58,6 +58,15 @@ if ($hourly) {
     foreach (DB::all('SELECT id FROM users') as $u) {
         M4W\Service\Users::recalcUsage((int) $u['id']);
     }
+    if ((int) Settings::get('security.disposable_autoupdate', 1) && (int) Settings::get('security.disposable_updated', 0) < $now - 7 * 86400
+        && (int) Settings::get('security.disposable_tried', 0) < $now - 86400) {
+        Settings::set('security.disposable_tried', $now);
+        try {
+            $out('disposable domains: ' . M4W\Service\Senders::update());
+        } catch (\Throwable $e) {
+            $out('disposable domains: update failed, ' . $e->getMessage());
+        }
+    }
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);

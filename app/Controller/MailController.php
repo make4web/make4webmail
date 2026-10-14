@@ -224,8 +224,21 @@ final class MailController extends Controller
             'trackers'    => $trackers,
             'unsubscribe' => $unsub,
             'auto'        => $parsed->isAutomated(),
+            'reply_target' => self::replyTargetKind($parsed),
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    /** Whether a reply would reach anybody: 'disposable', 'noreply' or ''. */
+    private static function replyTargetKind(\M4W\Mail\ParsedMessage $p): string
+    {
+        $to = \M4W\Mail\Address::parseList((string) $p->header('Reply-To'))[0]['email'] ?? $p->from()['email'];
+        return match (true) {
+            $to === '' => '',
+            \M4W\Service\Senders::isDisposable($to) => 'disposable',
+            \M4W\Service\Senders::isNoReply($to) => 'noreply',
+            default => '',
+        };
     }
 
     /** Sanitized HTML document, loaded in a sandboxed iframe. */

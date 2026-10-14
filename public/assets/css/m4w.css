@@ -540,6 +540,7 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
 .m4w-checklist .ko { color: var(--m4w-warning); }
 .m4w-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; }
 textarea.m4w-code { min-height: 320px; tab-size: 2; line-height: 1.5; }
+textarea.m4w-code.m4w-code-short { min-height: 0; }
 .m4w-preview-box { border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius); padding: 1.25rem; background: #fff; color: #1f2937; min-height: 120px; overflow: auto; }
 .m4w-var-chip { cursor: pointer; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .72rem; padding: .25rem .5rem; border-radius: 6px; background: var(--m4w-surface-3); color: var(--m4w-text-2); border: 1px solid var(--m4w-border); transition: background .1s; }
 .m4w-var-chip:hover { background: var(--m4w-primary-soft); color: var(--m4w-primary); border-color: transparent; }
@@ -1006,3 +1007,4 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-att.is-removed .m4w-att-icon, .m4w-att.is-blocked .m4w-att-icon { color: #dc2626; background: rgba(220, 38, 38, .1); display: inline-flex; align-items: center; justify-content: center; }
 .m4w-att.is-removed .m4w-att-name { text-decoration: line-through; color: var(--m4w-muted); }
 .m4w-att.is-warn { border-color: rgba(217, 119, 6, .4); }
+.m4w-msg-banner.warn { background: rgba(245, 158, 11, .08); border-color: rgba(245, 158, 11, .35); }

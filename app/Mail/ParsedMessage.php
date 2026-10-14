@@ -123,8 +123,7 @@ final class ParsedMessage
             || $this->header('X-Auto-Response-Suppress') !== null || $this->header('X-Autoreply') !== null) {
             return true;
         }
-        $from = strtolower($this->from()['email']);
-        return (bool) preg_match('/^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounce|bounces|notifications?)[@+.-]/', $from);
+        return \M4W\Service\Senders::isNoReply($this->from()['email']);
     }
 
     public function isSpamFlagged(): bool

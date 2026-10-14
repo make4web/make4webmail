@@ -28,6 +28,19 @@ final class Delivery
         // Unauthenticated mail must not trigger forwarding of spoofed content to auto-replies, nor rule actions keyed on the sender.
         $suspicious = $auth !== null && $auth['verdict'] !== 'ok';
         $parsed = MimeParser::parse($raw);
+        // Disposable senders (bots, probes, spam): refused by default, never answered.
+        $disposable = $source !== 'local' && Senders::inboundAction() !== 'off' ? Senders::disposableSender($parsed, $envelopeFrom) : '';
+        if ($disposable !== '' && Senders::inboundAction() === 'reject') {
+            $results = [];
+            foreach ($recipients as $rcpt) {
+                $user = Users::resolveLocal($rcpt);
+                $results[$rcpt] = $user ? 'rejected: disposable sender' : 'unknown recipient';
+                if ($user) {
+                    Transport::log('in', (int) $user['id'], $envelopeFrom, [$rcpt], $raw, 'rejected', 'disposable ' . $disposable);
+                }
+            }
+            return $results;
+        }
         $loopHeaders = array_map('mb_strtolower', $parsed->headerAll('X-M4W-Loop'));
         $results = [];
         $done = [];
@@ -65,7 +78,7 @@ final class Delivery
 
             // 2. Default folder (spam detection by upstream filter headers).
             $folder = Folders::byRole($uid, 'inbox');
-            if (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) || $suspicious) {
+            if (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) || $suspicious || $disposable !== '') {
                 $folder = Folders::byRole($uid, 'spam');
             }
             $folderId = (int) $folder['id'];
@@ -156,7 +169,7 @@ final class Delivery
     private static function ruleReply(array $user, \M4W\Mail\ParsedMessage $msg, array $reply, string $envelopeFrom): void
     {
         $sender = $envelopeFrom !== '' ? $envelopeFrom : $msg->from()['email'];
-        if ($sender === '' || !is_valid_email($sender) || $msg->isAutomated()) {
+        if (Senders::noAutoReply($sender) || $msg->isAutomated()) {
             return;
         }
         // One rule reply per sender per day (backscatter protection).

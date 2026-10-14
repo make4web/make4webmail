@@ -61,6 +61,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <li><strong>« Programme bloqué »</strong> : le fichier est un programme (même renommé en .pdf ou sans extension). Il ne peut pas être ouvert ni téléchargé depuis la messagerie.</li>
       <li><strong>« À vérifier »</strong> : macros, archive protégée, page web, nom qui ne correspond pas au contenu… Une confirmation est demandée avant l'ouverture. Dans le doute, appelez l'expéditeur.</li>
       <li><strong>Lettres d'information</strong> : un bandeau propose de vous désabonner en un clic quand l'expéditeur le permet.</li>
+      <li><strong>Bandeau « Cette adresse n'accepte pas de réponse »</strong> : l'expéditeur est une adresse « no-reply » ou jetable ; votre réponse ne serait lue par personne. Utilisez plutôt le site ou le contact indiqué dans le message.</li>
       <li><strong>Bandeau rouge « Attention, usurpation probable »</strong> : le message prétend venir de votre organisation ou d'un domaine connu, mais n'a pas été envoyé par ses serveurs. Ne répondez pas, ne cliquez sur aucun lien et prévenez votre administrateur.</li>
     </ul>
     <h3>Répondre, transférer, imprimer</h3>
@@ -153,7 +154,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <li>Réglez l'intervalle : une même personne ne reçoit qu'une réponse par intervalle (par exemple une fois par jour).</li>
       <li>Option : ne répondre qu'aux personnes de l'organisation, ou qu'à vos contacts.</li>
     </ol>
-    <p>Pendant votre absence, un rappel s'affiche en haut de la liste des dossiers. Par sécurité, il n'est jamais répondu aux listes de diffusion, aux messages automatiques ni aux messages signalés comme indésirables.</p>
+    <p>Pendant votre absence, un rappel s'affiche en haut de la liste des dossiers. Par sécurité, il n'est jamais répondu aux listes de diffusion, aux messages automatiques, aux messages signalés comme indésirables, aux adresses « ne-pas-répondre » ni aux adresses jetables (yopmail, mailinator…).</p>
   </section>
 
   <section id="forwarding" class="m4w-help-section">

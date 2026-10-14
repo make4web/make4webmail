@@ -755,6 +755,10 @@ final class AdminController extends Controller
             'security.antivirus' => $r->bool('antivirus') ? 1 : 0,
             'security.clamd' => preg_match('#^(unix:///[\w./-]+|tcp://[a-z0-9.\-\[\]:]+:\d{1,5})$#i', $r->str('clamd')) ? $r->str('clamd') : 'unix:///var/run/clamav/clamd.ctl',
             'security.block_executables' => $r->bool('block_executables') ? 1 : 0,
+            'security.disposable_action' => in_array($r->str('disposable_action'), ['reject', 'spam', 'off'], true) ? $r->str('disposable_action') : 'reject',
+            'security.disposable_extra' => self::domainList($r->str('disposable_extra')),
+            'security.disposable_allow' => self::domainList($r->str('disposable_allow')),
+            'security.disposable_autoupdate' => $r->bool('disposable_autoupdate') ? 1 : 0,
             'security.image_max_px' => max(200, min(4000, $r->int('image_max_px', 1600))),
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
@@ -780,8 +784,30 @@ final class AdminController extends Controller
             }
         }
         Settings::setMany($values);
+        \M4W\Service\Senders::reset();
         Audit::log('admin.security_saved');
+        if ($r->bool('disposable_update')) {
+            try {
+                $n = \M4W\Service\Senders::update();
+                return $this->back('/admin/security', 'success', t('admin.disp_update_ok', ['n' => number_format($n, 0, ',', ' ')]));
+            } catch (\Throwable $e) {
+                return $this->back('/admin/security', 'danger', t('admin.disp_update_fail', ['error' => $e->getMessage()]));
+            }
+        }
         return $this->back('/admin/security', 'success', t('settings.saved'));
+    }
+
+    /** One valid domain per line, lower case. */
+    private static function domainList(string $raw): string
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($raw)) ?: [] as $d) {
+            $d = trim($d, " .@\t");
+            if (preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/', $d)) {
+                $out[$d] = true;
+            }
+        }
+        return implode("\n", array_keys($out));
     }
 
     // ---- Logs ----------------------------------------------------------------

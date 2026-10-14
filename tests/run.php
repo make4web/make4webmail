@@ -39,6 +39,7 @@ use M4W\Service\Forwarding;
 use M4W\Service\Installer;
 use M4W\Service\Mailbox;
 use M4W\Service\RuleEngine;
+use M4W\Service\Senders;
 use M4W\Service\Signatures;
 use M4W\Service\Transport;
 use M4W\Service\Users;
@@ -497,6 +498,13 @@ test('built-in smtpd accepts local mail, rejects relay', function () use ($tmp, 
     $w('DATA'); ok(str_starts_with($r(), '354'));
     $w("Subject: via smtpd\r\nFrom: x@ext.com\r\nTo: bob@test.local\r\n\r\n..leading dot\r\nbody\r\n.");
     ok(str_starts_with($r(), '250'), 'data not accepted');
+    // Disposable senders: refused at MAIL FROM, or after DATA when only the header shows it.
+    $w('MAIL FROM:<bot@yopmail.com>'); ok(str_starts_with($r(), '550'), 'disposable envelope accepted');
+    $w('MAIL FROM:<x@ext.com>'); $r();
+    $w('RCPT TO:<bob@test.local>'); $r();
+    $w('DATA'); $r();
+    $w("Subject: jetable\r\nFrom: bot@sub.mailinator.com\r\nTo: bob@test.local\r\n\r\nhi\r\n.");
+    ok(str_starts_with($r(), '550'), 'disposable From accepted');
     $w('QUIT'); $r();
     fclose($c);
     proc_terminate($proc);
@@ -569,6 +577,49 @@ test('no auto-reply to null envelope sender', function () use ($bob, $sendTo) {
     $n = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'");
     Delivery::deliver($sendTo('bob@test.local', 'bounce', 'someone@ext.com'), '', ['bob@test.local'], 'smtp');
     eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'"), $n);
+    Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
+});
+test('disposable and no-reply addresses', function () {
+    ok(Senders::isDisposable('bot@yopmail.com'));
+    ok(Senders::isDisposable('x@deep.sub.mailinator.com'), 'subdomain of a listed domain');
+    ok(!Senders::isDisposable('julie@gmail.com'));
+    ok(!Senders::isDisposable('julie@orange.fr'));
+    ok(!Senders::isDisposable('bob@test.local'), 'hosted domains never');
+    Settings::setMany(['security.disposable_extra' => "jetable-maison.fr", 'security.disposable_allow' => "yopmail.com"]);
+    Senders::reset();
+    ok(Senders::isDisposable('a@jetable-maison.fr'), 'admin addition');
+    ok(!Senders::isDisposable('bot@yopmail.com'), 'admin exception');
+    Settings::setMany(['security.disposable_extra' => '', 'security.disposable_allow' => '']);
+    Senders::reset();
+    foreach (['noreply@x.com', 'No-Reply@x.com', 'no_reply+abc@x.com', 'donotreply@x.com', 'ne-pas-repondre@impots.gouv.fr', 'nepasrepondre@x.fr', 'mailer-daemon@x.com', 'notifications@github.com', 'bounces+123@x.com'] as $a) {
+        ok(Senders::isNoReply($a), $a);
+    }
+    foreach (['noreen@x.com', 'julie.bernard@x.com', 'contact@x.com', 'reply@x.com'] as $a) {
+        ok(!Senders::isNoReply($a), $a);
+    }
+});
+test('disposable senders are refused, never answered', function () use ($bob, $sendTo) {
+    Vacation::save((int) $bob['id'], ['enabled' => 1, 'body_html' => '<p>away</p>', 'interval_days' => 0]);
+    $q = static fn() => (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'");
+    $n = $q();
+    $res = Delivery::deliver($sendTo('bob@test.local', 'Jetable 1', 'bot@yopmail.com'), 'bot@yopmail.com', ['bob@test.local'], 'pipe');
+    eq($res, ['bob@test.local' => 'rejected: disposable sender']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Jetable 1'"), 0, 'not stored');
+    eq(DB::value("SELECT status FROM mail_log WHERE subject = 'Jetable 1'"), 'rejected', 'logged');
+    // Hidden behind a normal envelope / From, through Reply-To.
+    Delivery::deliver($sendTo('bob@test.local', 'Jetable 2', 'client@ext.com', ['Reply-To' => 'x@guerrillamail.com']), 'client@ext.com', ['bob@test.local'], 'sync');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Jetable 2'"), 0);
+    // "Put in spam" mode: stored in the spam folder, still no auto-reply.
+    Settings::set('security.disposable_action', 'spam');
+    Delivery::deliver($sendTo('bob@test.local', 'Jetable 3', 'bot@yopmail.com'), 'bot@yopmail.com', ['bob@test.local'], 'smtp');
+    eq((int) DB::value("SELECT folder_id FROM messages WHERE subject = 'Jetable 3'"), (int) Folders::byRole((int) $bob['id'], 'spam')['id']);
+    // No-reply senders are delivered normally but never answered.
+    Delivery::deliver($sendTo('bob@test.local', 'Facture dispo', 'ne-pas-repondre@fournisseur.fr'), 'bounce-1@mailer.fournisseur.fr', ['bob@test.local'], 'smtp');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Facture dispo'"));
+    eq($q(), $n, 'no auto-reply sent');
+    Delivery::deliver($sendTo('bob@test.local', 'Vraie question', 'client@ext.com'), 'client@ext.com', ['bob@test.local'], 'smtp');
+    eq($q(), $n + 1, 'a real sender still gets the out-of-office');
+    Settings::set('security.disposable_action', 'reject');
     Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
 });
 test('SSRF guard rejects private and IPv6 loopback', function () {

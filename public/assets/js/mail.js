@@ -375,6 +375,9 @@
     if (verdict && verdict !== 'ok') {
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-shield-exclamation"></i><span><strong>' + esc(t('auth_' + verdict + '_title')) + '</strong> ' + esc(t('auth_' + verdict + '_text', { domain: (from.email || '').split('@').pop() })) + '</span></div>';
     }
+    if (msg.reply_target) {
+      banner += '<div class="m4w-msg-banner warn"><i class="bi bi-reply-fill text-warning"></i><span>' + esc(t('reply_target_' + msg.reply_target)) + '</span></div>';
+    }
     if (msg.trackers > 0) {
       banner += '<div class="m4w-msg-banner"><i class="bi bi-eye-slash text-success"></i><span>' + esc(t('trackers_removed', { n: msg.trackers })) + '</span></div>';
     }
