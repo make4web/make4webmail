@@ -453,6 +453,12 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
+        // Webmail mode: reading the mailbox is enough to pull new mail from the provider.
+        try {
+            \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], $this->req->bool('force') ? 15 : 60);
+        } catch (\Throwable $e) {
+            error_log('[m4w] webmail sync: ' . $e->getMessage());
+        }
         $since = (int) ($this->req->query['since'] ?? 0);
         $inbox = Folders::byRole((int) $u['id'], 'inbox');
         $new = DB::all(
@@ -461,6 +467,7 @@ final class MailController extends Controller
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         return $this->ok([
+            'remote'  => \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status(\M4W\Service\RemoteMailbox::find((int) $u['id']))] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
             'folders' => Folders::listWithCounts((int) $u['id']),

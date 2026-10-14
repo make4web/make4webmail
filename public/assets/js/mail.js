@@ -547,9 +547,20 @@
     if ($r.length) $r[0].scrollIntoView({ block: 'nearest' });
   }
 
+  // Webmail mode: tell the user when their provider mailbox is not reachable.
+  function renderRemote(rm) {
+    var $f = $('#m4w-remote-flag');
+    if (!$f.length) $f = $('<div id="m4w-remote-flag"></div>').insertAfter('#m4w-vacation-flag');
+    if (!rm || rm.status === 'ok' || rm.status === 'pending') { $f.empty(); return; }
+    $f.html('<div class="m4w-remote-flag" role="status"><i class="bi bi-plug"></i><span>' + esc(t('wm_flag_' + rm.status)) + '</span></div>');
+  }
+
   // ------------------------------------------------------------- polling
-  function poll(first) {
-    M4W.get('api/poll', { since: S.maxId }, { silent: true, quiet: true }).done(function (r) {
+  function poll(first, force) {
+    var q = { since: S.maxId };
+    if (force) q.force = 1;
+    return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
+      if (r.remote) renderRemote(r.remote);
       var prevInbox = S.byRole.inbox ? S.byRole.inbox.unread : 0;
       setFolders(r.folders);
       if (r.csrf) M4W.csrf(r.csrf);
@@ -698,7 +709,8 @@
       S.offset = 0; loadList();
     });
     $(document).on('click', '[data-page]', function () { S.offset = Math.max(0, S.offset + (+$(this).data('page')) * (S.prefs.page_size || 50)); loadList(); $scroll.scrollTop(0); });
-    $(document).on('click', '[data-action=refresh]', function () { var $i = $(this).find('.bi').addClass('spin'); loadList(true).always(function () { $i.removeClass('spin'); }); poll(false); });
+    // Refresh first pulls from the provider in webmail mode, then reloads the list.
+    $(document).on('click', '[data-action=refresh]', function () { var $i = $(this).find('.bi').addClass('spin'); poll(false, true).always(function () { loadList(true).always(function () { $i.removeClass('spin'); }); }); });
     $(document).on('click', '[data-action=mark-all-read]', function () {
       if (!S.folder) return;
       M4W.post('api/folders/' + S.folder + '/read-all').done(function (r) { setFolders(r.folders); loadList(true); });

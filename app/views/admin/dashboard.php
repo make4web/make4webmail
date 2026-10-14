@@ -41,7 +41,7 @@
       <div class="card-header"><?= te('admin.checklist') ?></div>
       <ul class="list-unstyled m4w-checklist px-3 py-1 mb-0">
         <?php foreach ([
-            'smtp' => ['admin.chk_smtp', 'admin/mail'], 'dkim' => ['admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
+            'smtp' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_linked' : 'admin.chk_smtp', M4W\Service\RemoteMailbox::active() ? 'admin/users' : 'admin/mail'], 'dkim' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_dkim_provider' : 'admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
             'logo' => ['admin.chk_logo', 'admin/branding'], 'twofa' => ['admin.chk_2fa', 'settings/security'], 'cron' => ['admin.chk_cron', null],
         ] as $k => [$label, $link]): ?>
         <li><i class="bi bi-<?= $checks[$k] ? 'check-circle-fill ok' : 'exclamation-circle-fill ko' ?>"></i><span class="flex-grow-1"><?= te($label) ?></span><?php if (!$checks[$k] && $link): ?><a class="small" href="<?= e(url($link)) ?>"><?= te('admin.fix') ?></a><?php endif; ?></li>

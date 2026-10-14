@@ -51,9 +51,15 @@ final class AdminController extends Controller
                 'out' => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'out' AND created_at >= :s AND created_at < :e", ['s' => $start, 'e' => $start + 86400]),
             ];
         }
+        $mode = \M4W\Service\RemoteMailbox::mode();
         $checks = [
-            'smtp'  => trim((string) Settings::get('smtp.host', '')) !== '',
-            'dkim'  => Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== '',
+            // Relay mode needs its relay; server mode sends on its own; webmail mode needs every mailbox linked.
+            'smtp'  => match ($mode) {
+                'relay' => trim((string) Settings::get('smtp.host', '')) !== '',
+                'webmail' => !DB::value("SELECT COUNT(*) FROM users u LEFT JOIN remote_accounts r ON r.user_id = u.id WHERE u.status = 'active' AND (r.id IS NULL OR r.password_enc = '' OR r.last_error <> '')"),
+                default => true,
+            },
+            'dkim'  => $mode === 'webmail' || (Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== ''),
             'https' => $this->req->isSecure(),
             'logo'  => Settings::get('brand.logo', '') !== '',
             'cron'  => (int) Settings::get('system.cron_last', 0) > time() - 900,
@@ -83,7 +89,11 @@ final class AdminController extends Controller
             $where .= " AND u.role = 'admin'";
         }
         $users = DB::all("SELECT u.*, t.name AS template_name FROM users u LEFT JOIN signature_templates t ON t.id = u.signature_template_id WHERE $where ORDER BY u.email", $p);
-        return $this->page('users', ['users' => $users, 'q' => $q, 'status' => $status, 'templates' => Signatures::all()]);
+        $remotes = [];
+        foreach (DB::all('SELECT * FROM remote_accounts') as $ra) {
+            $remotes[(int) $ra['user_id']] = $ra;
+        }
+        return $this->page('users', ['users' => $users, 'q' => $q, 'status' => $status, 'templates' => Signatures::all(), 'remotes' => $remotes]);
     }
 
     public function userForm(?string $id = null): Response
@@ -94,6 +104,7 @@ final class AdminController extends Controller
         }
         $aliases = $user ? DB::all('SELECT * FROM aliases WHERE user_id = :u ORDER BY address', ['u' => $user['id']]) : [];
         return $this->page('user_form', [
+            'remote' => $user ? \M4W\Service\RemoteMailbox::find((int) $user['id']) : null,
             'user' => $user,
             'aliases' => $aliases,
             'delegates' => $user ? array_map('intval', array_column(\M4W\Service\Delegation::delegates((int) $user['id']), 'id')) : [],
@@ -143,6 +154,9 @@ final class AdminController extends Controller
             if ($r->bool('delegates_present')) {
                 \M4W\Service\Delegation::setDelegates($id, $r->arr('delegates'), $this->uid());
             }
+            if ($err = $this->saveRemoteFields($id)) {
+                return $this->back($redirect, 'warning', t('admin.user_saved') . ' ' . $err);
+            }
             if ($data['status'] === 'disabled' || $pw !== '') {
                 Auth::revokeOtherSessions($id, 0);
             }
@@ -163,10 +177,56 @@ final class AdminController extends Controller
         }
         $newId = Users::create($data + ['email' => $email, 'password' => $pw]);
         Audit::log('admin.user_created', $email);
+        if ($err = $this->saveRemoteFields($newId)) {
+            return $this->back('/admin/users/' . $newId, 'warning', t('admin.user_created', ['email' => $email]) . ' ' . $err);
+        }
         if ($r->bool('send_welcome')) {
             \M4W\Service\Installer::welcome($newId);
         }
         return $this->back('/admin/users', 'success', t('admin.user_created', ['email' => $email]));
+    }
+
+    /** Webmail mode: provider mailbox link entered in the user form. Returns an error message or null. */
+    private function saveRemoteFields(int $userId): ?string
+    {
+        $r = $this->req;
+        if (!$r->bool('remote_present')) {
+            return null;
+        }
+        $hasAccount = \M4W\Service\RemoteMailbox::find($userId) !== null;
+        if (!$hasAccount && $r->raw('remote_password') === '') {
+            return null; // nothing entered yet: the mailbox stays "not linked"
+        }
+        try {
+            \M4W\Service\RemoteMailbox::save($userId, [
+                'login' => $r->str('remote_login'), 'password' => $r->raw('remote_password'), 'enabled' => $r->bool('remote_enabled') || !$hasAccount,
+                'imap_host' => $r->str('remote_imap_host'), 'imap_port' => $r->int('remote_imap_port'), 'imap_security' => $r->str('remote_imap_security'),
+                'smtp_host' => $r->str('remote_smtp_host'), 'smtp_port' => $r->int('remote_smtp_port'), 'smtp_security' => $r->str('remote_smtp_security'),
+            ], $this->uid());
+        } catch (\InvalidArgumentException $e) {
+            return $e->getMessage();
+        }
+        return null;
+    }
+
+    /** Webmail mode: check IMAP and SMTP credentials of a mailbox (AJAX). */
+    public function testRemote(string $id): Response
+    {
+        $res = \M4W\Service\RemoteMailbox::test((int) $id);
+        return $this->ok(['imap' => $res['imap'], 'smtp' => $res['smtp'], 'message' => $res['imap'] === '' && $res['smtp'] === '' ? t('wm.test_ok') : t('wm.test_failed')]);
+    }
+
+    /** Webmail mode: pull new mail now (AJAX). */
+    public function syncRemote(string $id): Response
+    {
+        $acc = \M4W\Service\RemoteMailbox::find((int) $id);
+        if (!$acc) {
+            return $this->fail(t('wm.not_linked'));
+        }
+        DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+        $acc['last_sync_at'] = 0;
+        $res = \M4W\Service\RemoteMailbox::sync($acc);
+        return $res['error'] !== '' ? $this->fail($res['error']) : $this->ok(['message' => t('wm.synced', ['n' => $res['fetched']])]);
     }
 
     public function deleteUser(): Response
@@ -235,11 +295,19 @@ final class AdminController extends Controller
                 $errors[] = $email;
                 continue;
             }
-            Users::create([
+            $newId = Users::create([
                 'email' => $email, 'first_name' => $c[1] ?? '', 'last_name' => $c[2] ?? '', 'job_title' => $c[3] ?? '',
                 'department' => $c[4] ?? '', 'phone' => $c[5] ?? '', 'password' => $pw, 'must_change_password' => 1,
                 'display_name' => trim(($c[1] ?? '') . ' ' . ($c[2] ?? '')),
             ]);
+            // Webmail mode: optional 8th column = mailbox password at the provider.
+            if (\M4W\Service\RemoteMailbox::active() && trim($c[7] ?? '') !== '') {
+                try {
+                    \M4W\Service\RemoteMailbox::save($newId, ['login' => '', 'password' => trim($c[7]), 'enabled' => 1], $this->uid());
+                } catch (\InvalidArgumentException) {
+                    $errors[] = $email . ' (boîte)';
+                }
+            }
             $n++;
         }
         Audit::log('admin.users_imported', (string) $n);
@@ -438,7 +506,11 @@ final class AdminController extends Controller
             $dkimPublic = 'v=DKIM1; k=rsa; p=' . preg_replace('/-----(BEGIN|END) PUBLIC KEY-----|\s+/', '', $pub);
         }
         $domains = array_column(DB::all('SELECT name FROM domains WHERE active = 1 ORDER BY name'), 'name');
-        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '']);
+        $linked = [
+            'total' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status = 'active'"),
+            'ok' => (int) DB::value("SELECT COUNT(*) FROM remote_accounts r JOIN users u ON u.id = r.user_id WHERE u.status = 'active' AND r.enabled = 1 AND r.password_enc <> ''"),
+        ];
+        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked]);
     }
 
     public function saveMail(): Response
@@ -461,13 +533,29 @@ final class AdminController extends Controller
             'inbound.allowed_ips' => $r->str('inbound_ips'),
             'inbound.spam_header' => $r->bool('spam_header') ? 1 : 0,
         ];
+        $mode = in_array($r->str('mode'), ['server', 'relay', 'webmail'], true) ? $r->str('mode') : \M4W\Service\RemoteMailbox::mode();
+        $values['mail.mode'] = $mode;
+        $host = static fn(string $v) => mb_strtolower(preg_replace('/[^a-z0-9.-]/i', '', $v) ?? '');
+        $sec = static fn(string $v) => in_array($v, ['ssl', 'tls', 'none'], true) ? $v : 'ssl';
+        $values += [
+            'webmail.preset' => array_key_exists($r->str('wm_preset'), \M4W\Service\RemoteMailbox::PRESETS) ? $r->str('wm_preset') : 'custom',
+            'webmail.imap_host' => $host($r->str('wm_imap_host')), 'webmail.imap_port' => max(1, min(65535, $r->int('wm_imap_port', 993))), 'webmail.imap_security' => $sec($r->str('wm_imap_security')),
+            'webmail.smtp_host' => $host($r->str('wm_smtp_host')), 'webmail.smtp_port' => max(1, min(65535, $r->int('wm_smtp_port', 465))), 'webmail.smtp_security' => $sec($r->str('wm_smtp_security')),
+            'webmail.interval' => max(1, min(60, $r->int('wm_interval', 2))),
+            'webmail.leave_days' => in_array($r->int('wm_leave_days', -1), [-1, 0, 7, 30, 90], true) ? $r->int('wm_leave_days', -1) : -1,
+            'webmail.spam_folder' => mb_substr(preg_replace('/[\r\n\x00"\\\\]/', '', $r->str('wm_spam_folder')) ?? '', 0, 100),
+            'webmail.verify_peer' => $r->bool('wm_verify_peer') ? 1 : 0,
+        ];
+        if ($mode === 'relay' && $values['smtp.host'] === '') {
+            return $this->back('/admin/mail', 'danger', t('wm.relay_needs_host'));
+        }
         Settings::setMany($values);
         if ($r->raw('password') !== '') {
             Settings::setSecret('smtp.password', $r->raw('password'));
         } elseif ($r->bool('clear_password')) {
             Settings::set('smtp.password', '');
         }
-        Audit::log('admin.mail_saved', $values['smtp.host']);
+        Audit::log('admin.mail_saved', $mode . ($mode === 'relay' ? ' ' . $values['smtp.host'] : ''));
         return $this->back('/admin/mail', 'success', t('settings.saved'));
     }
 

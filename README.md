@@ -82,6 +82,23 @@ Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisa
 - Les douze chapitres d'administration ne sont générés côté serveur que pour les administrateurs : un utilisateur ne reçoit jamais ce contenu.
 - Le texte est en français (`app/views/help/index.php`).
 
+### Trois modes de fonctionnement
+Le mode se choisit dans « Administration → Serveur de messagerie ».
+
+| Mode | Boîtes | Réception | Envoi | Prérequis |
+|---|---|---|---|---|
+| **Serveur autonome** | dans Make4WebMail | MX vers ce serveur (port 25) | directement aux MX des destinataires | port 25 entrant/sortant, DNS inverse, SPF/DKIM/DMARC |
+| **Serveur + relais** | dans Make4WebMail | MX vers ce serveur (port 25) | relais SMTP (Brevo, Mailjet, Amazon SES, Scaleway TEM…) | un relais qui accepte tout le domaine |
+| **Webmail** | chez le fournisseur (OVH, Infomaniak, Gandi, IONOS…) | relève IMAP de chaque boîte | SMTP du fournisseur, avec la boîte de l'expéditeur | mot de passe de chaque boîte saisi par l'administrateur |
+
+En mode webmail :
+- Le mot de passe de chaque boîte chez le fournisseur est **découplé** du mot de passe du webmail. Il est saisi dans la fiche utilisateur (ou en 8ᵉ colonne de l'import CSV) et conservé chiffré.
+- Le serveur peut donc travailler seul : la tâche planifiée et chaque consultation relèvent les boîtes. Les messages relevés suivent le même circuit de distribution que dans les autres modes (règles, absence, transfert, seconde corbeille, notifications).
+- Tout ce qui part au nom d'un utilisateur emprunte le SMTP du fournisseur avec sa boîte : messages, réponses d'absence et de règle, transferts, envois d'un délégué (en-tête `Sender:` en plus). Les transferts sont réécrits « Auteur (via Utilisateur) » avec `Reply-To` vers l'auteur, car un fournisseur refuse d'envoyer au nom d'un tiers.
+- Les messages entre collègues passent par le fournisseur (pas de distribution locale) et la signature DKIM est laissée au fournisseur.
+- Les messages relevés peuvent être conservés chez le fournisseur (lecture sur téléphone en IMAP) ou supprimés après 0, 7, 30 ou 90 jours. Un dossier indésirables du fournisseur peut être relevé vers les Indésirables.
+- Un test de bout en bout (`tests/run.php`) vérifie le mode webmail contre un faux fournisseur IMAP/SMTP sur de vraies sockets. Ce faux fournisseur, comme les vrais, refuse tout expéditeur autre que la boîte authentifiée.
+
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
@@ -176,7 +193,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 88 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, TOTP, quotas…
+php tests/run.php   # 95 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, mode webmail, TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -188,7 +205,7 @@ app/
   Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
                Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
-               Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille)
+               Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille), RemoteMailbox (mode webmail)
   Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php

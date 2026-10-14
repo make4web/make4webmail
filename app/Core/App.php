@@ -312,6 +312,8 @@ final class App
         $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $admin);
         $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $admin);
         $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $admin);
+        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $admin);
+        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $admin);
         $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $admin);
         $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $admin);
         $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $admin);

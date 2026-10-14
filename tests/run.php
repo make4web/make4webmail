@@ -964,6 +964,140 @@ test('retention: drafts replaced at send are not kept, personal mail is masked, 
     Settings::set('retention.enabled', 1);
 });
 
+// ---------------------------------------------------------- Webmail mode (mailboxes at an external provider)
+use M4W\Service\RemoteMailbox;
+
+echo "\nWebmail mode (fake provider over real sockets)\n";
+$wm = ['imap' => random_int(41000, 45000), 'smtp' => random_int(45001, 49000), 'state' => $tmp . '/provider.json', 'log' => $tmp . '/provider-smtp.jsonl'];
+$wmMsg = static fn(string $from, string $subject, string $returnPath = null, string $body = 'Bonjour') =>
+    ($returnPath !== null ? "Return-Path: <$returnPath>\r\n" : '') . "From: $from\r\nTo: paul@test.local\r\nSubject: $subject\r\nDate: " . date('r') . "\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n$body\r\n";
+file_put_contents($wm['state'], json_encode([
+    'accounts' => ['paul@test.local' => 'secret-paul', 'lea@test.local' => 'secret-lea'],
+    'boxes' => [
+        'paul@test.local' => ['INBOX' => ['validity' => 7, 'msgs' => [
+            ['uid' => 1, 'raw' => $wmMsg('Client <client@ext.com>', 'Facture 42', 'client@ext.com')],
+            ['uid' => 2, 'raw' => $wmMsg('Patron <boss@ext.com>', 'Point projet', 'boss@ext.com')],
+            ['uid' => 3, 'raw' => $wmMsg('MAILER-DAEMON <mailer-daemon@ext.com>', 'Undelivered Mail', '')],
+        ]], 'Junk' => ['validity' => 3, 'msgs' => [['uid' => 9, 'raw' => $wmMsg('Promo <promo@spam.example>', 'Gagnez 1000 euros', 'promo@spam.example')]]]],
+        'lea@test.local' => ['INBOX' => ['validity' => 1, 'msgs' => []]],
+    ],
+]));
+@unlink($wm['log']);
+$wmProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_provider.php', (string) $wm['imap'], (string) $wm['smtp'], $wm['state'], $wm['log']], [], $wmPipes);
+usleep(400000);
+Settings::setMany([
+    'mail.mode' => 'webmail', 'webmail.imap_host' => '127.0.0.1', 'webmail.imap_port' => $wm['imap'], 'webmail.imap_security' => 'none',
+    'webmail.smtp_host' => '127.0.0.1', 'webmail.smtp_port' => $wm['smtp'], 'webmail.smtp_security' => 'none', 'webmail.verify_peer' => 0,
+    'webmail.spam_folder' => 'Junk', 'webmail.leave_days' => -1,
+]);
+$wmSmtp = static function () use ($wm): array {
+    $out = [];
+    foreach (file($wm['log'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $l) {
+        $out[] = json_decode($l, true);
+    }
+    return $out;
+};
+$paul = Users::find(Users::create(['email' => 'paul@test.local', 'password' => 'Webmail!Pass123', 'first_name' => 'Paul', 'last_name' => 'Durand']));
+$lea = Users::find(Users::create(['email' => 'lea@test.local', 'password' => 'Webmail!Pass123', 'first_name' => 'Léa']));
+
+test('webmail: mailbox password is separate from the webmail password and stored encrypted', function () use ($paul, $fsAdmin) {
+    ok(RemoteMailbox::active());
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'missing');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1], (int) $fsAdmin['id']);
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    ok(!str_contains((string) $acc['password_enc'], 'secret-paul'), 'encrypted at rest');
+    ok(\M4W\Core\Crypto::verifyPassword('Webmail!Pass123', Users::find((int) $paul['id'])['password_hash']), 'webmail password untouched');
+    eq(RemoteMailbox::effective($acc)['login'], 'paul@test.local', 'login defaults to the address');
+    $t = RemoteMailbox::test((int) $paul['id']);
+    eq([$t['imap'], $t['smtp']], ['', ''], 'IMAP and SMTP authenticate');
+});
+test('webmail: fetched mail goes through rules, spam folder, and no reply to bounces', function () use ($paul, $wmSmtp) {
+    $uid = (int) $paul['id'];
+    $factures = Folders::create($uid, 'Factures');
+    DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'Factures', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'facture']],
+        'actions' => [['type' => 'move', 'folder' => $factures]]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Vacation::save($uid, ['enabled' => 1, 'subject' => 'Absent', 'body_html' => '<p>Je suis absent.</p>', 'interval_days' => 1]);
+    Forwarding::save($uid, true, ['archive@ext.com'], true);
+    $r = RemoteMailbox::sync(RemoteMailbox::find($uid));
+    eq($r['error'], '');
+    eq($r['fetched'], 4, '3 inbox + 1 spam');
+    $where = static fn(string $subject) => DB::one("SELECT f.role, f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = :s", ['u' => $uid, 's' => $subject]);
+    eq($where('Facture 42')['name'], 'Factures', 'rule applied');
+    eq($where('Point projet')['role'], 'inbox');
+    eq($where('Gagnez 1000 euros')['role'], 'spam', 'provider spam folder');
+    Transport::processQueue(50);
+    $sent = $wmSmtp();
+    $vac = array_values(array_filter($sent, static fn($s) => str_contains($s['data'], 'Auto-Submitted: auto-replied')));
+    $to = array_merge(...array_map(static fn($v) => $v['rcpt'], $vac));
+    sort($to);
+    eq($to, ['boss@ext.com', 'client@ext.com'], 'one reply per real sender (rules do not prevent it), none to the bounce');
+    eq([$vac[0]['auth'], $vac[0]['from']], ['paul@test.local', 'paul@test.local'], 'sent with Paul\'s own mailbox');
+    ok(!str_contains(json_encode($sent), 'mailer-daemon@ext.com"]'), 'no auto-reply to a bounce');
+});
+test('webmail: forwards leave from the mailbox, original author in Reply-To', function () use ($wmSmtp) {
+    $fwd = array_values(array_filter($wmSmtp(), static fn($s) => $s['rcpt'] === ['archive@ext.com']));
+    ok(count($fwd) >= 2, 'forwarded');
+    $f = array_values(array_filter($fwd, static fn($s) => str_contains($s['data'], 'Point projet')))[0];
+    eq([$f['auth'], $f['from']], ['paul@test.local', 'paul@test.local']);
+    ok((bool) preg_match('/^From: .*\(via Paul Durand\).*<paul@test\.local>/m', $f['data']), 'From rewritten');
+    ok((bool) preg_match('/^Reply-To: .*boss@ext\.com/m', $f['data']), 'replies reach the author');
+    ok(!preg_match('/^DKIM-Signature:/m', $f['data']), 'no foreign signature kept');
+});
+test('webmail: re-sync imports nothing twice, then cleanup at the provider', function () use ($paul, $wm) {
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    eq(RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']))['fetched'], 0);
+    Settings::set('webmail.leave_days', 0);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']));
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    eq(count($st['boxes']['paul@test.local']['INBOX']['msgs']), 0, 'deleted at the provider after import');
+    Settings::set('webmail.leave_days', -1);
+});
+test('webmail: sending, colleagues included, goes through the provider with the sender\'s mailbox', function () use ($paul, $lea, $wmSmtp) {
+    $before = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'lea@test.local, client@ext.com', 'subject' => 'Compte rendu', 'html' => '<p>Ci-joint.</p>']);
+    $s = array_slice($wmSmtp(), $before);
+    eq(count($s), 1);
+    eq([$s[0]['auth'], $s[0]['from']], ['paul@test.local', 'paul@test.local']);
+    ok(in_array('lea@test.local', $s[0]['rcpt'], true), 'colleague reached through the provider');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'Compte rendu'", ['u' => $lea['id']]), 0, 'no local shortcut');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs, not us');
+    // A mailbox that is not linked cannot send.
+    $thrown = false;
+    try { Composer::send(Users::find((int) $lea['id']), ['to' => 'x@ext.com', 'subject' => 's', 'html' => 'x']); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'unlinked mailbox refused');
+});
+test('webmail: a delegate sends with the owner\'s mailbox credentials', function () use ($paul, $fsAdmin, $wmSmtp) {
+    $_SESSION = [];
+    Delegation::open($fsAdmin, (int) $paul['id'], 'Absence de Paul');
+    $owner = Delegation::current($fsAdmin);
+    $before = count($wmSmtp());
+    Composer::send($owner, ['to' => 'client@ext.com', 'subject' => 'Réponse pendant l\'absence', 'html' => '<p>ok</p>']);
+    $s = array_slice($wmSmtp(), $before)[0];
+    eq([$s['auth'], $s['from']], ['paul@test.local', 'paul@test.local'], 'owner\'s mailbox');
+    ok((bool) preg_match('/^Sender: .*admin@test\.local/m', $s['data']), 'real sender named');
+    // The delegate can also manage the owner's out-of-office while he is away.
+    Vacation::save((int) $owner['id'], ['enabled' => 0]);
+    eq(Vacation::get((int) $paul['id'])['enabled'], false);
+    Delegation::close($fsAdmin);
+});
+test('webmail: wrong provider password is reported, not retried blindly', function () use ($paul, $fsAdmin) {
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'mauvais', 'enabled' => 1], (int) $fsAdmin['id']);
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    $r = RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']));
+    ok($r['error'] !== '', 'error kept');
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'error');
+    $thrown = false;
+    try { Composer::send(Users::find((int) $paul['id']), ['to' => 'x@ext.com', 'subject' => 's', 'html' => 'x']); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'send fails visibly');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1], (int) $fsAdmin['id']);
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'pending', 'fixed password clears the error');
+});
+proc_terminate($wmProc);
+Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

@@ -1,20 +1,66 @@
-<?php use M4W\Core\Settings as S; ?>
+<?php
+use M4W\Core\Settings as S;
+use M4W\Service\RemoteMailbox as RM;
+$mode = RM::mode();
+$show = static fn(string $modes): string => ' data-modes="' . $modes . '"' . (in_array($mode, explode(' ', $modes), true) ? '' : ' hidden');
+?>
 <div class="m4w-page-header"><div><h1><?= te('admin.mail_title') ?></h1><p><?= te('admin.mail_desc') ?></p></div>
   <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#test-modal"><i class="bi bi-send-check me-1"></i><?= te('admin.test_send') ?></button></div>
 <form method="post" action="<?= e(url('admin/mail')) ?>">
   <?= csrf_field() ?>
-  <div class="row g-4">
+  <fieldset class="m4w-modes mb-4">
+    <legend class="h5 mb-1"><?= te('wm.mode_title') ?></legend>
+    <p class="small text-muted mb-3"><?= te('wm.mode_desc') ?></p>
+    <div class="row g-3">
+      <?php foreach ([
+          'server' => ['hdd-rack', ['wm.server_need1', 'wm.server_need2', 'wm.server_need3', 'wm.server_need4']],
+          'relay' => ['send-check', ['wm.relay_need1', 'wm.relay_need2', 'wm.relay_need3']],
+          'webmail' => ['window-stack', ['wm.webmail_need1', 'wm.webmail_need2', 'wm.webmail_need3', 'wm.webmail_need4']],
+      ] as $k => [$icon, $needs]): ?>
+      <div class="col-lg-4">
+        <input class="btn-check" type="radio" name="mode" id="mode-<?= $k ?>" value="<?= $k ?>" data-mail-mode <?= $mode === $k ? 'checked' : '' ?>>
+        <label class="m4w-mode-card h-100" for="mode-<?= $k ?>">
+          <span class="m4w-mode-head"><span class="m4w-mode-icon"><i class="bi bi-<?= $icon ?>"></i></span><span><span class="fw-semibold d-block"><?= te('wm.mode_' . $k) ?></span><span class="small text-muted"><?= te('wm.mode_' . $k . '_short') ?></span></span><i class="bi bi-check-circle-fill m4w-mode-check"></i></span>
+          <span class="m4w-mode-body small"><?= te('wm.mode_' . $k . '_desc') ?></span>
+          <span class="m4w-mode-needs small"><span class="fw-semibold d-block mb-1"><?= te('wm.needs') ?></span>
+            <?php foreach ($needs as $n): ?><span class="d-flex gap-2"><i class="bi bi-dot"></i><span><?= te($n) ?></span></span><?php endforeach; ?></span>
+        </label>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </fieldset>
+
+  <div class="card mb-4"<?= $show('webmail') ?>><div class="card-header"><i class="bi bi-window-stack me-2 text-primary"></i><?= te('wm.provider_title') ?></div><div class="card-body">
+    <p class="small text-muted"><?= te('wm.provider_desc') ?></p>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label"><?= te('wm.preset') ?></label><select class="form-select" name="wm_preset" data-wm-preset>
+        <?php foreach (RM::PRESETS as $pk => $p): ?><option value="<?= e($pk) ?>" data-imap="<?= e($p[1]) ?>" data-imap-port="<?= (int) $p[2] ?>" data-imap-sec="<?= e($p[3]) ?>" data-smtp="<?= e($p[4]) ?>" data-smtp-port="<?= (int) $p[5] ?>" data-smtp-sec="<?= e($p[6]) ?>" <?= S::get('webmail.preset') === $pk ? 'selected' : '' ?>><?= e($p[0]) ?></option><?php endforeach; ?>
+      </select></div>
+      <div class="col-md-6"><label class="form-label"><?= te('wm.interval') ?></label><div class="input-group"><input class="form-control" type="number" min="1" max="60" name="wm_interval" value="<?= (int) S::get('webmail.interval') ?>"><span class="input-group-text">min</span></div></div>
+      <div class="col-md-6"><label class="form-label"><?= te('wm.imap_server') ?></label><div class="input-group"><input class="form-control m4w-code" name="wm_imap_host" value="<?= e(S::get('webmail.imap_host')) ?>" placeholder="imap.fournisseur.fr" data-wm="imap"><input class="form-control" style="max-width:90px" type="number" name="wm_imap_port" value="<?= (int) S::get('webmail.imap_port') ?>" aria-label="Port IMAP" data-wm="imap-port"><select class="form-select" style="max-width:120px" name="wm_imap_security" aria-label="<?= te('admin.smtp_security') ?>" data-wm="imap-sec"><?php foreach (['ssl' => 'SSL', 'tls' => 'STARTTLS', 'none' => te('admin.smtp_none')] as $sk => $sl): ?><option value="<?= $sk ?>" <?= S::get('webmail.imap_security') === $sk ? 'selected' : '' ?>><?= $sl ?></option><?php endforeach; ?></select></div></div>
+      <div class="col-md-6"><label class="form-label"><?= te('wm.smtp_server') ?></label><div class="input-group"><input class="form-control m4w-code" name="wm_smtp_host" value="<?= e(S::get('webmail.smtp_host')) ?>" placeholder="smtp.fournisseur.fr" data-wm="smtp"><input class="form-control" style="max-width:90px" type="number" name="wm_smtp_port" value="<?= (int) S::get('webmail.smtp_port') ?>" aria-label="Port SMTP" data-wm="smtp-port"><select class="form-select" style="max-width:120px" name="wm_smtp_security" aria-label="<?= te('admin.smtp_security') ?>" data-wm="smtp-sec"><?php foreach (['ssl' => 'SSL', 'tls' => 'STARTTLS', 'none' => te('admin.smtp_none')] as $sk => $sl): ?><option value="<?= $sk ?>" <?= S::get('webmail.smtp_security') === $sk ? 'selected' : '' ?>><?= $sl ?></option><?php endforeach; ?></select></div></div>
+      <div class="col-md-6"><label class="form-label"><?= te('wm.leave') ?></label><select class="form-select" name="wm_leave_days">
+        <?php foreach ([-1 => 'wm.leave_never', 0 => 'wm.leave_now', 7 => 'wm.leave_7', 30 => 'wm.leave_30', 90 => 'wm.leave_90'] as $lv => $ll): ?><option value="<?= $lv ?>" <?= (int) S::get('webmail.leave_days') === $lv ? 'selected' : '' ?>><?= te($ll) ?></option><?php endforeach; ?>
+      </select><div class="form-text"><?= te('wm.leave_hint') ?></div></div>
+      <div class="col-md-6"><label class="form-label"><?= te('wm.spam_folder') ?></label><input class="form-control m4w-code" name="wm_spam_folder" value="<?= e(S::get('webmail.spam_folder')) ?>" placeholder="Junk, SPAM, INBOX.Spam…"><div class="form-text"><?= te('wm.spam_folder_hint') ?></div></div>
+      <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="wm_verify_peer" value="1" id="wm-vp" <?= S::get('webmail.verify_peer') ? 'checked' : '' ?>><label class="form-check-label" for="wm-vp"><?= te('admin.smtp_verify') ?></label></div></div>
+    </div>
+    <div class="m4w-deleg-notice mt-3 small"><i class="bi bi-info-circle"></i><span><?= te('wm.provider_note', ['n' => $linked['ok'] ?? 0, 'total' => $linked['total'] ?? 0]) ?> <a href="<?= e(url('admin/users')) ?>"><?= te('wm.goto_users') ?></a></span></div>
+  </div></div>
+
+  <div class="row g-4"<?= $show('server relay') ?>>
     <div class="col-xl-7">
       <div class="card mb-4"><div class="card-header"><i class="bi bi-send me-2 text-primary"></i><?= te('admin.smtp_out') ?></div><div class="card-body">
-        <p class="small text-muted"><?= te('admin.smtp_out_desc') ?></p>
+        <p class="small text-muted"<?= $show('relay') ?>><?= te('wm.relay_card_desc') ?></p>
+        <p class="small text-muted"<?= $show('server') ?>><?= te('wm.server_card_desc') ?></p>
         <div class="row g-3">
-          <div class="col-md-8"><label class="form-label"><?= te('admin.smtp_host') ?></label><input class="form-control" name="host" value="<?= e(S::get('smtp.host')) ?>" placeholder="smtp.exemple.fr — <?= te('admin.smtp_empty_mx') ?>"></div>
-          <div class="col-md-4"><label class="form-label">Port</label><input class="form-control" name="port" type="number" value="<?= (int) S::get('smtp.port') ?>"></div>
-          <div class="col-md-6"><label class="form-label"><?= te('admin.smtp_security') ?></label><select class="form-select" name="security"><?php foreach (['tls' => 'STARTTLS (587)', 'ssl' => 'SSL/TLS (465)', 'none' => te('admin.smtp_none')] as $k => $l): ?><option value="<?= $k ?>" <?= S::get('smtp.security') === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></div>
+          <div class="col-md-8"<?= $show('relay') ?>><label class="form-label"><?= te('admin.smtp_host') ?></label><input class="form-control" name="host" value="<?= e(S::get('smtp.host')) ?>" placeholder="smtp.exemple.fr — <?= te('admin.smtp_empty_mx') ?>"></div>
+          <div class="col-md-4"<?= $show('relay') ?>><label class="form-label">Port</label><input class="form-control" name="port" type="number" value="<?= (int) S::get('smtp.port') ?>"></div>
+          <div class="col-md-6"<?= $show('relay') ?>><label class="form-label"><?= te('admin.smtp_security') ?></label><select class="form-select" name="security"><?php foreach (['tls' => 'STARTTLS (587)', 'ssl' => 'SSL/TLS (465)', 'none' => te('admin.smtp_none')] as $k => $l): ?><option value="<?= $k ?>" <?= S::get('smtp.security') === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></div>
           <div class="col-md-6"><label class="form-label"><?= te('admin.smtp_helo') ?></label><input class="form-control" name="helo" value="<?= e(S::get('smtp.helo')) ?>" placeholder="mail.exemple.fr"></div>
-          <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="auth" value="1" id="m-auth" <?= S::get('smtp.auth') ? 'checked' : '' ?>><label class="form-check-label" for="m-auth"><?= te('admin.smtp_auth') ?></label></div></div>
-          <div class="col-md-6"><label class="form-label"><?= te('fetch.username') ?></label><input class="form-control" name="username" value="<?= e(S::get('smtp.username')) ?>" autocomplete="off"></div>
-          <div class="col-md-6"><label class="form-label"><?= te('auth.password') ?></label><input class="form-control" type="password" name="password" autocomplete="new-password" placeholder="<?= $hasPassword ? '••••••••  (' . te('admin.kept') . ')' : '' ?>">
+          <div class="col-12"<?= $show('relay') ?>><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="auth" value="1" id="m-auth" <?= S::get('smtp.auth') ? 'checked' : '' ?>><label class="form-check-label" for="m-auth"><?= te('admin.smtp_auth') ?></label></div></div>
+          <div class="col-md-6"<?= $show('relay') ?>><label class="form-label"><?= te('fetch.username') ?></label><input class="form-control" name="username" value="<?= e(S::get('smtp.username')) ?>" autocomplete="off"></div>
+          <div class="col-md-6"<?= $show('relay') ?>><label class="form-label"><?= te('auth.password') ?></label><input class="form-control" type="password" name="password" autocomplete="new-password" placeholder="<?= $hasPassword ? '••••••••  (' . te('admin.kept') . ')' : '' ?>">
             <?php if ($hasPassword): ?><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="clear_password" value="1" id="m-clr"><label class="form-check-label small" for="m-clr"><?= te('admin.clear_password') ?></label></div><?php endif; ?></div>
           <div class="col-md-6"><label class="form-label"><?= te('admin.smtp_timeout') ?></label><div class="input-group"><input class="form-control" type="number" name="timeout" value="<?= (int) S::get('smtp.timeout') ?>"><span class="input-group-text">s</span></div></div>
           <div class="col-md-6 d-flex flex-column justify-content-end">

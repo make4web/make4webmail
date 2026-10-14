@@ -415,5 +415,40 @@ static function (): void {
 "ALTER TABLE messages ADD COLUMN trashed_from INTEGER NULL",
 "ALTER TABLE messages ADD COLUMN trashed_from_name VARCHAR(255) NOT NULL DEFAULT ''",
 ],
+6 => [
+// "Webmail" mode: each user's mailbox lives at an external provider (IMAP + SMTP).
+"CREATE TABLE remote_accounts (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  login VARCHAR(190) NOT NULL DEFAULT '',
+  password_enc {TEXT},
+  imap_host VARCHAR(190) NOT NULL DEFAULT '',
+  imap_port INTEGER NOT NULL DEFAULT 0,
+  imap_security VARCHAR(10) NOT NULL DEFAULT '',
+  smtp_host VARCHAR(190) NOT NULL DEFAULT '',
+  smtp_port INTEGER NOT NULL DEFAULT 0,
+  smtp_security VARCHAR(10) NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  inbox_uid INTEGER NOT NULL DEFAULT 0,
+  inbox_validity INTEGER NOT NULL DEFAULT 0,
+  spam_uid INTEGER NOT NULL DEFAULT 0,
+  spam_validity INTEGER NOT NULL DEFAULT 0,
+  last_sync_at INTEGER NOT NULL DEFAULT 0,
+  last_ok_at INTEGER NOT NULL DEFAULT 0,
+  last_error VARCHAR(500) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX remote_accounts_user ON remote_accounts(user_id)",
+"CREATE TABLE remote_uids (
+  id {PK},
+  account_id INTEGER NOT NULL,
+  folder VARCHAR(10) NOT NULL DEFAULT 'inbox',
+  validity INTEGER NOT NULL DEFAULT 0,
+  uid INTEGER NOT NULL,
+  imported_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX remote_uids_account ON remote_uids(account_id, imported_at)",
+],
 ];
 

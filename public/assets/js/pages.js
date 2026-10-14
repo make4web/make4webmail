@@ -68,6 +68,35 @@
       $(window).on('beforeprint', function () { $help.find('details').attr('open', ''); });
     }
 
+    // Webmail mode: test / sync a provider mailbox from the user form.
+    $(document).on('click', '[data-remote-action]', function () {
+      var $b = $(this), $r = $b.closest('.card-body').find('[data-remote-result]');
+      $b.prop('disabled', true);
+      $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');
+      $.ajax({ url: $b.data('remote-action'), method: 'POST', dataType: 'json', headers: { 'X-CSRF-Token': M4W.csrf(), 'X-Requested-With': 'XMLHttpRequest' } })
+        .done(function (res) {
+          var details = [res.imap ? 'IMAP : ' + res.imap : '', res.smtp ? 'SMTP : ' + res.smtp : ''].filter(Boolean).join(' · ');
+          var ok = res.ok && !details;
+          $r.addClass(ok ? 'text-success' : 'text-danger').text((res.message || res.error || '') + (details ? ' — ' + details : ''));
+        })
+        .fail(function (x) { $r.addClass('text-danger').text((x.responseJSON && x.responseJSON.error) || t('error_network')); })
+        .always(function () { $b.prop('disabled', false); });
+    });
+
+    // Mail server: show only the sections of the chosen operating mode.
+    $(document).on('change', '[data-mail-mode]', function () {
+      var mode = $('[data-mail-mode]:checked').val();
+      $('[data-modes]').each(function () { this.hidden = String($(this).data('modes')).split(' ').indexOf(mode) === -1; });
+    });
+    $(document).on('change', '[data-wm-preset]', function () {
+      var $o = $(this).find(':selected');
+      if ($(this).val() === 'custom') return;
+      [['imap', 'imap'], ['imap-port', 'imap-port'], ['imap-sec', 'imap-sec'], ['smtp', 'smtp'], ['smtp-port', 'smtp-port'], ['smtp-sec', 'smtp-sec']].forEach(function (p) {
+        var v = $o.data(p[1]);
+        if (v !== undefined && v !== '') $('[data-wm="' + p[0] + '"]').val(v);
+      });
+    });
+
     $(document).on('change', '[data-autosubmit]', function () { this.form.submit(); });
     $(document).on('click', '[data-submit-form]', function () { $($(this).data('submit-form')).trigger('submit'); });
     $(document).on('click', '[data-copy]', function () {

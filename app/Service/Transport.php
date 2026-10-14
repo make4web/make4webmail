@@ -23,13 +23,16 @@ final class Transport
      */
     public static function send(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, bool $sign = true): array
     {
-        if ($sign) {
+        // Webmail mode: the provider signs and delivers everything, colleagues included,
+        // so their own mailbox (and their phone) receives it too.
+        $webmail = RemoteMailbox::active();
+        if ($sign && !$webmail) {
             $raw = self::dkim($raw);
         }
         $local = [];
         $remote = [];
         foreach (array_unique($recipients) as $r) {
-            if ((int) Settings::get('smtp.local_delivery', 1) && Users::isLocalDomain(Address::domain($r))) {
+            if (!$webmail && (int) Settings::get('smtp.local_delivery', 1) && Users::isLocalDomain(Address::domain($r))) {
                 $local[] = $r;
             } else {
                 $remote[] = $r;
@@ -59,7 +62,11 @@ final class Transport
     /** @return array{sent:string[],failed:array<string,string>} */
     private static function sendRemote(string $raw, string $from, array $rcpts, ?int $userId): array
     {
-        $host = trim((string) Settings::get('smtp.host', ''));
+        if (RemoteMailbox::active()) {
+            return RemoteMailbox::send($raw, $from, $rcpts, $userId);
+        }
+        // An explicit "server" mode ignores a relay left configured from before.
+        $host = RemoteMailbox::mode() === 'server' ? '' : trim((string) Settings::get('smtp.host', ''));
         if ($host !== '') {
             $username = (string) Settings::get('smtp.username', '');
             $password = Settings::secret('smtp.password');

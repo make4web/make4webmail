@@ -291,6 +291,9 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <details><summary>Ma boîte est presque pleine.</summary><p>L'espace utilisé s'affiche en bas de la liste des dossiers. Videz la corbeille et supprimez les messages volumineux : la recherche <code>larger:5M</code> les retrouve. Vous pouvez aussi enregistrer les pièces jointes importantes dans vos <a href="#files">Fichiers</a> avant de supprimer le message.</p></details>
     <details><summary>Ma signature n'apparaît pas pendant que j'écris.</summary><p>C'est normal : elle est ajoutée au moment de l'envoi. Vérifiez-la dans l'encadré « Signature ajoutée à l'envoi » ou dans un message envoyé.</p></details>
     <details><summary>Comment consulter un autre compte de messagerie (Gmail, ancien fournisseur) ?</summary><p><?= $cfg['fetch'] ? 'Dans ' . $go('settings/accounts', 'Paramètres → Autres comptes') . ', ajoutez le compte IMAP : ses messages seront récupérés régulièrement dans votre boîte, avec vos règles si vous le souhaitez.' : 'Cette fonction n\'est pas activée par votre organisation.' ?></p></details>
+    <?php if (M4W\Service\RemoteMailbox::active()): ?>
+    <details><summary>Un encadré rouge dit que ma boîte n'est pas reliée, ou que la connexion échoue.</summary><p>Votre boîte aux lettres est hébergée chez le fournisseur de votre organisation, et Make4WebMail s'y connecte avec des identifiants saisis par l'administrateur. Si vous avez changé le mot de passe de votre boîte chez le fournisseur, ou si elle n'a pas encore été reliée, vous ne recevez ni n'envoyez plus de messages : prévenez votre administrateur. Votre mot de passe du webmail, lui, ne change pas.</p></details>
+    <?php endif; ?>
     <details><summary>J'ai perdu mon téléphone avec la double authentification.</summary><p>Connectez-vous avec un code de secours, puis réactivez la double authentification sur votre nouveau téléphone. Sans code de secours, demandez à votre administrateur de la réinitialiser.</p></details>
   </section>
 
@@ -410,9 +413,27 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
 
   <section id="a-mail" class="m4w-help-section admin">
     <h2><i class="bi bi-hdd-network"></i>Serveur de messagerie</h2>
-    <h3>Envoi</h3>
-    <p>Dans <?= $go('admin/mail', 'Serveur de messagerie') ?>, renseignez de préférence le <strong>relais SMTP</strong> de votre hébergeur ou fournisseur (serveur, port 587 en STARTTLS ou 465 en SSL, identifiant, mot de passe). Sans relais, la messagerie remet elle-même les messages aux serveurs des destinataires, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Le bouton « Envoyer un test » valide la configuration.</p>
-    <h3>Authentification du domaine (indispensable)</h3>
+    <h3>Choisir le mode de fonctionnement</h3>
+    <p>Le premier bloc de <?= $go('admin/mail', 'Serveur de messagerie') ?> fixe la façon dont Make4WebMail reçoit et envoie le courrier. Le mode actuel est : <strong><?= e(t('wm.mode_' . M4W\Service\RemoteMailbox::mode())) ?></strong>.</p>
+    <table class="table table-sm m4w-help-table">
+      <thead><tr><th>Mode</th><th>Les boîtes sont…</th><th>Réception</th><th>Envoi</th><th>Prérequis</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Serveur autonome</strong></td><td>dans Make4WebMail</td><td>MX vers ce serveur, port 25</td><td>directement aux destinataires</td><td>port 25 entrant et sortant, DNS inverse, SPF/DKIM/DMARC, IP propre</td></tr>
+        <tr><td><strong>Serveur + relais</strong></td><td>dans Make4WebMail</td><td>MX vers ce serveur, port 25</td><td>via un service d'envoi</td><td>un relais qui accepte tout le domaine (Brevo, Mailjet, Amazon SES, Scaleway TEM…)</td></tr>
+        <tr><td><strong>Webmail</strong></td><td>chez votre fournisseur</td><td>relève IMAP de chaque boîte</td><td>SMTP du fournisseur, boîte par boîte</td><td>le mot de passe de chaque boîte, saisi dans la fiche de l'utilisateur</td></tr>
+      </tbody>
+    </table>
+    <h3>Mode webmail (boîtes chez OVH, Infomaniak, Gandi…)</h3>
+    <ol class="m4w-help-steps">
+      <li>Choisissez « Webmail sur boîtes existantes » et votre fournisseur : les serveurs IMAP et SMTP se remplissent tout seuls. Réglez la fréquence de relève et ce que deviennent les messages relevés chez le fournisseur (conservés pour les téléphones en IMAP, ou supprimés pour libérer de l'espace).</li>
+      <li>Dans la fiche de chaque utilisateur, bloc « Boîte chez le fournisseur », saisissez le <strong>mot de passe de sa boîte</strong>. Il est distinct de son mot de passe du webmail, conservé chiffré et jamais réaffiché. « Tester la connexion » vérifie IMAP et SMTP. Pour relier un lot de comptes, ajoutez ce mot de passe en 8ᵉ colonne de l'import CSV.</li>
+      <li>La pastille de chaque utilisateur dans la liste indique l'état : <span class="badge badge-soft-success">Reliée</span> <span class="badge badge-soft-warning">En attente</span> <span class="badge badge-soft-danger">Erreur</span> <span class="badge badge-soft-secondary">Non reliée</span>. Une boîte en erreur a généralement un mot de passe changé chez le fournisseur : mettez-le à jour.</li>
+    </ol>
+    <p>Comme le serveur détient les identifiants de chaque boîte, tout fonctionne même quand l'utilisateur n'est pas connecté : la tâche planifiée relève les boîtes, applique les <strong>règles</strong>, envoie les <strong>réponses d'absence</strong> et les <strong>transferts</strong>. Un délégué ou un administrateur envoie avec la boîte de la personne. Les messages entre collègues passent aussi par le fournisseur, pour que chacun les retrouve aussi sur son téléphone.</p>
+    <div class="m4w-help-note info"><i class="bi bi-info-circle"></i><div>Les fournisseurs n'envoient qu'au nom de la boîte connectée. Un message transféré part donc depuis la boîte de l'utilisateur, avec le nom de l'auteur d'origine (« Client (via Julie) ») et son adresse en réponse. Les limites d'envoi du fournisseur s'appliquent à chaque boîte.</div></div>
+    <h3>Envoi en mode serveur ou relais</h3>
+    <p>En mode relais, renseignez le serveur, le port (587 en STARTTLS ou 465 en SSL), l'identifiant et le mot de passe du service d'envoi. En mode autonome, la messagerie remet elle-même les messages aux serveurs des destinataires. Le bouton « Envoyer un test » valide la configuration, quel que soit le mode.</p>
+    <h3>Authentification du domaine (modes serveur et relais)</h3>
     <ol class="m4w-help-steps">
       <li>Choisissez un sélecteur (par exemple <code>m4w</code>), générez la clé <strong>DKIM</strong> et publiez l'enregistrement TXT proposé (<code>sélecteur._domainkey.votre-domaine</code>).</li>
       <li>Publiez un enregistrement <strong>SPF</strong> autorisant votre serveur ou votre relais, par exemple <code>v=spf1 mx include:relais.exemple -all</code>.</li>

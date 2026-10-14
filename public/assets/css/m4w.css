@@ -914,3 +914,20 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-help-section p a, .m4w-help-section li a, .m4w-help-section dd a, .m4w-help-note a { text-decoration: underline; text-underline-offset: 2px; }
 .m4w-help code { color: var(--m4w-text); background: var(--m4w-surface-3); padding: .08rem .35rem; border-radius: 4px; font-size: .86em; }
 .m4w-help pre code, .m4w-help-code code { background: none; padding: 0; }
+.m4w-remote-flag { display: flex; gap: .5rem; align-items: flex-start; margin: 0 .6rem .6rem; padding: .55rem .7rem; border-radius: var(--m4w-radius-sm); background: rgba(220, 38, 38, .1); color: #991b1b; font-size: .8rem; line-height: 1.4; }
+[data-bs-theme="dark"] .m4w-remote-flag { color: #fecaca; background: rgba(220, 38, 38, .2); }
+[data-sidebar="brand"] .m4w-remote-flag, [data-sidebar="dark"] .m4w-remote-flag { background: rgba(255, 255, 255, .92); color: #991b1b; }
+
+/* Mail server operating modes */
+.m4w-modes { border: 0; padding: 0; margin: 0; min-width: 0; }
+.m4w-mode-card { display: flex; flex-direction: column; gap: .65rem; padding: 1rem 1.1rem; border: 1.5px solid var(--m4w-border); border-radius: var(--m4w-radius-lg); background: var(--m4w-surface); cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; margin: 0; }
+.m4w-mode-card:hover { border-color: var(--m4w-border-strong); box-shadow: var(--m4w-shadow-sm); }
+.btn-check:checked + .m4w-mode-card { border-color: var(--m4w-primary); background: var(--m4w-primary-softer); box-shadow: 0 0 0 3px var(--m4w-primary-soft); }
+.btn-check:focus-visible + .m4w-mode-card { outline: 2px solid var(--m4w-primary); outline-offset: 2px; }
+.m4w-mode-head { display: flex; align-items: center; gap: .7rem; }
+.m4w-mode-icon { width: 40px; height: 40px; flex-shrink: 0; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; background: var(--m4w-primary-soft); color: var(--m4w-primary); font-size: 1.15rem; }
+.m4w-mode-check { margin-left: auto; color: var(--m4w-primary); font-size: 1.2rem; opacity: 0; transition: opacity .15s; }
+.btn-check:checked + .m4w-mode-card .m4w-mode-check { opacity: 1; }
+.m4w-mode-body { color: var(--m4w-text-2); line-height: 1.55; }
+.m4w-mode-needs { color: var(--m4w-text-2); border-top: 1px dashed var(--m4w-border); padding-top: .6rem; line-height: 1.45; }
+.m4w-mode-needs .bi-dot { color: var(--m4w-primary); font-size: 1.2rem; line-height: 1; margin: -.15rem -.35rem 0 -.4rem; }

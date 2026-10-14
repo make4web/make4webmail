@@ -24,6 +24,7 @@ $out = static function (string $m) {
     }
 };
 M4W\Database\Migrator::migrate();
+$out('webmail sync: ' . M4W\Service\RemoteMailbox::syncAll());
 $out('scheduled: ' . M4W\Service\Composer::processScheduled(100));
 $out('queue: ' . M4W\Service\Transport::processQueue(200));
 if ((int) Settings::get('features.fetch_accounts', 1)) {

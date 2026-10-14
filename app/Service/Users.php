@@ -178,6 +178,7 @@ final class Users
     {
         Files::deleteUser($id);
         Delegation::deleteUser($id);
+        RemoteMailbox::delete($id);
         // A departing employee's mail stays recoverable by administrators for the retention period.
         if ((int) \M4W\Core\Settings::get('retention.on_account_delete', 1) === 1) {
             foreach (DB::all("SELECT m.* FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.is_draft = 0 AND (f.role IS NULL OR f.role <> 'spam')", ['u' => $id]) as $m) {
