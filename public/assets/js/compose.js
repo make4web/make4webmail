@@ -511,6 +511,7 @@
           self.destroy();
           M4W.toast(t('sent'), 'success', { action: { label: t('view_message'), fn: function () { var s = M4W.state.byRole.sent; if (s) M4W.go(s.id, r.id); } } });
           if (r.warnings && Object.keys(r.warnings).length) M4W.toast(t('partial_failure', { list: Object.keys(r.warnings).join(', ') }), 'warning', { duration: 10000 });
+          if (r.deferred) M4W.toast(t('send_deferred', { n: r.deferred.count, time: r.deferred.time }), 'warning', { duration: 12000 });
           M4W.reloadList();
         }).fail(function () {
           sending.close();

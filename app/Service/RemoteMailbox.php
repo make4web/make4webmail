@@ -39,11 +39,11 @@ final class RemoteMailbox
 
     // --------------------------------------------------------------- mode
 
-    /** server | relay | webmail */
+    /** server | relay | webmail | collector */
     public static function mode(): string
     {
         $m = (string) Settings::get('mail.mode', '');
-        if (in_array($m, ['server', 'relay', 'webmail'], true)) {
+        if (in_array($m, ['server', 'relay', 'webmail', 'collector'], true)) {
             return $m;
         }
         return trim((string) Settings::get('smtp.host', '')) !== '' ? 'relay' : 'server';
@@ -231,8 +231,9 @@ final class RemoteMailbox
     /** Pull new messages of one account. @return array{fetched:int,error:string} */
     public static function sync(array $acc, int $max = 200): array
     {
-        $user = Users::find((int) $acc['user_id']);
-        if (!$user || !(int) $acc['enabled'] || (string) $acc['password_enc'] === '') {
+        // The collector account belongs to nobody: its messages are dispatched by recipient.
+        $user = (int) $acc['user_id'] === Collector::ACCOUNT ? null : Users::find((int) $acc['user_id']);
+        if ((!$user && (int) $acc['user_id'] !== Collector::ACCOUNT) || !(int) $acc['enabled'] || (string) $acc['password_enc'] === '') {
             return ['fetched' => 0, 'error' => ''];
         }
         // Concurrent runs (scheduler + a user's refresh) must not import twice.
@@ -265,7 +266,7 @@ final class RemoteMailbox
         return ['fetched' => $fetched, 'error' => $error];
     }
 
-    private static function pullFolder(ImapClient $client, array $acc, array $user, string $remote, string $local, int $max): int
+    private static function pullFolder(ImapClient $client, array $acc, ?array $user, string $remote, string $local, int $max): int
     {
         $info = $client->select($remote);
         $uidCol = $local . '_uid';
@@ -295,8 +296,12 @@ final class RemoteMailbox
     }
 
     /** Local delivery of a pulled message: same pipeline as mail received by our own server. */
-    private static function import(array $user, string $raw, string $local): void
+    private static function import(?array $user, string $raw, string $local): void
     {
+        if ($user === null) {
+            Collector::dispatch($raw, $local);
+            return;
+        }
         $raw = str_replace(["\r\n", "\r"], "\n", $raw);
         if ($local === 'spam') {
             $spam = Folders::byRole((int) $user['id'], 'spam');
@@ -349,12 +354,14 @@ final class RemoteMailbox
     /** Scheduler: every enabled account whose last run is older than the interval. */
     public static function syncAll(): int
     {
-        if (!self::active()) {
+        if (!self::active() && !Collector::active()) {
             return 0;
         }
         $interval = max(1, (int) Settings::get('webmail.interval', 2)) * 60 - 5;
         $n = 0;
-        foreach (DB::all('SELECT * FROM remote_accounts WHERE enabled = 1 AND last_sync_at < :t', ['t' => time() - $interval]) as $acc) {
+        // Only the accounts of the current mode: the collector, or every user's mailbox.
+        $which = Collector::active() ? 'user_id = 0' : 'user_id <> 0';
+        foreach (DB::all("SELECT * FROM remote_accounts WHERE enabled = 1 AND $which AND last_sync_at < :t", ['t' => time() - $interval]) as $acc) {
             $n += self::sync($acc)['fetched'];
         }
         return $n;
@@ -363,10 +370,10 @@ final class RemoteMailbox
     /** Opportunistic sync when someone looks at the mailbox (no scheduler needed for reading). */
     public static function syncIfDue(int $userId, int $minAge = 60): int
     {
-        if (!self::active()) {
+        if (!self::active() && !Collector::active()) {
             return 0;
         }
-        $acc = self::find($userId);
+        $acc = self::find(Collector::active() ? Collector::ACCOUNT : $userId);
         if (!$acc || (int) $acc['last_sync_at'] > time() - $minAge) {
             return 0;
         }

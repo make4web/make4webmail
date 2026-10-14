@@ -15,6 +15,9 @@
   </div>
   <?php endforeach; ?>
 </div>
+<?php if (M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); ?>
+<div class="mb-4" data-aos="fade-up"><?php include __DIR__ . '/_send_gauge.php'; ?></div>
+<?php endif; ?>
 <div class="row g-4">
   <div class="col-xl-8">
     <div class="card h-100">
@@ -41,7 +44,7 @@
       <div class="card-header"><?= te('admin.checklist') ?></div>
       <ul class="list-unstyled m4w-checklist px-3 py-1 mb-0">
         <?php foreach ([
-            'smtp' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_linked' : 'admin.chk_smtp', M4W\Service\RemoteMailbox::active() ? 'admin/users' : 'admin/mail'], 'dkim' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_dkim_provider' : 'admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
+            'smtp' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_linked' : (M4W\Service\Collector::active() ? 'col.chk_account' : 'admin.chk_smtp'), M4W\Service\RemoteMailbox::active() ? 'admin/users' : 'admin/mail'], 'dkim' => [M4W\Service\RemoteMailbox::active() || M4W\Service\Collector::active() ? 'wm.chk_dkim_provider' : 'admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
             'logo' => ['admin.chk_logo', 'admin/branding'], 'twofa' => ['admin.chk_2fa', 'settings/security'], 'cron' => ['admin.chk_cron', null],
         ] as $k => [$label, $link]): ?>
         <li><i class="bi bi-<?= $checks[$k] ? 'check-circle-fill ok' : 'exclamation-circle-fill ko' ?>"></i><span class="flex-grow-1"><?= te($label) ?></span><?php if (!$checks[$k] && $link): ?><a class="small" href="<?= e(url($link)) ?>"><?= te('admin.fix') ?></a><?php endif; ?></li>

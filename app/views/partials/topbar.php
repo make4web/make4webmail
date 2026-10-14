@@ -45,6 +45,12 @@ $prefs = $u['prefs'] ?? [];
     <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span></button>
   </form>
   <?php endif; ?>
+  <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); if ($cs['level'] === 'full' || $cs['level'] === 'high'): ?>
+  <a class="m4w-limit-pill <?= $cs['level'] ?>" href="<?= e(url('admin/mail')) ?>#col-gauge" role="status" title="<?= te('col.pill_title', ['limit' => $cs['limit']]) ?>">
+    <i class="bi bi-<?= $cs['level'] === 'full' ? 'sign-stop-fill' : 'speedometer' ?>" aria-hidden="true"></i>
+    <span class="text-truncate"><?= $cs['level'] === 'full' ? te('col.pill_full', ['used' => $cs['used'], 'limit' => $cs['limit']]) : te('col.pill_high', ['used' => $cs['used'], 'limit' => $cs['limit']]) ?><?php if ($cs['next']): ?><span class="m4w-hide-xs"> · <?= te('col.pill_resume', ['time' => date('H:i', $cs['next'])]) ?></span><?php endif; ?></span>
+  </a>
+  <?php endif; endif; ?>
   <div class="m4w-top-actions">
     <?php if ($isMail): ?>
     <button class="btn btn-ghost btn-icon m4w-hide-xs" type="button" data-action="shortcuts" title="<?= te('nav.help') ?>" aria-label="<?= te('nav.help') ?>"><i class="bi bi-question-circle"></i></button>

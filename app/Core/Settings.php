@@ -47,6 +47,8 @@ final class Settings
         // Operating mode: server (own MX + direct delivery), relay (own MX + SMTP relay),
         // webmail (mailboxes stay at an external provider). '' = derived from smtp.host.
         'mail.mode'            => '',
+        'collector.hourly_limit' => 200,
+        'collector.fallback_user' => 0,
         'push.enabled'         => 1,
         'push.preview'         => 1,
         'push.vapid_public'    => '',

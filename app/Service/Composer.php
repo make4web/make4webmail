@@ -194,7 +194,7 @@ final class Composer
         }, $html) ?? $html;
     }
 
-    /** @return array{id:int,warnings:array} */
+    /** @return array{id:int,warnings:array,deferred:?array} */
     public static function send(array $user, array $in): array
     {
         if (Users::overQuota($user)) {
@@ -232,7 +232,9 @@ final class Composer
         Contacts::touchRecipients($uid, array_merge($b->to, $b->cc, $b->bcc));
         self::cleanupUploads($uid, (array) ($in['attachments'] ?? []));
         Audit::log('mail.sent', $b->subject, ['rcpt' => count($rcpts)], $uid);
-        return ['id' => $id, 'warnings' => $res['failed']];
+        // Collector mode: over the provider's hourly limit, the message waits in the queue.
+        $deferred = $res['deferred'] ? ['count' => count($res['deferred']), 'at' => $res['retry_at'], 'time' => date('H:i', $res['retry_at'])] : null;
+        return ['id' => $id, 'warnings' => $res['failed'], 'deferred' => $deferred];
     }
 
     public static function saveDraft(array $user, array $in): int

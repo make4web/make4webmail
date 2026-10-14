@@ -82,7 +82,7 @@ Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisa
 - Les douze chapitres d'administration ne sont générés côté serveur que pour les administrateurs : un utilisateur ne reçoit jamais ce contenu.
 - Le texte est en français (`app/views/help/index.php`).
 
-### Trois modes de fonctionnement
+### Quatre modes de fonctionnement
 Le mode se choisit dans « Administration → Serveur de messagerie ».
 
 | Mode | Boîtes | Réception | Envoi | Prérequis |
@@ -90,6 +90,7 @@ Le mode se choisit dans « Administration → Serveur de messagerie ».
 | **Serveur autonome** | dans Make4WebMail | MX vers ce serveur (port 25) | directement aux MX des destinataires | port 25 entrant/sortant, DNS inverse, SPF/DKIM/DMARC |
 | **Serveur + relais** | dans Make4WebMail | MX vers ce serveur (port 25) | relais SMTP (Brevo, Mailjet, Amazon SES, Scaleway TEM…) | un relais qui accepte tout le domaine |
 | **Webmail** | chez le fournisseur (OVH, Infomaniak, Gandi, IONOS…) | relève IMAP de chaque boîte | SMTP du fournisseur, avec la boîte de l'expéditeur | mot de passe de chaque boîte saisi par l'administrateur |
+| **Boîte collectrice** | dans Make4WebMail | une seule boîte chez le fournisseur, qui reçoit toutes les adresses par redirection | SMTP de cette boîte, au nom de chaque utilisateur | une boîte, une redirection par adresse ; limite d'envoi partagée (OVH : 200/h) |
 
 En mode webmail :
 - Le mot de passe de chaque boîte chez le fournisseur est **découplé** du mot de passe du webmail. Il est saisi dans la fiche utilisateur (ou en 8ᵉ colonne de l'import CSV) et conservé chiffré.
@@ -154,6 +155,12 @@ En mode webmail :
 ## Licences tierces
 Toutes les bibliothèques vendorisées sont sous licence permissive : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator) ou OFL (police Inter). Le webmail peut donc être distribué ou exploité en SaaS sous licence propriétaire, à condition de conserver les fichiers de licence (`public/assets/vendor/*/LICENSE*`).
 
+En mode boîte collectrice :
+- Une seule boîte chez le fournisseur (par ex. `mail@domaine`) reçoit, par des redirections `a@ → mail@`, le courrier de tous les utilisateurs. Make4WebMail la relève et distribue chaque message à son destinataire, retrouvé grâce aux traces du fournisseur (`X-Original-To`, `Delivered-To`, `Received … for`), puis aux champs À et Cc. Les doublons sont écartés, les avis de non-remise reviennent à leur expéditeur, et ce qui ne peut pas être attribué va dans une boîte de rattrapage.
+- Tout part par le SMTP de cette boîte, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues restent internes et ne consomment pas le quota.
+- **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
+- Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
+
 ## Prérequis
 PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.
 
@@ -201,7 +208,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 101 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, mode webmail, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 106 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

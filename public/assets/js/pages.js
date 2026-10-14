@@ -83,6 +83,26 @@
         .always(function () { $b.prop('disabled', false); });
     });
 
+    // Collector mode: live gauge of the provider's hourly sending limit.
+    $('[data-col-gauge]').each(function () {
+      var $g = $(this), labels = { low: t('col_level_low'), mid: t('col_level_low'), high: t('col_level_high'), full: t('col_level_full') };
+      setInterval(function () {
+        if (document.hidden) return;
+        M4W.get($g.data('src').replace(M4W.url(''), ''), null, { silent: true, quiet: true }).done(function (r) {
+          var s = r.stats;
+          $g.removeClass('level-low level-mid level-high level-full').addClass('level-' + s.level);
+          $g.find('[data-g=pill]').text(labels[s.level]);
+          $g.find('[data-g=used]').text(s.used);
+          $g.find('[data-g=left]').text(t('col_left', { n: s.left }));
+          $g.find('[data-g=fill]').css('width', s.pct + '%');
+          $g.find('[data-g=meter]').attr('aria-valuenow', s.used);
+          $g.find('[data-g=alert]').toggleClass('d-none', !(s.level === 'full' || s.held));
+          $g.find('[data-g=held]').text(t('col_held', { n: s.held, r: s.held_rcpts }));
+          $g.find('[data-g=next]').text(s.next_time ? t('col_next', { time: s.next_time }) : '');
+        });
+      }, 30000);
+    });
+
     // Mail server: show only the sections of the chosen operating mode.
     $(document).on('change', '[data-mail-mode]', function () {
       var mode = $('[data-mail-mode]:checked').val();

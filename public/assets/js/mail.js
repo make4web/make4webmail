@@ -34,6 +34,9 @@
     });
     bindUi();
     bindKeyboard();
+    // Folder menus: the open one goes above the following rows of the list.
+    $(document).on('show.bs.dropdown', '.m4w-folder-dd', function () { $(this).addClass('open'); })
+      .on('hidden.bs.dropdown', '.m4w-folder-dd', function () { $(this).removeClass('open'); });
     $(window).on('hashchange', route);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(false); });
   });
@@ -218,6 +221,7 @@
       var icon = S.q ? 'search' : ({ inbox: 'inbox', sent: 'send', drafts: 'file-earmark-text', spam: 'shield-check', trash: 'trash3', archive: 'archive' }[f.role] || 'folder2-open');
       var title = S.q ? t('empty_search') : (f.role === 'inbox' && !S.filter ? t('empty_inbox') : t('empty_folder_title'));
       var hint = S.q ? t('empty_search_hint') : (f.role === 'inbox' && !S.filter ? t('empty_inbox_hint') : '');
+      if (S.q === 'is:starred') { icon = 'star'; title = t('empty_starred'); hint = t('empty_starred_hint'); }
       $scroll.html('<div class="m4w-empty" data-aos="fade-up"><div class="m4w-empty-icon"><i class="bi bi-' + icon + '"></i></div><h3>' + esc(title) + '</h3><p class="small">' + esc(hint) + '</p></div>');
       $('#m4w-pager').html('');
       syncSelectionUi();

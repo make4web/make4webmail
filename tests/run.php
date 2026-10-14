@@ -1095,6 +1095,117 @@ test('webmail: wrong provider password is reported, not retried blindly', functi
     RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1], (int) $fsAdmin['id']);
     eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'pending', 'fixed password clears the error');
 });
+
+// ---------------------------------------------------------- Collector mode (one provider mailbox for everyone)
+echo "\nCollector mode (one provider mailbox, redirections, hourly limit)\n";
+use M4W\Service\Collector;
+$colMsg = static fn(string $headers, string $subject, string $id = '', string $from = 'Client <client@ext.com>') =>
+    $headers . "From: $from\r\nSubject: $subject\r\nDate: " . date('r') . "\r\nMessage-ID: <" . ($id ?: bin2hex(random_bytes(6))) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nBonjour\r\n";
+$colState = static function (callable $fn) use ($wm): void {
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $fn($st);
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+};
+$colState(static function (array &$st) use ($colMsg) {
+    $st['accounts']['mail@test.local'] = 'secret-col';
+    $st['boxes']['mail@test.local'] = ['INBOX' => ['validity' => 5, 'msgs' => [
+        // OVH-style redirection traces
+        ['uid' => 1, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nDelivered-To: mail@test.local\r\nX-Original-To: paul@test.local\r\nTo: Paul <paul@test.local>\r\n", 'Commande 2041')],
+        // Blind copy: only the provider's Received line names the recipient
+        ['uid' => 2, 'raw' => $colMsg("Return-Path: <boss@ext.com>\r\nDelivered-To: mail@test.local\r\nReceived: from mx1.ext.com by mx3.mail.ovh.net with ESMTPS id 4abc for <lea@test.local>; " . date('r') . "\r\nTo: equipe@ext.com\r\n", 'Copie cachée pour Léa', '', 'Boss <boss@ext.com>')],
+        // No trace at all: To/Cc decide; the provider delivered two copies of it
+        ['uid' => 3, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Réunion lundi', 'dup-1')],
+        ['uid' => 4, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Réunion lundi', 'dup-1')],
+        // Mailing list: nobody identified → fallback mailbox
+        ['uid' => 5, 'raw' => $colMsg("Return-Path: <list@ext.com>\r\nTo: newsletter@ext.com\r\n", 'Lettre d\'information')],
+        // Bounce of a message Paul sent (envelope sender = collector)
+        ['uid' => 6, 'raw' => "Return-Path: <>\r\nFrom: Mail Delivery System <MAILER-DAEMON@mx.ovh.net>\r\nTo: mail@test.local\r\nSubject: Undelivered Mail Returned to Sender\r\nAuto-Submitted: auto-replied\r\nMessage-ID: <dsn1@mx.ovh.net>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=\"b1\"\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nunknown user\r\n--b1\r\nContent-Type: text/rfc822-headers\r\n\r\nFrom: Paul Durand <paul@test.local>\r\nTo: nobody@ext.com\r\nSubject: Devis\r\n--b1--\r\n"],
+    ]]];
+});
+Settings::setMany(['mail.mode' => 'collector', 'collector.hourly_limit' => 200, 'collector.fallback_user' => 0, 'collector.block' => '']);
+$colCount = static fn(array $u, string $subject) => (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = :s', ['u' => $u['id'], 's' => $subject]);
+
+test('collector: shared mailbox configured, a user address refused', function () use ($fsAdmin) {
+    ok(Collector::active() && !RemoteMailbox::active(), 'mode');
+    $thrown = false;
+    try { Collector::save('paul@test.local', 'x', (int) $fsAdmin['id']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'a user address cannot be the collector');
+    Collector::save('mail@test.local', 'secret-col', (int) $fsAdmin['id']);
+    $t = RemoteMailbox::test(Collector::ACCOUNT);
+    eq([$t['imap'], $t['smtp']], ['', ''], 'IMAP and SMTP authenticate');
+    ok(in_array('paul@test.local', Collector::addressesToRedirect(), true), 'redirection list');
+});
+test('collector: each message reaches its recipient (envelope, Received, To/Cc, bounce), once', function () use ($paul, $lea, $fsAdmin, $colCount) {
+    $paulBefore = $colCount($paul, 'Facture 42');
+    eq(RemoteMailbox::syncAll(), 6, 'six messages pulled');
+    eq($colCount($paul, 'Commande 2041'), 1, 'X-Original-To');
+    eq($colCount($lea, 'Commande 2041'), 0);
+    eq($colCount($lea, 'Copie cachée pour Léa'), 1, 'Received … for <lea@>');
+    eq([$colCount($paul, 'Réunion lundi'), $colCount($lea, 'Réunion lundi')], [1, 1], 'To + Cc, duplicate copy delivered once');
+    eq($colCount($fsAdmin, 'Lettre d\'information'), 1, 'fallback mailbox');
+    $m = DB::one('SELECT * FROM messages WHERE user_id = :u AND subject = :s', ['u' => $fsAdmin['id'], 's' => 'Lettre d\'information']);
+    ok(str_contains((string) Mailbox::raw($m), 'X-M4W-Unrouted: mail@test.local'), 'marked unattributed');
+    eq($colCount($paul, 'Undelivered Mail Returned to Sender'), 1, 'bounce back to its sender');
+    eq($colCount($paul, 'Facture 42'), $paulBefore, 'per-user webmail accounts are not pulled in this mode');
+    eq(RemoteMailbox::syncAll(), 0, 'nothing twice');
+});
+test('collector: sending goes through the shared account as the user; colleagues stay internal', function () use ($paul, $lea, $wmSmtp, $colCount) {
+    DB::delete('send_log', '1 = 1');
+    $before = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'client@ext.com, lea@test.local', 'subject' => 'Proposition', 'html' => '<p>Voici</p>']);
+    $s = array_slice($wmSmtp(), $before);
+    eq(count($s), 1, 'one SMTP transaction');
+    eq([$s[0]['auth'], $s[0]['from'], $s[0]['rcpt']], ['mail@test.local', 'mail@test.local', ['client@ext.com']], 'collector account, external recipient only');
+    ok((bool) preg_match('/^From: .*paul@test\.local/m', $s[0]['data']), 'the user is the sender');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs');
+    eq($colCount($lea, 'Proposition'), 1, 'colleague served locally');
+    eq(Collector::used(), 1, 'only the external recipient counts');
+});
+test('collector: over the hourly limit, mail waits in order and leaves on its own', function () use ($paul, $lea, $wmSmtp) {
+    Settings::set('collector.hourly_limit', 3);
+    DB::run("UPDATE mail_queue SET status = 'failed' WHERE status = 'pending'"); // leftovers of earlier tests
+    $before = count($wmSmtp());
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'a@ext.com, b@ext.com, c@ext.com', 'subject' => 'Trois destinataires', 'html' => '<p>x</p>']);
+    eq(count(array_slice($wmSmtp(), $before)[0]['rcpt']), 2, 'two leave now (1 already used)');
+    eq($r['deferred']['count'], 1, 'one waits');
+    ok($r['deferred']['at'] > time() + 3000, 'when the window reopens');
+    // A later message cannot overtake the waiting one, even once a slot is free.
+    $r2 = Composer::send(Users::find((int) $lea['id']), ['to' => 'd@ext.com', 'subject' => 'Plus tard', 'html' => '<p>y</p>']);
+    eq($r2['deferred']['count'], 1);
+    $st = Collector::stats();
+    eq([$st['level'], $st['used'], $st['held'], $st['held_rcpts']], ['full', 3, 2, 2], 'gauge: full, 2 waiting');
+    ok($st['next'] > time(), 'resumption time shown');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_log WHERE status = 'held'"), 2, 'logged as held');
+    // Nothing leaves before the window reopens…
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    eq(count($wmSmtp()), $n, 'still held');
+    eq(Collector::held(), 2);
+    // …one hour later, both leave in arrival order.
+    DB::run('UPDATE send_log SET created_at = created_at - 3700');
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    Transport::processQueue();
+    $out = array_slice($wmSmtp(), $n);
+    eq(array_map(static fn($x) => $x['rcpt'], $out), [['c@ext.com'], ['d@ext.com']], 'sent in order');
+    eq(Collector::held(), 0);
+    eq(Collector::stats()['level'], 'mid', '2 of 3 used');
+});
+test('collector: a refusal from the provider itself pauses sending and is shown', function () use ($paul, $colState, $wmSmtp) {
+    Settings::set('collector.hourly_limit', 200);
+    $colState(static function (array &$st) { $st['smtp_reject'] = 'Sender rate limit exceeded, try again later'; });
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'e@ext.com', 'subject' => 'Refus fournisseur', 'html' => '<p>z</p>']);
+    eq($r['deferred']['count'], 1, 'waits instead of failing');
+    $st = Collector::stats();
+    eq($st['level'], 'full');
+    ok(str_contains($st['block']['message'], 'rate limit'), 'provider message kept for the admin');
+    $colState(static function (array &$st) { unset($st['smtp_reject']); });
+    Settings::set('collector.block', '');
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    eq(array_slice($wmSmtp(), $n)[0]['rcpt'] ?? null, ['e@ext.com'], 'sent once the provider accepts again');
+});
 proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 

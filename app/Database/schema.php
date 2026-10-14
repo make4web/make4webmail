@@ -467,5 +467,24 @@ static function (): void {
 "CREATE UNIQUE INDEX push_subscriptions_endpoint ON push_subscriptions(endpoint_hash)",
 "CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id)",
 ],
+8 => [
+// Collector mode: outgoing volume of the shared provider account (hourly limit)…
+"CREATE TABLE send_log (
+  id {PK},
+  user_id INTEGER NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'mail',
+  recipients INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX send_log_time ON send_log(created_at)",
+// …and messages already handed to a user, so a copy received twice is delivered once.
+"CREATE TABLE collector_seen (
+  id {PK},
+  msg_hash VARCHAR(64) NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX collector_seen_msg ON collector_seen(msg_hash, user_id)",
+],
 ];
 

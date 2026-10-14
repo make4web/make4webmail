@@ -340,6 +340,9 @@ final class App
         $r->post('/admin/mail', [Controller\AdminController::class, 'saveMail'], $admin);
         $r->post('/admin/mail/test', [Controller\AdminController::class, 'testMail'], $admin);
         $r->post('/admin/mail/dkim', [Controller\AdminController::class, 'generateDkim'], $admin);
+        $r->post('/admin/mail/collector/test', [Controller\AdminController::class, 'testCollector'], $admin);
+        $r->post('/admin/mail/collector/sync', [Controller\AdminController::class, 'syncCollector'], $admin);
+        $r->get('/admin/mail/collector/stats', [Controller\AdminController::class, 'collectorStats'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);

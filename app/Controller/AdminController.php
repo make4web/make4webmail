@@ -56,10 +56,11 @@ final class AdminController extends Controller
             // Relay mode needs its relay; server mode sends on its own; webmail mode needs every mailbox linked.
             'smtp'  => match ($mode) {
                 'relay' => trim((string) Settings::get('smtp.host', '')) !== '',
+                'collector' => \M4W\Service\RemoteMailbox::status(\M4W\Service\Collector::account()) === 'ok',
                 'webmail' => !DB::value("SELECT COUNT(*) FROM users u LEFT JOIN remote_accounts r ON r.user_id = u.id WHERE u.status = 'active' AND (r.id IS NULL OR r.password_enc = '' OR r.last_error <> '')"),
                 default => true,
             },
-            'dkim'  => $mode === 'webmail' || (Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== ''),
+            'dkim'  => in_array($mode, ['webmail', 'collector'], true) || (Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== ''),
             'https' => $this->req->isSecure(),
             'logo'  => Settings::get('brand.logo', '') !== '',
             'cron'  => (int) Settings::get('system.cron_last', 0) > time() - 900,
@@ -214,6 +215,25 @@ final class AdminController extends Controller
     {
         $res = \M4W\Service\RemoteMailbox::test((int) $id);
         return $this->ok(['imap' => $res['imap'], 'smtp' => $res['smtp'], 'message' => $res['imap'] === '' && $res['smtp'] === '' ? t('wm.test_ok') : t('wm.test_failed')]);
+    }
+
+    /** Collector mode: check the shared mailbox (AJAX). */
+    public function testCollector(): Response
+    {
+        return $this->testRemote((string) \M4W\Service\Collector::ACCOUNT);
+    }
+
+    /** Collector mode: pull and dispatch now (AJAX). */
+    public function syncCollector(): Response
+    {
+        return $this->syncRemote((string) \M4W\Service\Collector::ACCOUNT);
+    }
+
+    /** Collector mode: live sending gauge (AJAX, refreshed by the admin pages). */
+    public function collectorStats(): Response
+    {
+        $s = \M4W\Service\Collector::stats();
+        return $this->ok(['stats' => $s + ['next_time' => $s['next'] ? date('H:i', $s['next']) : '']]);
     }
 
     /** Webmail mode: pull new mail now (AJAX). */
@@ -510,7 +530,14 @@ final class AdminController extends Controller
             'total' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status = 'active'"),
             'ok' => (int) DB::value("SELECT COUNT(*) FROM remote_accounts r JOIN users u ON u.id = r.user_id WHERE u.status = 'active' AND r.enabled = 1 AND r.password_enc <> ''"),
         ];
-        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked]);
+        $collector = [
+            'account' => \M4W\Service\Collector::account(),
+            'stats' => \M4W\Service\Collector::stats(),
+            'redirect' => \M4W\Service\Collector::addressesToRedirect(),
+            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role = 'admin' DESC, email"),
+            'fallback' => \M4W\Service\Collector::fallbackUser(),
+        ];
+        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked, 'collector' => $collector]);
     }
 
     public function saveMail(): Response
@@ -533,7 +560,7 @@ final class AdminController extends Controller
             'inbound.allowed_ips' => $r->str('inbound_ips'),
             'inbound.spam_header' => $r->bool('spam_header') ? 1 : 0,
         ];
-        $mode = in_array($r->str('mode'), ['server', 'relay', 'webmail'], true) ? $r->str('mode') : \M4W\Service\RemoteMailbox::mode();
+        $mode = in_array($r->str('mode'), ['server', 'relay', 'webmail', 'collector'], true) ? $r->str('mode') : \M4W\Service\RemoteMailbox::mode();
         $values['mail.mode'] = $mode;
         $host = static fn(string $v) => mb_strtolower(preg_replace('/[^a-z0-9.-]/i', '', $v) ?? '');
         $sec = static fn(string $v) => in_array($v, ['ssl', 'tls', 'none'], true) ? $v : 'ssl';
@@ -545,9 +572,26 @@ final class AdminController extends Controller
             'webmail.leave_days' => in_array($r->int('wm_leave_days', -1), [-1, 0, 7, 30, 90], true) ? $r->int('wm_leave_days', -1) : -1,
             'webmail.spam_folder' => mb_substr(preg_replace('/[\r\n\x00"\\\\]/', '', $r->str('wm_spam_folder')) ?? '', 0, 100),
             'webmail.verify_peer' => $r->bool('wm_verify_peer') ? 1 : 0,
+            'collector.hourly_limit' => max(1, min(100000, $r->int('col_limit', 200))),
+            'collector.fallback_user' => (int) DB::value("SELECT id FROM users WHERE id = :i AND status = 'active'", ['i' => $r->int('col_fallback')]),
         ];
         if ($mode === 'relay' && $values['smtp.host'] === '') {
             return $this->back('/admin/mail', 'danger', t('wm.relay_needs_host'));
+        }
+        // Collector mode: the shared mailbox at the provider.
+        if ($r->str('col_address') !== '' || $r->raw('col_password') !== '') {
+            try {
+                $current = \M4W\Service\Collector::account();
+                if (!$current && $r->raw('col_password') === '') {
+                    throw new \InvalidArgumentException(t('wm.need_password'));
+                }
+                \M4W\Service\Collector::save($r->str('col_address') ?: (string) ($current['login'] ?? ''), $r->raw('col_password'), $this->uid());
+            } catch (\InvalidArgumentException $e) {
+                return $this->back('/admin/mail', 'danger', $e->getMessage());
+            }
+        }
+        if ($mode === 'collector' && !\M4W\Service\Collector::account()) {
+            return $this->back('/admin/mail', 'danger', t('col.needs_account'));
         }
         Settings::setMany($values);
         if ($r->raw('password') !== '') {
@@ -589,6 +633,9 @@ final class AdminController extends Controller
         $res = Transport::send($b->build(), $u['email'], [$to], (int) $u['id']);
         if ($res['failed']) {
             return $this->fail(implode(' — ', $res['failed']));
+        }
+        if ($res['deferred']) {
+            return $this->ok(['message' => t('col.test_held', ['time' => date('H:i', $res['retry_at'])])]);
         }
         return $this->ok(['message' => t('admin.test_ok', ['email' => $to])]);
     }
