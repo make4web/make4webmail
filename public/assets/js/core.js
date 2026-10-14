@@ -107,10 +107,32 @@
     }).fail(function (xhr) {
       var r = xhr && xhr.responseJSON;
       if (r && r.login) { window.location.href = M4W.url('login'); return; }
+      if (r && r.too_big) { M4W.tooBig(r); return; }
       if (!opts.quiet && xhr && xhr.statusText !== 'abort') M4W.toast((r && r.error) || M4W.t('error_network'), 'danger');
     });
   };
   M4W.get = function (p, d, o) { return M4W.api('GET', p, d, o); };
+
+  // ---- file too big for e-mail: no public link, a file-transfer service instead
+  M4W.tooBig = function (info) {
+    info = info || {};
+    var services = [];
+    try { services = JSON.parse(($('#m4w-transfer').text() || '[]')); } catch (e) { services = []; }
+    $('#m4w-toobig').remove();
+    var what = info.name ? M4W.t('toobig_file', { name: info.name, size: M4W.bytes(info.size || 0), mb: info.max_mb || '' }) : M4W.t('toobig_total', { mb: info.max_mb || '' });
+    var list = services.map(function (s) {
+      return '<a class="btn btn-light m4w-transfer-btn" target="_blank" rel="noopener noreferrer" href="' + M4W.esc(s.url) + '"><i class="bi bi-box-arrow-up-right me-2"></i>' + M4W.esc(s.name) + '</a>';
+    }).join('');
+    var $m = $('<div class="modal fade" id="m4w-toobig" tabindex="-1" aria-labelledby="m4w-toobig-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">'
+      + '<div class="modal-header"><h2 class="modal-title fs-5" id="m4w-toobig-title"><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>' + M4W.esc(M4W.t('toobig_title')) + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + M4W.esc(M4W.t('close')) + '"></button></div>'
+      + '<div class="modal-body"><p>' + M4W.esc(what) + '</p><p class="small text-muted">' + M4W.esc(M4W.t('toobig_how')) + '</p>'
+      + (list ? '<div class="d-grid gap-2 m4w-transfer-list">' + list + '</div>' : '')
+      + (info.file_id ? '<a class="btn btn-soft w-100 mt-3" href="' + M4W.esc(M4W.url('files/file/' + info.file_id)) + '"><i class="bi bi-download me-2"></i>' + M4W.esc(M4W.t('toobig_download')) + '</a>' : '')
+      + '<p class="small text-muted mt-3 mb-0"><i class="bi bi-shield-lock me-1"></i>' + M4W.esc(M4W.t('toobig_internal')) + '</p></div>'
+      + '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">' + M4W.esc(M4W.t('close')) + '</button></div>'
+      + '</div></div></div>').appendTo(document.body).on('hidden.bs.modal', function () { $m.remove(); });
+    bootstrap.Modal.getOrCreateInstance($m[0]).show();
+  };
   M4W.post = function (p, d, o) { return M4W.api('POST', p, d, o); };
 
   // ---- toasts

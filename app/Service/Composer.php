@@ -127,7 +127,7 @@ final class Composer
             $b->attachments[] = ['name' => (preg_replace('/[^\w\s.-]/u', '', $ref['subject']) ?: 'message') . '.eml', 'mime' => 'message/rfc822', 'content' => $raw];
         }
         if ($total > $maxBytes) {
-            throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
+            throw new TooBigForMail('', 0, $total);
         }
         return ['builder' => $b, 'recipients' => $b->envelopeRecipients()];
     }
@@ -342,7 +342,7 @@ final class Composer
         }
         $max = max(1, (int) Settings::get('security.max_attachment_mb', 25)) * 1024 * 1024;
         if ((int) $file['size'] > $max) {
-            throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
+            throw new TooBigForMail((string) ($file['name'] ?? ''), 0, (int) $file['size']);
         }
         $token = bin2hex(random_bytes(16));
         $rel = 'tmp/up-' . $userId . '-' . $token;

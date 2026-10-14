@@ -31,6 +31,19 @@ function url(string $path = '/', array $query = []): string
     return $u === '' ? '/' : $u;
 }
 
+/**
+ * Absolute link for messages generated outside a web request (scheduler): the configured
+ * base_url, else the public address last seen by an administrator, else a site-relative path.
+ */
+function public_url(string $path = '/'): string
+{
+    $base = rtrim((string) \M4W\Core\Config::get('base_url', ''), '/');
+    if ($base === '' || !preg_match('#^https?://#i', $base)) {
+        $base = rtrim((string) \M4W\Core\Settings::get('system.public_url', ''), '/');
+    }
+    return $base . '/' . ltrim($path, '/');
+}
+
 function asset(string $path): string
 {
     $file = M4W_ROOT . '/public/assets/' . ltrim($path, '/');

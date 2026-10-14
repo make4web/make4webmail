@@ -76,6 +76,12 @@ abstract class Controller
         return Response::json(['ok' => false, 'error' => $error] + $extra, $status);
     }
 
+    /** Error answer for a caught exception (a file too big for e-mail carries the transfer suggestion). */
+    protected function failWith(\Throwable $e): Response
+    {
+        return $this->fail($e->getMessage(), 422, $e instanceof \M4W\Service\TooBigForMail ? $e->details() : []);
+    }
+
     protected function back(string $to, string $type = '', string $message = ''): Response
     {
         if ($message !== '') {

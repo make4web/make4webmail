@@ -42,6 +42,20 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 ### Fichiers (espace partagé)
 - **Mes fichiers** (privé, invisible même pour les administrateurs), **Partagés avec moi**, **Espaces d'équipe** et **Corbeille**.
 - Droits par dossier, hérités par tout le contenu : **Lecture** (consulter, télécharger), **Modification** (ajouter, renommer, déplacer, supprimer), **Gestion** (modifier aussi les accès). Ils s'accordent à une personne, à un service (champ « service » des utilisateurs) ou à tout le monde. Les administrateurs gèrent tous les espaces d'équipe.
+- **Aperçu intégré** sans télécharger : images, PDF, audio, vidéo, et rendu HTML côté serveur des .docx, .xlsx, .pptx, .odt, CSV et fichiers texte. Ce rendu n'utilise aucun service externe ; il est protégé contre les bombes zip et les entités XML, et servi sous CSP `sandbox`. Les anciens formats (.doc, .xls, .ppt) passent par le serveur bureautique s'il y en a un.
+- **Édition en ligne collaborative** (Word, Excel, PowerPoint, OpenDocument, texte) par un serveur **Collabora Online** ou **ONLYOFFICE Docs**, via le protocole WOPI. Make4WebMail est l'hôte WOPI :
+  - jetons d'accès aléatoires, conservés hachés, propres à un document et à une personne, valables 10 h ;
+  - droits revérifiés à chaque appel, et un lecteur n'écrit jamais ;
+  - verrous WOPI, et refus d'écraser une version enregistrée entre-temps (`X-COOL-WOPI-Timestamp`) ;
+  - chaque enregistrement devient une version.
+  
+  Plusieurs personnes qui ouvrent le même document le modifient ensemble, ce qui a été vérifié avec Collabora Online 26.04. Sans serveur bureautique, un éditeur intégré modifie les fichiers texte, avec détection des conflits.
+- **Compresser (ZIP)** une sélection de fichiers et dossiers, l'archive étant créée dans le dossier courant.
+- **Date de péremption obligatoire** : 1 an par défaut, 3 ans au plus, réglable par l'administrateur.
+  - Rappels à l'auteur 1 mois, 1 semaine et 2 jours avant, avec un lien pour changer la date.
+  - Sans action, le document est archivé : il n'est plus visible ni partagé, et il est envoyé par e-mail à son auteur, ou à un administrateur si l'auteur n'a plus de compte.
+  - Les administrateurs peuvent restaurer, télécharger ou supprimer les documents archivés.
+- **Pas de lien public** : les liens ne valent que pour les utilisateurs de la messagerie. Un fichier trop gros pour un e-mail déclenche une proposition de services de transfert (SwissTransfer, Smash, WeTransfer, Grosfichiers ; liste réglable).
 - **Partage d'un fichier seul**, sans son dossier : en lecture (consulter, télécharger, copier, joindre à un message), à une personne, un service ou tout le monde, par la personne qui gère le dossier. Le fichier apparaît dans « Partagés avec moi » ; les fichiers voisins et le dossier restent privés, et l'accès disparaît si le dossier part à la corbeille.
 - Import par glisser-déposer de fichiers et de dossiers entiers, avec progression. Un fichier du même nom peut devenir une nouvelle version (historique consultable et restaurable) ou être conservé à côté.
 - Vue liste ou vignettes, tri, sélection multiple, menu contextuel, déplacement par glisser-déposer (y compris sur le fil d'Ariane et la barre latérale), copie, renommage, recherche, aperçu (images, PDF, texte, audio, vidéo), téléchargement d'un dossier en ZIP.
@@ -212,9 +226,19 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 | `bin/deliver.php` | agent de distribution locale (pipe MTA) |
 | `bin/cron.php [-v]` | maintenance planifiée |
 
+## Édition en ligne : serveur bureautique
+Exemple avec Collabora Online (CODE) sur le même hôte que Make4WebMail :
+```bash
+docker run -d --name collabora -p 127.0.0.1:9980:9980 \
+  -e "aliasgroup1=https://mail.exemple.fr" \
+  -e "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:welcome.enable=false" \
+  collabora/code
+```
+Publiez-le ensuite derrière votre proxy HTTPS (par ex. `https://office.exemple.fr`) et indiquez cette adresse dans Administration → Fichiers → Édition en ligne. Le bouton « Tester » lit les formats proposés par le serveur. ONLYOFFICE Docs, avec WOPI activé, se branche de la même façon.
+
 ## Tests
 ```bash
-php tests/run.php   # 113 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 118 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

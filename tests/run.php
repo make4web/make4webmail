@@ -695,6 +695,197 @@ test('files: a single file is shared without its folder', function () use ($fsAd
     Files::resetCache();
     eq(Files::filePermission($fsCarol, Files::file($one['id'])), Files::NONE, 'unshared');
 });
+test('files: compress a selection into a zip next to it', function () use ($fsBob, $fsCarol, $fsFile) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $dir = Files::createFolder($fsBob, $root, 'Projet');
+    $sub = Files::createFolder($fsBob, $dir, 'Annexes');
+    $a = Files::addFromPath($fsBob, $dir, $fsFile('alpha'), 'a.txt');
+    Files::addFromPath($fsBob, $sub, $fsFile('beta'), 'b.txt');
+    $c = Files::addFromPath($fsBob, $root, $fsFile('gamma'), 'c.txt');
+    $z = Files::compress($fsBob, [['type' => 'folder', 'id' => $dir], ['type' => 'file', 'id' => $c['id']]], $root);
+    eq($z['name'], 'Archive.zip');
+    eq($z['mime'], 'application/zip');
+    $tmp = Files::toTempFile(Files::file($z['id'])['blob_id']);
+    $zip = new \ZipArchive();
+    $zip->open($tmp);
+    eq([$zip->getFromName('Projet/a.txt'), $zip->getFromName('Projet/Annexes/b.txt'), $zip->getFromName('c.txt')], ['alpha', 'beta', 'gamma'], 'tree kept');
+    $zip->close();
+    @unlink($tmp);
+    eq(Files::compress($fsBob, [['type' => 'file', 'id' => $a['id']]], $dir)['name'], 'a.zip', 'named after a single item');
+    eq(Files::compress($fsBob, [['type' => 'file', 'id' => $a['id']]], $dir)['name'], 'a (2).zip', 'never overwrites');
+    $thrown = false;
+    try { Files::compress($fsCarol, [['type' => 'file', 'id' => $a['id']]], (int) Files::personalRoot((int) $fsCarol['id'])['id']); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'cannot zip what one cannot read');
+});
+test('files: too big for e-mail suggests a transfer service, never a public link', function () use ($fsBob, $fsFile) {
+    Settings::set('security.max_attachment_mb', 1);
+    $big = Files::addFromPath($fsBob, (int) Files::personalRoot((int) $fsBob['id'])['id'], $fsFile(str_repeat('x', 1100000)), 'video.mp4');
+    $e = null;
+    try { Files::toUploads($fsBob, [$big['id']]); } catch (\M4W\Service\TooBigForMail $x) { $e = $x; }
+    ok($e !== null, 'refused as attachment');
+    eq([$e->details()['too_big'], $e->details()['file_id'], $e->details()['max_mb']], [true, $big['id'], 1]);
+    $names = array_column(\M4W\Service\TooBigForMail::services(), 'name');
+    ok(in_array('SwissTransfer', $names, true) && in_array('WeTransfer', $names, true), 'default services');
+    Settings::set('files.transfer_services', "Interne|http://insecure.example\nBon|https://ok.example\n|https://noname");
+    eq(\M4W\Service\TooBigForMail::services(), [['name' => 'Bon', 'url' => 'https://ok.example']], 'https only, named');
+    Settings::set('files.transfer_services', (string) (\M4W\Core\Settings::DEFAULTS['files.transfer_services'] ?? ''));
+    Settings::set('security.max_attachment_mb', 25);
+});
+test('files: office documents are previewed in the app, safely', function () use ($tmp) {
+    $mk = static function (string $name, array $parts) use ($tmp): string {
+        $p = $tmp . '/' . $name;
+        $z = new \ZipArchive();
+        $z->open($p, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        foreach ($parts as $k => $v) { $z->addFromString($k, $v); }
+        $z->close();
+        return $p;
+    };
+    $w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    $docx = $mk('t.docx', ['word/document.xml' => "<?xml version=\"1.0\"?><w:document $w><w:body>"
+        . '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Rapport annuel</w:t></w:r></w:p>'
+        . '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Gras</w:t></w:r><w:r><w:t xml:space="preserve"> et &lt;script&gt;alert(1)&lt;/script&gt;</w:t></w:r></w:p>'
+        . '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        . '</w:body></w:document>']);
+    $h = \M4W\Service\DocPreview::render($docx, 'rapport.docx');
+    ok(str_contains($h, '<h1>Rapport annuel</h1>') && str_contains($h, '<b>Gras</b>'), 'headings and bold');
+    ok(str_contains($h, '&lt;script&gt;') && !str_contains($h, '<script'), 'text escaped');
+    ok(str_contains($h, '<td><p>A1</p></td>'), 'tables');
+    $s = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+    $xlsx = $mk('t.xlsx', [
+        'xl/workbook.xml' => "<workbook $s><sheets><sheet name=\"Budget\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"Caché\" sheetId=\"2\" state=\"hidden\" r:id=\"rId2\"/></sheets></workbook>",
+        'xl/_rels/workbook.xml.rels' => '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="x"/><Relationship Id="rId2" Target="worksheets/sheet2.xml" Type="x"/></Relationships>',
+        'xl/sharedStrings.xml' => "<sst $s><si><t>Poste</t></si><si><t>Loyer</t></si></sst>",
+        'xl/worksheets/sheet1.xml' => "<worksheet $s><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"C1\"><v>1250.5</v></c></row><row r=\"3\"><c r=\"A3\" t=\"s\"><v>1</v></c></row></sheetData></worksheet>",
+    ]);
+    $h = \M4W\Service\DocPreview::render($xlsx, 'budget.xlsx');
+    ok(str_contains($h, '<h2>Budget</h2>') && !str_contains($h, 'Caché'), 'visible sheets only');
+    ok(str_contains($h, '>Poste</td><td></td><td class="n"') && str_contains($h, '1250.5') && str_contains($h, '>Loyer<'), 'cells placed by reference');
+    $pptx = $mk('t.pptx', [
+        'ppt/presentation.xml' => '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>',
+        'ppt/_rels/presentation.xml.rels' => '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Target="slides/slide1.xml" Type="x"/></Relationships>',
+        'ppt/slides/slide1.xml' => '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>Bienvenue</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+    ]);
+    ok(str_contains(\M4W\Service\DocPreview::render($pptx, 'deck.pptx'), '<p class="t">Bienvenue</p>'), 'slides');
+    file_put_contents($tmp . '/t.csv', "Nom;Montant\nDupont;12,50\n");
+    ok(str_contains(\M4W\Service\DocPreview::render($tmp . '/t.csv', 'export.csv'), '<td>Dupont</td><td class="n">12,50</td>'), 'csv with ; separator');
+    $thrown = false;
+    try { \M4W\Service\DocPreview::render($tmp . '/t.csv', 'macro.docm'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown && !\M4W\Service\DocPreview::supports('ancien.doc'), 'unsupported formats are downloaded');
+    // An entity bomb or external entity is never expanded.
+    $evil = $mk('evil.docx', ['word/document.xml' => '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]>' . "<w:document $w><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>"]);
+    ok(!str_contains(\M4W\Service\DocPreview::render($evil, 'evil.docx'), 'root:'), 'no external entities');
+});
+test('files: every document expires; reminders, then archive and e-mail', function () use ($fsBob, $fsCarol, $fsAdmin, $fsFile) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = Files::addFromPath($fsBob, $root, $fsFile('contenu du devis'), 'devis.txt');
+    ok(abs($f['expires_at'] - (time() + 365 * 86400)) < 60, 'one year by default');
+    // Limits: between tomorrow and three years.
+    foreach ([time() - 86400, time() + 1200 * 86400] as $bad) {
+        $thrown = false;
+        try { Files::setExpiry($fsBob, $f['id'], $bad); } catch (\InvalidArgumentException) { $thrown = true; }
+        ok($thrown, 'out of range refused');
+    }
+    Files::setFileAcl($fsBob, $f['id'], [['type' => 'user', 'principal' => $fsCarol['id']]]);
+    Files::resetCache();
+    $thrown = false;
+    try { Files::setExpiry($fsCarol, $f['id'], time() + 10 * 86400); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'a reader cannot change it');
+    Files::setExpiry($fsBob, $f['id'], time() + 40 * 86400);
+    $inbox = static fn() => (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $fsBob['id'], 's' => '%devis.txt%']);
+    $before = $inbox();
+    eq(Files::processExpiry()[0] >= 0, true);
+    eq($inbox(), $before, 'nothing 40 days before');
+    $now = time() + 11 * 86400;                       // 29 days left
+    Files::processExpiry($now);
+    eq($inbox(), $before + 1, 'one month before');
+    Files::processExpiry($now);
+    eq($inbox(), $before + 1, 'never twice the same reminder');
+    Files::processExpiry(time() + 34 * 86400);      // 6 days left
+    Files::processExpiry(time() + 39 * 86400);      // 1 day left
+    eq($inbox(), $before + 3, 'one week and two days before');
+    // Postponing restarts the cycle.
+    $stage = (int) DB::value('SELECT expiry_stage FROM fs_files WHERE id = :i', ['i' => $f['id']]);
+    Files::setExpiry($fsBob, $f['id'], time() + 200 * 86400);
+    eq((int) DB::value('SELECT expiry_stage FROM fs_files WHERE id = :i', ['i' => $f['id']]), 0, 'reset after postponing (was ' . $stage . ')');
+    // Past the date: archived, unshared, sent to its author with the document.
+    Files::processExpiry(time() + 201 * 86400);
+    Files::resetCache();
+    $row = DB::one('SELECT * FROM fs_files WHERE id = :i', ['i' => $f['id']]);
+    ok((int) $row['archived_at'] > 0 && (int) $row['archived_from'] === $root, 'archived, origin kept');
+    $thrown = false;
+    try { Files::requireFile($fsBob, $f['id'], Files::READ); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'no longer in the file space, even for its author');
+    eq(Files::sharedFilesWithMe($fsCarol), [], 'no longer shared');
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject LIKE :s ORDER BY id DESC", ['u' => $fsBob['id'], 's' => 'Document archivé%']);
+    ok($m && str_contains(Mailbox::raw($m), base64_encode('contenu du devis')) || str_contains((string) Mailbox::raw($m), 'contenu du devis'), 'the document is attached');
+    ok(in_array($f['id'], array_map('intval', array_column(Files::archived(), 'id')), true), 'listed for administrators');
+    // Restored by an administrator, with a new period.
+    $back = Files::restoreArchived($f['id'], (int) $fsAdmin['id']);
+    eq($back['folder_id'], $root);
+    ok($back['expires_at'] > time() + 300 * 86400, 'new period');
+    // Author gone: the notice goes to an administrator.
+    $tmpU = Users::find(Users::create(['email' => 'parti@test.local', 'password' => 'Secret!Pass123']));
+    $g = Files::addFromPath($tmpU, (int) Files::personalRoot((int) $tmpU['id'])['id'], $fsFile('x'), 'orphelin.txt');
+    DB::update('users', ['status' => 'disabled'], 'id = :i', ['i' => $tmpU['id']]);
+    DB::update('fs_files', ['expires_at' => time() - 10], 'id = :i', ['i' => $g['id']]);
+    Files::processExpiry();
+    ok((bool) DB::value("SELECT 1 FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $fsAdmin['id'], 's' => '%orphelin.txt%']), 'administrator informed');
+});
+test('office: WOPI host (discovery, tokens, rights, locks, versions)', function () use ($fsBob, $fsCarol, $fsFile) {
+    \M4W\Service\Office::$fetch = static fn(string $url) => str_ends_with($url, '/hosting/discovery') ? '<wopi-discovery><net-zone name="external-http">'
+        . '<app name="writer"><action name="edit" ext="docx" urlsrc="https://office.test/browser/abc/cool.html?"/><action name="view" ext="doc" urlsrc="https://office.test/browser/abc/cool.html?"/></app>'
+        . '<app name="Word"><action name="edit" ext="docx" urlsrc="https://office.test/we/wordeditorframe.aspx?&lt;ui=UI_LLCC&amp;&gt;&lt;rs=DC_LLCC&amp;&gt;&lt;showpagestats=PERFSTATS&amp;&gt;"/></app>'
+        . '</net-zone></wopi-discovery>' : null;
+    Settings::set('office.url', 'https://office.test');
+    Settings::set('office.discovery', '');
+    eq(\M4W\Service\Office::test(), '', 'discovery read');
+    eq(\M4W\Service\Office::editable(), ['docx'], 'editable formats from discovery');
+    ok(in_array('doc', \M4W\Service\Office::viewable(), true), 'older formats viewable');
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = Files::addFromPath($fsBob, $root, $fsFile('PK v1'), 'contrat.docx');
+    $url = \M4W\Service\Office::actionUrl($f, 'edit', 'https://mail.test/wopi/files/' . $f['id'], 'fr-FR');
+    eq($url, 'https://office.test/browser/abc/cool.html?WOPISrc=' . rawurlencode('https://mail.test/wopi/files/' . $f['id']) . '&lang=fr-FR');
+    // Tokens: one document, one person, rights re-read at every call.
+    $tok = \M4W\Service\Office::issueToken($fsBob, $f, true);
+    ok(!DB::value('SELECT 1 FROM wopi_tokens WHERE token_hash = :t', ['t' => $tok['token']]), 'stored hashed');
+    eq(\M4W\Service\Office::resolve($tok['token'], $f['id'])['write'], true);
+    eq(\M4W\Service\Office::resolve($tok['token'], $f['id'] + 1), null, 'bound to its document');
+    eq(\M4W\Service\Office::resolve(str_repeat('a', 64), $f['id']), null, 'unknown token');
+    Files::setFileAcl($fsBob, $f['id'], [['type' => 'user', 'principal' => $fsCarol['id']]]);
+    $ro = \M4W\Service\Office::issueToken($fsCarol, $f, true);
+    eq(\M4W\Service\Office::resolve($ro['token'], $f['id'])['write'], false, 'a reader never writes, whatever the token says');
+    Files::setFileAcl($fsBob, $f['id'], []);
+    eq(\M4W\Service\Office::resolve($ro['token'], $f['id']), null, 'revoked at once');
+    // WOPI calls through the controller, as the office server makes them.
+    $call = static function (string $method, string $path, array $headers = []) use ($tok, $f) {
+        $server = ['REQUEST_METHOD' => $method, 'REMOTE_ADDR' => '10.0.0.9', 'HTTP_HOST' => 'mail.test'];
+        foreach ($headers as $k => $v) { $server['HTTP_' . strtoupper(str_replace('-', '_', $k))] = $v; }
+        $c = new \M4W\Controller\OfficeController(new \M4W\Core\Request($method, $path, ['access_token' => $tok['token']], [], [], $server));
+        return $c;
+    };
+    $info = json_decode($call('GET', '/wopi/files/' . $f['id'])->checkFileInfo((string) $f['id'])->body, true);
+    eq([$info['BaseFileName'], $info['UserCanWrite'], $info['UserFriendlyName'], $info['EnableInsertRemoteImage']], ['contrat.docx', true, $fsBob['name'], false]);
+    $lock = static fn(string $op, string $lock, string $old = '') => $call('POST', '/wopi/files/' . $f['id'], array_filter(['X-WOPI-Override' => $op, 'X-WOPI-Lock' => $lock, 'X-WOPI-OldLock' => $old]))->fileOperation((string) $f['id']);
+    eq($lock('LOCK', 'L1')->status, 200);
+    eq($lock('LOCK', 'L1')->status, 200, 'same lock: refresh');
+    $r = $lock('LOCK', 'L2');
+    eq([$r->status, $r->getHeader('X-WOPI-Lock')], [409, 'L1'], 'other lock: conflict names the holder');
+    eq($lock('GET_LOCK', '')->getHeader('X-WOPI-Lock'), 'L1');
+    eq($lock('LOCK', 'L3', 'L1')->status, 200, 'unlock and relock');
+    eq($lock('UNLOCK', 'L1')->status, 409);
+    eq($lock('UNLOCK', 'L3')->status, 200);
+    eq($lock('PUT_RELATIVE', '')->status, 501, 'no new files from the editor');
+    // A save becomes a version.
+    $p = $fsFile('PK v2');
+    $saved = Files::putContent($fsBob, $f['id'], $p);
+    eq([$saved['version'], Files::contents(Files::file($f['id'])['blob_id'])], [2, 'PK v2']);
+    eq(Files::putContent($fsBob, $f['id'], $fsFile('PK v2'))['version'], 2, 'unchanged content: no new version');
+    $thrown = false;
+    try { Files::putContent($fsCarol, $f['id'], $p); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'no write without the right');
+    \M4W\Service\Office::$fetch = null;
+    Settings::set('office.url', '');
+});
 test('files: versions, conflicts and restore', function () use ($fsAdmin, $fsFile, &$fsState) {
     $a = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v1'), 'budget.xlsx');
     $b = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v2'), 'budget.xlsx', true);

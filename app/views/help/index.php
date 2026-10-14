@@ -211,6 +211,17 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
         <tr><td><span class="badge badge-soft-warning">Gestion</span></td><td>en plus : modifier les accès du dossier</td></tr>
       </tbody>
     </table>
+    <h3>Aperçu, modification en ligne et compression</h3>
+    <ul>
+      <li><strong>Aperçu</strong> : cliquez sur un fichier pour l'afficher sans le télécharger. Images, PDF, audio et vidéo, mais aussi documents Word (.docx), Excel (.xlsx), PowerPoint (.pptx), OpenDocument texte (.odt), CSV et fichiers texte.<?= M4W\Service\Office::enabled() ? ' Les anciens formats (.doc, .xls, .ppt) s\'affichent aussi, en lecture seule.' : '' ?></li>
+      <?php if (M4W\Service\Office::enabled()): ?><li><strong>Modifier en ligne</strong> (menu <?= $ui('three-dots', '') ?> ou bouton <?= $ui('pencil-square', 'Modifier') ?> de l'aperçu) : le document s'ouvre dans un nouvel onglet. Si un collègue l'ouvre en même temps, vous le modifiez ensemble et voyez ses changements en direct. Chaque enregistrement crée une version, consultable et restaurable.</li><?php endif; ?>
+      <li>Les fichiers texte (.txt, .md, .csv…) se modifient aussi avec l'éditeur intégré ; <?= $kbd('Ctrl', 'S') ?> enregistre. Si quelqu'un a enregistré entre-temps, rien n'est écrasé : vous êtes prévenu.</li>
+      <li><?= $ui('file-earmark-zip', 'Compresser (ZIP)') ?> crée, dans le dossier ouvert, une archive des fichiers et dossiers sélectionnés.</li>
+    </ul>
+    <h3>Date de péremption</h3>
+    <p>Chaque document a une date de péremption : <strong><?= (int) M4W\Service\Files::defaultExpiryDays() ?> jours</strong> après son dépôt par défaut, <?= (int) round(M4W\Service\Files::maxExpiryDays() / 365) ?> ans au plus. Un badge signale ceux qui expirent dans le mois. Vous êtes prévenu par e-mail <strong>un mois, une semaine et deux jours</strong> avant ; le lien du message ouvre directement la date à modifier (menu <?= $ui('three-dots', '') ?> → <?= $ui('hourglass-split', 'Date de péremption') ?>). Sans action, le document est archivé : il disparaît de l'espace Fichiers, n'est plus partagé, et vous est envoyé par e-mail. Un administrateur peut le restaurer.</p>
+    <h3>Envoyer un fichier à l'extérieur</h3>
+    <p>Les liens de l'espace Fichiers ne s'ouvrent que pour les utilisateurs de la messagerie : ils ne rendent jamais un document public. Pour envoyer un document à l'extérieur, utilisez « Envoyer par e-mail ». S'il dépasse la taille maximale d'un e-mail, <?= $b ?> vous propose des services de transfert (SwissTransfer, WeTransfer…) : déposez-y le fichier et collez le lien dans votre message.</p>
     <h3>Partager un seul fichier</h3>
     <p>Pour partager un fichier sans donner accès au reste du dossier, ouvrez son menu <?= $ui('three-dots', '') ?> → <?= $ui('person-plus', 'Partager ce fichier') ?>, ajoutez les personnes, un service ou « Tout le monde », puis enregistrez. Ils peuvent le consulter, le télécharger, le copier dans leurs fichiers et le joindre à un message, mais ni le modifier, ni le renommer, ni le supprimer. Ils le retrouvent dans « Partagés avec moi ». L'icône <?= $ui('people', '') ?> à côté du nom signale un fichier partagé. Si le dossier part à la corbeille, le fichier n'est plus visible.</p>
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>

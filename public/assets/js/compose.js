@@ -302,7 +302,7 @@
   Compose.prototype.upload = function (file) {
     var self = this, max = ((M4W.state.settings || {}).max_attach_mb || 25) * 1048576;
     var d = $.Deferred();
-    if (file.size > max) { M4W.toast(t('file_too_big', { name: file.name, mb: max / 1048576 }), 'danger'); return d.reject().promise(); }
+    if (file.size > max) { M4W.tooBig({ name: file.name, size: file.size, max_mb: max / 1048576 }); return d.reject().promise(); }
     var fd = new FormData(); fd.append('file', file);
     this.state.uploading = (this.state.uploading || 0) + 1;
     M4W.api('POST', 'api/upload', fd, {

@@ -513,5 +513,38 @@ static function (): void {
 "CREATE UNIQUE INDEX fs_file_acl_unique ON fs_file_acl(file_id, principal_type, principal)",
 "CREATE INDEX fs_file_acl_principal ON fs_file_acl(principal_type, principal)",
 ],
+11 => [
+// Every stored document has an expiry date; past it, the document is archived.
+"ALTER TABLE fs_files ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN expiry_stage INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN archived_from INTEGER NULL",
+"CREATE INDEX fs_files_expiry ON fs_files(expires_at)",
+// Existing documents get the default period from today, never an immediate expiry.
+static function (): void {
+    $days = max(1, (int) \M4W\Core\Settings::get('files.expiry_default_days', 365));
+    \M4W\Core\Database::run('UPDATE fs_files SET expires_at = :t WHERE expires_at = 0', ['t' => time() + $days * 86400]);
+},
+],
+12 => [
+// Online editing through an office server (WOPI): access tokens and document locks.
+"CREATE TABLE wopi_tokens (
+  id {PK},
+  token_hash VARCHAR(64) NOT NULL,
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  can_write INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX wopi_tokens_hash ON wopi_tokens(token_hash)",
+"CREATE TABLE wopi_locks (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  lock_id VARCHAR(1024) NOT NULL,
+  expires_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX wopi_locks_file ON wopi_locks(file_id)",
+],
 ];
 

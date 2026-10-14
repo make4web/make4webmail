@@ -87,6 +87,17 @@ final class App
         View::share('delegation', $user ? \M4W\Service\Delegation::banner($user) : null);
         View::share('sharedBox', $user ? \M4W\Service\SharedMailboxes::banner($user) : null);
         View::share('req', $req);
+        // Remember the public address for links in scheduled messages; only from administrators,
+        // so a forged Host header from anyone else can never end up in an e-mail.
+        if ($user && $user['role'] === 'admin' && $req->method === 'GET' && !$req->isAjax()) {
+            $host = (string) ($req->server['HTTP_HOST'] ?? '');
+            if (preg_match('/^[a-z0-9.-]+(:\d+)?$/i', $host)) {
+                $pub = ($req->isSecure() ? 'https' : 'http') . '://' . strtolower($host) . Request::basePath();
+                if ($pub !== Settings::get('system.public_url', '')) {
+                    Settings::set('system.public_url', $pub);
+                }
+            }
+        }
 
         $match = $router->match($req);
         if ($match === null) {
@@ -251,6 +262,16 @@ final class App
         // Shared file space
         $r->get('/files', [Controller\FilesController::class, 'index']);
         $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
+        $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
+        $r->get('/api/files/file/{id}/text', [Controller\OfficeController::class, 'text']);
+        $r->post('/api/files/file/{id}/text', [Controller\OfficeController::class, 'saveText']);
+        // WOPI host, called by the office server: authenticated by access token, no session, no CSRF.
+        $wopi = ['auth' => 'public', 'nocsrf' => true];
+        $r->get('/wopi/files/{id}', [Controller\OfficeController::class, 'checkFileInfo'], $wopi);
+        $r->post('/wopi/files/{id}', [Controller\OfficeController::class, 'fileOperation'], $wopi);
+        $r->get('/wopi/files/{id}/contents', [Controller\OfficeController::class, 'getFile'], $wopi);
+        $r->post('/wopi/files/{id}/contents', [Controller\OfficeController::class, 'putFile'], $wopi);
+        $r->get('/files/file/{id}/preview', [Controller\FilesController::class, 'preview']);
         $r->get('/files/folder/{id}/zip', [Controller\FilesController::class, 'zip']);
         $r->get('/api/files/roots', [Controller\FilesController::class, 'roots']);
         $r->get('/api/files/tree', [Controller\FilesController::class, 'tree']);
@@ -261,6 +282,8 @@ final class App
         $r->get('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'acl']);
         $r->post('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'saveAcl']);
         $r->post('/api/files/space/{id}', [Controller\FilesController::class, 'updateSpace']);
+        $r->get('/api/files/file/{id}/expiry', [Controller\FilesController::class, 'expiry']);
+        $r->post('/api/files/file/{id}/expiry', [Controller\FilesController::class, 'saveExpiry']);
         $r->get('/api/files/file/{id}/acl', [Controller\FilesController::class, 'fileAcl']);
         $r->post('/api/files/file/{id}/acl', [Controller\FilesController::class, 'saveFileAcl']);
         $r->get('/api/files/file/{id}/versions', [Controller\FilesController::class, 'versions']);
@@ -270,6 +293,7 @@ final class App
         $r->post('/api/files/upload', [Controller\FilesController::class, 'upload']);
         $r->post('/api/files/rename', [Controller\FilesController::class, 'rename']);
         $r->post('/api/files/move', [Controller\FilesController::class, 'move']);
+        $r->post('/api/files/compress', [Controller\FilesController::class, 'compress']);
         $r->post('/api/files/copy', [Controller\FilesController::class, 'copy']);
         $r->post('/api/files/delete', [Controller\FilesController::class, 'delete']);
         $r->post('/api/files/restore', [Controller\FilesController::class, 'restore']);
@@ -285,6 +309,9 @@ final class App
         $r->post('/admin/deleted/settings', [Controller\RetentionController::class, 'settings'], $admin);
         $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
         $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
+        $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $admin);
+        $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
+        $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
 
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);

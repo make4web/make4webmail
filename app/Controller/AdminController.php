@@ -651,12 +651,12 @@ final class AdminController extends Controller
             $spaces[] = $s;
         }
         $stats = [
-            'files' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at = 0'),
+            'files' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at = 0 AND archived_at = 0'),
             'versions' => (int) DB::value('SELECT COUNT(*) FROM fs_versions'),
             'trash' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at > 0'),
         ];
         return $this->page('files', [
-            'spaces' => $spaces, 'stats' => $stats, 'usage' => \M4W\Service\Files::usage(),
+            'spaces' => $spaces, 'stats' => $stats, 'usage' => \M4W\Service\Files::usage(), 'archived' => \M4W\Service\Files::archived(),
             'driver' => \M4W\Storage\Storage::store()->name(),
             'phpMax' => min(self::iniBytes((string) ini_get('upload_max_filesize')), self::iniBytes((string) ini_get('post_max_size'))),
         ]);
@@ -675,16 +675,55 @@ final class AdminController extends Controller
         $r = $this->req;
         $values = [
             'files.max_file_mb' => max(1, min(10240, $r->int('max_file_mb', 200))),
+            'files.transfer_services' => mb_substr(str_replace("\r", '', $r->raw('transfer_services')), 0, 2000),
             'files.quota_gb' => max(0, min(100000, $r->int('quota_gb', 0))),
             'files.versions' => max(0, min(100, $r->int('versions', 10))),
             'files.trash_days' => max(1, min(365, $r->int('trash_days', 30))),
             'files.users_create_spaces' => $r->bool('users_create_spaces') ? 1 : 0,
+            'files.expiry_max_days' => max(30, min(3650, $r->int('expiry_max_days', 1095))),
         ];
+        $url = static fn(string $v) => preg_match('#^https?://[a-z0-9.-]+(:\d+)?(/[^\s"<>]*)?$#i', $v) ? rtrim($v, '/') : '';
+        $values['office.url'] = $url($r->str('office_url'));
+        $values['office.wopi_base'] = $url($r->str('office_wopi_base'));
+        $values['files.expiry_default_days'] = max(1, min($values['files.expiry_max_days'], $r->int('expiry_default_days', 365)));
         foreach ($values as $k => $v) {
             Settings::set($k, $v);
         }
         Audit::log('admin.files_saved');
         return $this->back('/admin/files', 'success', t('settings.saved'));
+    }
+
+    /** Online editing: reach the office server and read its formats (AJAX). */
+    public function officeTest(): Response
+    {
+        $err = \M4W\Service\Office::test();
+        return $err === '' ? $this->ok(['message' => t('admin.office_ok', ['n' => count(\M4W\Service\Office::editable())])]) : $this->fail($err);
+    }
+
+    /** Expired documents: put back, download or delete for good. */
+    public function archivedFile(string $id): Response
+    {
+        $f = DB::one('SELECT * FROM fs_files WHERE id = :id AND archived_at > 0', ['id' => (int) $id]);
+        if (!$f) {
+            throw new HttpException(404, t('files.not_found'));
+        }
+        $action = $this->req->str('action');
+        if ($this->req->method === 'GET') {
+            $tmp = \M4W\Service\Files::toTempFile($f['blob_id']);
+            register_shutdown_function(static fn() => @unlink($tmp));
+            Audit::log('files.archive_downloaded', $f['name']);
+            return Response::file($tmp, 'application/octet-stream', $f['name']);
+        }
+        if ($action === 'restore') {
+            \M4W\Service\Files::restoreArchived((int) $f['id'], $this->uid());
+            return $this->back('/admin/files#archive', 'success', t('files.archive_restored', ['name' => $f['name']]));
+        }
+        if ($action === 'delete') {
+            \M4W\Service\Files::destroyFile((int) $f['id']);
+            Audit::log('files.archive_deleted', $f['name']);
+            return $this->back('/admin/files#archive', 'success', t('files.archive_deleted', ['name' => $f['name']]));
+        }
+        return $this->back('/admin/files#archive');
     }
 
     public function security(): Response

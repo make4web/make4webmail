@@ -14,6 +14,22 @@
 
   var LEVEL = { none: 0, read: 1, write: 2, manage: 3 };
   var PREVIEW_IMG = /^image\/(png|jpeg|gif|webp|bmp)$/;
+  var OFFICE_EDIT = ($('#fs-app').data('office-edit') || '').split(',').filter(Boolean);
+  var OFFICE_VIEW = ($('#fs-app').data('office-view') || '').split(',').filter(Boolean);
+  var TEXT_EDIT = ['txt', 'md', 'csv', 'log', 'json', 'xml', 'ini', 'conf', 'yml', 'yaml'];
+  function extOf(f) { return (f.name.split('.').pop() || '').toLowerCase(); }
+  /** How a file can be edited here: 'office' (online, collaborative), 'text' (built-in) or ''. */
+  function editMode(f) {
+    if (f.type !== 'file' || !itemWritable(f)) return '';
+    if (OFFICE_EDIT.indexOf(extOf(f)) !== -1) return 'office';
+    return TEXT_EDIT.indexOf(extOf(f)) !== -1 ? 'text' : '';
+  }
+  function editFile(f) {
+    var mode = editMode(f);
+    if (mode === 'office') window.open(M4W.url('files/edit/' + f.id), '_blank', 'noopener');
+    else if (mode === 'text') textEditor(f);
+  }
+  var DOCPREVIEW = /^(docx|xlsx|pptx|odt|csv|tsv|txt|log|md|json|xml|ini|conf|ya?ml|sql|eml)$/;
   var PREVIEW = /^(image\/(png|jpeg|gif|webp|bmp)|application\/pdf|text\/plain|audio\/(mpeg|ogg|wav)|video\/(mp4|webm))$/;
 
   function can(level) { return LEVEL[S.level] >= LEVEL[level]; }
@@ -71,6 +87,16 @@
     clearSelection(true);
     $('body').removeClass('sidebar-open');
     if ((m = /^f\/(\d+)$/.exec(h))) { openFolder(+m[1]); }
+    else if ((m = /^e\/(\d+)$/.exec(h))) {
+      // Link of an expiry reminder: open the document's folder, then its expiry dialog.
+      M4W.get('api/files/file/' + m[1] + '/expiry').done(function (r) {
+        var show = function () { expiryDialog(r); };
+        if (r.file.folder_id) {
+          history.replaceState(null, '', '#f/' + r.file.folder_id);
+          openFolder(r.file.folder_id).always(show).fail(function () { openShared(); });
+        } else show();
+      }).fail(function () { window.location.hash = ''; });
+    }
     else if (h === 'shared') { openShared(); }
     else if (h === 'trash') { openTrash(); }
     else if ((m = /^search\/(.+)$/.exec(h))) { openSearch(decodeURIComponent(m[1])); }
@@ -248,6 +274,10 @@
         var who = trash ? it.deleted_by : (it.type === 'file' ? it.updated_by : it.created_by);
         var when = trash ? it.deleted_at : it.updated_at;
         var badges = '';
+        if (it.type === 'file' && it.expires_at && !trash) {
+          var leftDays = Math.ceil((it.expires_at * 1000 - Date.now()) / 86400000);
+          if (leftDays <= 30) badges += '<span class="badge ' + (leftDays <= 7 ? 'badge-soft-danger' : 'badge-soft-warning') + ' ms-2 fs-expiry-badge" title="' + esc(t('fs_expires_on', { date: fmtDay(it.expires_at) })) + '"><i class="bi bi-hourglass-split me-1"></i>' + esc(leftDays <= 0 ? t('fs_expires_today') : t('fs_expires_in', { n: leftDays })) + '</span>';
+        }
         if (it.type === 'file' && it.version > 1) badges += '<span class="badge badge-soft-secondary ms-2" title="' + esc(t('fs_versions')) + '">v' + it.version + '</span>';
         if (it.shared && S.route !== 'shared') badges += '<i class="bi bi-people ms-2 text-muted small" title="' + esc(t(it.type === 'file' ? 'fs_shared_file_badge' : 'fs_shared_badge')) + '"></i>';
         if (it.owner) badges += '<span class="small text-muted ms-2">' + esc(it.owner) + '</span>';
@@ -286,6 +316,7 @@
       else if (need === 'files') show = files > 0 && files === n;
       else if (need === 'write') show = writable;
       else if (need === 'one-write') show = n === 1 && writable;
+      else if (need === 'here-write') show = S.route === 'folder' && can('write');
       else show = true;
       $(this).toggleClass('d-none', !show);
     });
@@ -314,6 +345,21 @@
     var $m = $('#fs-preview-modal'), $b = $('#fs-preview-body').empty();
     $('#fs-preview-title').text(f.name);
     $('#fs-preview-dl').attr('href', fileUrl(f));
+    var ext = extOf(f);
+    var mode = editMode(f);
+    $('#fs-preview-edit').toggleClass('d-none', !mode).off('click').on('click', function () { bootstrap.Modal.getInstance($m[0]).hide(); editFile(f); });
+    if (!DOCPREVIEW.test(ext) && OFFICE_VIEW.indexOf(ext) !== -1) {
+      // Older formats (.doc, .xls, .ppt…): the office server shows them read-only.
+      $b.append($('<iframe class="fs-doc-preview"></iframe>').attr('title', f.name).attr('src', M4W.url('files/edit/' + f.id, { mode: 'view', embed: 1 })));
+      bootstrap.Modal.getOrCreateInstance($m[0]).show();
+      return;
+    }
+    if (DOCPREVIEW.test(ext)) {
+      // Office documents, CSV, text: rendered by the server as a static page.
+      $b.append($('<iframe sandbox="" referrerpolicy="no-referrer" class="fs-doc-preview"></iframe>').attr('title', f.name).attr('src', M4W.url('files/file/' + f.id + '/preview')));
+      bootstrap.Modal.getOrCreateInstance($m[0]).show();
+      return;
+    }
     if (!PREVIEW.test(f.mime)) { window.location.href = fileUrl(f); return; }
     var src = fileUrl(f, true);
     if (/^image\//.test(f.mime)) $b.append($('<img alt="">').attr('src', src).attr('alt', f.name));
@@ -406,6 +452,22 @@
       });
     },
     move: function (items) { transfer(items || selectedItems(), 'move'); },
+    edit: function (items) { var it = (items || selectedItems())[0]; if (it) editFile(it); },
+    expiry: function (items) {
+      var it = (items || selectedItems())[0];
+      if (it) M4W.get('api/files/file/' + it.id + '/expiry').done(expiryDialog);
+    },
+    // "Send to compressed folder": the ZIP lands next to the selection.
+    compress: function (items) {
+      items = items || selectedItems();
+      if (!items.length || S.route !== 'folder') return;
+      var busy = M4W.toast(t('fs_compressing'), 'info', { duration: 60000 });
+      M4W.post('api/files/compress', { items: payload(items), target: S.folder }).done(function (r) {
+        clearSelection(true);
+        refresh();
+        M4W.toast(t('fs_compressed', { name: r.file.name }), 'success');
+      }).always(function () { busy.close && busy.close(); });
+    },
     copy: function (items) { transfer(items || selectedItems(), 'copy'); },
     delete: function (items) {
       items = items || selectedItems();
@@ -472,8 +534,11 @@
     m.push('-');
     if (one && writable) m.push(['rename', 'input-cursor-text', 'fs_rename']);
     if (writable) m.push(['move', 'folder-symlink', 'fs_move']);
+    if (S.route === 'folder' && can('write')) m.push(['compress', 'file-earmark-zip', 'fs_compress']);
     m.push(['copy', 'copy', 'fs_copy']);
+    if (one && editMode(one)) m.splice(1, 0, ['edit', 'pencil-square', editMode(one) === 'office' ? 'fs_edit_online' : 'fs_edit']);
     if (one && one.type === 'file') m.push(['versions', 'clock-history', 'fs_versions']);
+    if (one && one.type === 'file' && S.route !== 'trash') m.push(['expiry', 'hourglass-split', 'fs_expiry']);
     if (one) m.push(['copy-link', 'link-45deg', 'fs_copy_link']);
     if (writable) { m.push('-'); m.push(['delete', 'trash3', 'fs_delete', 'danger']); }
     return m;
@@ -505,6 +570,69 @@
     if (e.key === 'ArrowDown') { e.preventDefault(); $i.eq((idx + 1) % $i.length).trigger('focus'); }
     if (e.key === 'ArrowUp') { e.preventDefault(); $i.eq((idx - 1 + $i.length) % $i.length).trigger('focus'); }
   });
+
+  // ------------------------------------------------------------ text editor
+  function textEditor(f) {
+    M4W.get('api/files/file/' + f.id + '/text').done(function (r) {
+      $('#fs-text-modal').remove();
+      var version = r.version, dirty = false;
+      var $m = $('<div class="modal fade" id="fs-text-modal" tabindex="-1" aria-labelledby="fs-text-title" aria-hidden="true" data-bs-backdrop="static"><div class="modal-dialog modal-xl modal-dialog-centered"><div class="modal-content">'
+        + '<div class="modal-header"><h2 class="modal-title fs-6 text-truncate" id="fs-text-title"><i class="bi bi-pencil-square me-2 text-primary"></i>' + esc(r.file.name) + '</h2>'
+        + '<span class="small text-muted ms-3" data-text-status></span><button type="button" class="btn-close ms-auto" data-text-close aria-label="' + esc(t('close')) + '"></button></div>'
+        + '<div class="modal-body p-0"><textarea class="fs-text-area" spellcheck="false" aria-label="' + esc(r.file.name) + '"' + (r.can_write ? '' : ' readonly') + '></textarea></div>'
+        + '<div class="modal-footer"><span class="small text-muted me-auto">' + esc(t('fs_text_hint')) + '</span><button type="button" class="btn btn-light" data-text-close>' + esc(t('close')) + '</button>'
+        + (r.can_write ? '<button type="button" class="btn btn-primary" data-text-save><i class="bi bi-check2 me-1"></i>' + esc(t('fs_save')) + '</button>' : '') + '</div>'
+        + '</div></div></div>').appendTo(document.body);
+      var $ta = $m.find('textarea').val(r.content);
+      var status = function (s) { $m.find('[data-text-status]').text(s); };
+      var save = function () {
+        if (!r.can_write) return;
+        status(t('fs_text_saving'));
+        M4W.post('api/files/file/' + f.id + '/text', { content: $ta.val(), version: version }, { quiet: true }).done(function (res) {
+          version = res.version; dirty = false; status(t('fs_text_saved'));
+          if (S.route === 'folder') refresh();
+        }).fail(function (x) { var e = x.responseJSON || {}; status(''); M4W.toast(e.error || t('error_network'), 'danger', { duration: 9000 }); });
+      };
+      $ta.on('input', function () { dirty = true; status(t('fs_text_unsaved')); })
+        .on('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); } });
+      $m.on('click', '[data-text-save]', save).on('click', '[data-text-close]', function () {
+        if (dirty && !window.confirm(t('fs_text_discard'))) return;
+        bootstrap.Modal.getInstance($m[0]).hide();
+      }).on('shown.bs.modal', function () { $ta.trigger('focus'); }).on('hidden.bs.modal', function () { $m.remove(); });
+      bootstrap.Modal.getOrCreateInstance($m[0]).show();
+    });
+  }
+
+  // ----------------------------------------------------------------- expiry
+  function fmtDay(ts) { return new Date(ts * 1000).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric' }); }
+  function expiryDialog(r) {
+    $('#fs-expiry-modal').remove();
+    var f = r.file, cur = new Date(f.expires_at * 1000), iso = function (d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
+    var plus = function (months) { var d = new Date(); d.setMonth(d.getMonth() + months); var mx = new Date(r.max + 'T12:00:00'); return iso(d > mx ? mx : d); };
+    var quick = r.can_edit ? [[6, 'fs_expiry_6m'], [12, 'fs_expiry_1y'], [24, 'fs_expiry_2y'], [36, 'fs_expiry_max']].map(function (q) {
+      return '<button type="button" class="btn btn-light btn-sm" data-expiry-set="' + plus(q[0]) + '">' + esc(t(q[1])) + '</button>';
+    }).join('') : '';
+    var $m = $('<div class="modal fade" id="fs-expiry-modal" tabindex="-1" aria-labelledby="fs-expiry-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><form class="modal-content">'
+      + '<div class="modal-header"><h2 class="modal-title fs-5" id="fs-expiry-title"><i class="bi bi-hourglass-split me-2 text-primary"></i>' + esc(t('fs_expiry_title', { name: f.name })) + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + esc(t('close')) + '"></button></div>'
+      + '<div class="modal-body"><p class="small text-muted">' + esc(t('fs_expiry_help', { days: r.default_days })) + '</p>'
+      + '<label class="form-label" for="fs-expiry-date">' + esc(t('fs_expiry_date')) + '</label>'
+      + '<input class="form-control" type="date" id="fs-expiry-date" required min="' + r.min + '" max="' + r.max + '" value="' + iso(cur) + '"' + (r.can_edit ? '' : ' disabled') + '>'
+      + (quick ? '<div class="d-flex flex-wrap gap-2 mt-2">' + quick + '</div>' : '')
+      + (r.can_edit ? '' : '<div class="alert alert-secondary small mt-3 mb-0">' + esc(t('fs_expiry_readonly')) + '</div>')
+      + '</div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">' + esc(t('fs_cancel')) + '</button>'
+      + (r.can_edit ? '<button class="btn btn-primary" type="submit">' + esc(t('fs_save')) + '</button>' : '') + '</div></form></div></div>').appendTo(document.body);
+    $m.on('click', '[data-expiry-set]', function () { $('#fs-expiry-date').val($(this).data('expiry-set')); })
+      .on('submit', 'form', function (e) {
+        e.preventDefault();
+        M4W.post('api/files/file/' + f.id + '/expiry', { date: $('#fs-expiry-date').val() }).done(function (res) {
+          bootstrap.Modal.getInstance($m[0]).hide();
+          M4W.toast(t('fs_expiry_saved', { date: fmtDay(res.file.expires_at) }), 'success');
+          if (S.route === 'folder') refresh();
+        });
+      })
+      .on('hidden.bs.modal', function () { $m.remove(); });
+    bootstrap.Modal.getOrCreateInstance($m[0]).show();
+  }
 
   // ---------------------------------------------------------------- sharing
   var share = { folder: null, entries: [], kind: 'folder' };

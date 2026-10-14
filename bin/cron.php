@@ -36,6 +36,8 @@ if ($hourly) {
     $out('purged: ' . M4W\Service\Mailbox::autoPurge(30));
     $out('retention expired: ' . M4W\Service\Retention::expire());
     M4W\Service\Collector::purge();
+    [$rem, $arc] = M4W\Service\Files::processExpiry();
+    $out('files expiry: ' . $rem . ' reminder(s), ' . $arc . ' archived');
     $out('files purged: ' . M4W\Service\Files::autoPurge(max(1, (int) Settings::get('files.trash_days', 30))));
     DB::run('DELETE FROM login_attempts WHERE created_at < :t', ['t' => $now - 7 * 86400]);
     DB::run('DELETE FROM user_sessions WHERE (revoked = 1 OR last_seen_at < :t)', ['t' => $now - 30 * 86400]);
