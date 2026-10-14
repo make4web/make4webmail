@@ -40,6 +40,7 @@ use M4W\Service\Installer;
 use M4W\Service\Mailbox;
 use M4W\Service\RuleEngine;
 use M4W\Service\Senders;
+use M4W\Service\SpamFilter;
 use M4W\Service\Signatures;
 use M4W\Service\Transport;
 use M4W\Service\Users;
@@ -621,6 +622,85 @@ test('disposable senders are refused, never answered', function () use ($bob, $s
     eq($q(), $n + 1, 'a real sender still gets the out-of-office');
     Settings::set('security.disposable_action', 'reject');
     Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
+});
+test('links: misleading text, IP, shorteners, look-alikes', function () {
+    eq(M4W\Mail\LinkCheck::registrable('www.impots.gouv.fr'), 'impots.gouv.fr');
+    eq(M4W\Mail\LinkCheck::registrable('a.b.example.co.uk'), 'example.co.uk');
+    eq(M4W\Mail\LinkCheck::problems('https://secure-login.example.ru/x', 'www.mabanque.fr'), ['mismatch']);
+    eq(M4W\Mail\LinkCheck::problems('https://cfspart.impots.gouv.fr/', 'www.impots.gouv.fr'), [], 'same site');
+    eq(M4W\Mail\LinkCheck::problems('https://example.com/', 'Cliquez ici'), [], 'plain text is not an address');
+    eq(M4W\Mail\LinkCheck::problems('http://192.168.4.20/login'), ['ip']);
+    eq(M4W\Mail\LinkCheck::problems('https://bit.ly/3xYz'), ['shortener']);
+    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode']);
+    eq(M4W\Mail\LinkCheck::problems('https://www.paypal.com@evil.example/'), ['userinfo']);
+    eq(M4W\Mail\LinkCheck::problems('javascript:alert(1)'), ['script']);
+});
+test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendTo) {
+    $spamId = (int) Folders::byRole((int) $bob['id'], 'spam')['id'];
+    $inboxId = (int) Folders::byRole((int) $bob['id'], 'inbox')['id'];
+    $folderOf = static fn(string $s) => (int) DB::value('SELECT folder_id FROM messages WHERE subject = :s ORDER BY id DESC', ['s' => $s]);
+    // Clean mail.
+    Delivery::deliver($sendTo('bob@test.local', 'Compte rendu de réunion', 'paul@partenaire-ext.com'), 'paul@partenaire-ext.com', ['bob@test.local']);
+    eq($folderOf('Compte rendu de réunion'), $inboxId);
+    // Phishing: shouting subject, misleading link, asks to verify the account → Junk, with the reasons.
+    $phish = '<p>Votre compte est suspendu. Vérifiez votre compte : <a href="https://secure-verif.example.ru/login">www.mabanque.fr</a></p>';
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EST SUSPENDU!!!', 'service@banque-ext.com', [], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EST SUSPENDU!!!'), $spamId, 'suspect → Junk');
+    $m = DB::one("SELECT * FROM messages WHERE subject = 'VOTRE COMPTE EST SUSPENDU!!!'");
+    $r = SpamFilter::parse(Mailbox::parsed($m)->header(SpamFilter::HEADER));
+    eq($r['level'], 'suspect');
+    ok(isset($r['tests']['LINK_MISMATCH'], $r['tests']['CREDENTIAL_BAIT'], $r['tests']['SUBJECT_CAPS']));
+    // A forged negative upstream score and a forged verdict change nothing.
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EST BLOQUE!!!', 'service@banque-ext.com', ['X-Spam-Score' => '-50', 'X-M4W-Spam' => 'score=0; level=ok; tests='], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EST BLOQUE!!!'), $spamId);
+    $raw = Mailbox::raw(DB::one("SELECT * FROM messages WHERE subject = 'VOTRE COMPTE EST BLOQUE!!!'"));
+    eq(substr_count($raw, 'X-M4W-Spam:'), 1, 'only our verdict is kept');
+    // Rules cannot pull a suspect message out of Junk.
+    $bankF = Folders::create((int) $bob['id'], 'Banque');
+    DB::insert('rules', RuleEngine::normalize((int) $bob['id'], ['name' => 'Banque', 'enabled' => 1, 'conditions' => [['field' => 'from', 'op' => 'contains', 'value' => 'banque-ext.com']],
+        'actions' => [['type' => 'move', 'folder' => $bankF]]]) + ['user_id' => $bob['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EXPIRE!!!', 'service@banque-ext.com', [], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EXPIRE!!!'), $spamId);
+    DB::run('DELETE FROM rules WHERE user_id = :u', ['u' => $bob['id']]);
+    // Upstream filter certain it is spam → quarantine: the user does not see it, an administrator releases it.
+    Delivery::deliver($sendTo('bob@test.local', 'Offre speciale', 'promo@ext-promo.com', ['X-Spam-Score' => '12.4']), 'promo@ext-promo.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Offre speciale'"), 0, 'held');
+    $q = DB::one("SELECT * FROM deleted_messages WHERE subject = 'Offre speciale'");
+    eq($q['reason'], 'quarantine');
+    M4W\Service\Retention::restore((int) $q['id'], Users::find((int) $bob['id']));
+    $rel = DB::one("SELECT * FROM messages WHERE subject = 'Offre speciale'");
+    eq([(int) $rel['folder_id'], (int) $rel['is_read']], [$inboxId, 0], 'released to the inbox, unread');
+    // Block list → deleted (a copy is kept for the administrators).
+    Settings::set('spam.block', "ext-promo.com");
+    Delivery::deliver($sendTo('bob@test.local', 'Encore une offre', 'news@mail.ext-promo.com'), 'news@mail.ext-promo.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Encore une offre'"), 0);
+    eq(DB::value("SELECT reason FROM deleted_messages WHERE subject = 'Encore une offre'"), 'spam');
+    // Allow list wins over the upstream verdict.
+    Settings::setMany(['spam.block' => '', 'spam.allow' => 'ext-promo.com']);
+    Delivery::deliver($sendTo('bob@test.local', 'Offre partenaire', 'promo@ext-promo.com', ['X-Spam-Flag' => 'YES']), 'promo@ext-promo.com', ['bob@test.local']);
+    eq($folderOf('Offre partenaire'), $inboxId);
+    Settings::set('spam.allow', '');
+    // Thresholds: 0 turns a level off.
+    Settings::setMany(['spam.quarantine' => 0, 'spam.delete' => 0]);
+    eq(SpamFilter::level(80), 'suspect');
+    Settings::setMany(['spam.quarantine' => 10, 'spam.delete' => 20]);
+    eq(SpamFilter::level(4.5), 'ok');
+    eq(SpamFilter::level(20), 'delete');
+});
+test('antispam: people the user writes to are trusted a little more', function () use ($bob, $sendTo) {
+    $body = '<p>Voir <a href="https://bit.ly/abc">le lien</a></p>';
+    $mk = static fn(string $s) => $sendTo('bob@test.local', $s, 'ami@ext-ami.com', [], $body);
+    $p = MimeParser::parse($mk('A'));
+    $base = SpamFilter::evaluate($p, null, '');
+    Settings::set('spam.suspect', $base['score'] + 0.5);
+    $before = SpamFilter::forUser($base, (int) $bob['id'], $p, null);
+    M4W\Service\Contacts::touchRecipients((int) $bob['id'], [['email' => 'ami@ext-ami.com', 'name' => 'Ami']]);
+    $after = SpamFilter::forUser($base, (int) $bob['id'], $p, null);
+    eq(round($before['score'] - $after['score'], 1), 3.0);
+    // A forged contact address that fails authentication gets no bonus.
+    $forged = SpamFilter::forUser($base, (int) $bob['id'], $p, ['verdict' => 'dmarc', 'spf' => 'fail', 'dkim' => []]);
+    eq($forged['score'], $before['score']);
+    Settings::set('spam.suspect', 5);
 });
 test('SSRF guard rejects private and IPv6 loopback', function () {
     foreach (['127.0.0.1', '::1', '10.1.2.3', '169.254.169.254', '::ffff:127.0.0.1', 'localhost'] as $h) {
@@ -1617,7 +1697,9 @@ test('antivirus: clamd protocol', function () use ($avPort, $eicar) {
 });
 test('antivirus: an infected attachment is replaced by a notice, still listed', function () use ($bob, $mixed, $eicar) {
     $raw = $mixed([['rapport.pdf', 'application/pdf', '%PDF-1.4 ok'], ['facture.zip', 'application/zip', $eicar]]);
+    Settings::set('spam.enabled', 0); // with the filter, a virus sends the message to quarantine (tested there)
     Delivery::deliver($raw, 'x@ext.com', ['bob@test.local']);
+    Settings::set('spam.enabled', 1);
     $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Pieces jointes' ORDER BY id DESC", ['u' => $bob['id']]);
     $stored = Mailbox::raw($m);
     ok(!str_contains($stored, base64_encode($eicar)) && !str_contains($stored, 'EICAR-STANDARD'), 'the virus is not stored');
@@ -1664,6 +1746,13 @@ test('antivirus: infected files never enter the file space', function () use ($b
     $thrown = false;
     try { Files::addFromPath(Users::find((int) $bob['id']), (int) Files::personalRoot((int) $bob['id'])['id'], $fsFile($eicar), 'outil.zip'); } catch (\InvalidArgumentException $e) { $thrown = str_contains($e->getMessage(), 'Eicar'); }
     ok($thrown);
+});
+test('antispam: a message carrying a virus goes to quarantine', function () use ($bob, $mixed, $eicar) {
+    Delivery::deliver(str_replace('Pieces jointes', 'Virus quarantaine', $mixed([['note.zip', 'application/zip', $eicar]])), 'x@ext.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Virus quarantaine'"), 0, 'not delivered');
+    $q = DB::one("SELECT * FROM deleted_messages WHERE subject = 'Virus quarantaine'");
+    eq($q['reason'], 'quarantine');
+    ok(!str_contains(Retention::raw($q), 'EICAR-STANDARD'), 'the quarantine copy holds no virus either');
 });
 proc_terminate($avProc);
 Settings::set('security.antivirus', 0);

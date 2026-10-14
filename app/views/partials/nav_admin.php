@@ -8,6 +8,7 @@ $items = [
     ['admin/files', 'folder2-open', 'admin.nav_files', 'files'],
     ['admin/deleted', 'trash3', 'admin.nav_deleted', 'deleted'],
     ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail'],
+    ['admin/spam', 'funnel', 'admin.nav_spam', 'spam'],
     ['admin/security', 'shield-check', 'admin.nav_security', 'security'],
     ['admin/logs', 'journal-text', 'admin.nav_logs', 'logs'],
 ];

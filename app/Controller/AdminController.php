@@ -726,6 +726,79 @@ final class AdminController extends Controller
         return $this->back('/admin/files#archive');
     }
 
+    public function spam(?array $test = null): Response
+    {
+        $since = time() - 7 * 86400;
+        $count = static fn(string $like) => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'in' AND created_at > :t AND info LIKE :l", ['t' => $since, 'l' => $like]);
+        $stats = [
+            'received' => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'in' AND created_at > :t", ['t' => $since]),
+            'suspect' => $count('%, junk%'),
+            'quarantine' => $count('quarantined%'),
+            'delete' => $count('spam deleted%'),
+            'held' => (int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE reason = 'quarantine' AND restored_at = 0"),
+        ];
+        return $this->page('spam', ['stats' => $stats, 'test' => $test]);
+    }
+
+    public function saveSpam(): Response
+    {
+        $r = $this->req;
+        $sus = max(1, min(100, (float) $r->str('suspect', '5')));
+        $qua = (float) $r->str('quarantine', '10');
+        $del = (float) $r->str('delete', '20');
+        // Each level above the previous one; 0 switches a level off.
+        $qua = $qua <= 0 ? 0 : max($sus + 0.5, min(200, $qua));
+        $del = $del <= 0 ? 0 : max(max($sus, $qua) + 0.5, min(500, $del));
+        $zones = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($r->str('dnsbl'))) ?: [] as $z) {
+            if (preg_match('/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/', $z)) {
+                $zones[] = $z;
+            }
+        }
+        Settings::setMany([
+            'spam.enabled' => $r->bool('enabled') ? 1 : 0,
+            'spam.suspect' => $sus,
+            'spam.quarantine' => $qua,
+            'spam.delete' => $del,
+            'spam.allow' => self::senderList($r->str('allow')),
+            'spam.block' => self::senderList($r->str('block')),
+            'spam.dnsbl' => implode("\n", array_slice(array_unique($zones), 0, 5)),
+            'spam.keep_days' => max(1, min(365, $r->int('keep_days', 30))),
+            'inbound.spam_header' => $r->bool('upstream') ? 1 : 0,
+        ]);
+        Audit::log('admin.spam_saved');
+        return $this->back('/admin/spam', 'success', t('settings.saved'));
+    }
+
+    /** Score a pasted message source with the current settings, without delivering it. */
+    public function testSpam(): Response
+    {
+        $raw = str_replace(["\r\n", "\r"], "\n", mb_substr($this->req->str('source'), 0, 2_000_000));
+        if (trim($raw) === '') {
+            return $this->back('/admin/spam', 'danger', t('admin.spam_test_empty'));
+        }
+        $p = \M4W\Mail\MimeParser::parse($raw);
+        $r = \M4W\Service\SpamFilter::evaluate($p, null, '');
+        $r['level'] = $r['list'] === 'block' ? 'delete' : ($r['list'] === 'allow' ? 'ok' : \M4W\Service\SpamFilter::level($r['score']));
+        $r['subject'] = $p->subject();
+        $r['from'] = $p->from()['email'];
+        $r['source'] = $raw;
+        return $this->spam($r);
+    }
+
+    /** Addresses or domains, one per line, lower case. */
+    private static function senderList(string $raw): string
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($raw)) ?: [] as $d) {
+            $d = trim($d);
+            if (is_valid_email($d) || preg_match('/^@?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/', $d)) {
+                $out[ltrim($d, '@')] = true;
+            }
+        }
+        return implode("\n", array_keys($out));
+    }
+
     public function security(): Response
     {
         $blocked = DB::all('SELECT ip, COUNT(*) AS n, MAX(created_at) AS last FROM login_attempts WHERE success = 0 AND created_at > :t GROUP BY ip ORDER BY n DESC LIMIT 20', ['t' => time() - 86400]);

@@ -20,6 +20,7 @@ final class Delivery
     public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
         $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        $raw = self::stripHeader($raw, SpamFilter::HEADER);
         // Antivirus: infected attachments are replaced by a notice before anything else sees them.
         $raw = AttachmentGuard::process($raw)['raw'];
         if ($auth !== null) {
@@ -42,6 +43,7 @@ final class Delivery
             return $results;
         }
         $loopHeaders = array_map('mb_strtolower', $parsed->headerAll('X-M4W-Loop'));
+        $spamBase = $source !== 'local' && SpamFilter::enabled() ? SpamFilter::evaluate($parsed, $auth, $envelopeFrom) : null;
         $results = [];
         $done = [];
 
@@ -65,9 +67,28 @@ final class Delivery
             $userRaw = 'Delivered-To: ' . $user['email'] . "\n" . $raw;
             $isLoop = in_array(mb_strtolower($user['email']), $loopHeaders, true);
 
+            // Spam filter: inbox, Junk (suspect), administrators' quarantine, or deleted.
+            $spam = $spamBase ? SpamFilter::forUser($spamBase, $uid, $parsed, $auth) : null;
+            $level = $spam['level'] ?? (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) ? 'suspect' : 'ok');
+            // Failed authentication, or a disposable sender in "spam" mode, is at least suspect.
+            if (($suspicious || $disposable !== '') && $level === 'ok') {
+                $level = 'suspect';
+            }
+            if ($spam) {
+                $spam['level'] = $level;
+                $userRaw = SpamFilter::header($spam) . $userRaw;
+            }
+            if ($level === 'delete' || $level === 'quarantine') {
+                Retention::keepIncoming($user, $userRaw, $level === 'delete' ? 'spam' : 'quarantine', $level === 'quarantine');
+                $results[$rcpt] = 'ok';
+                Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', ($level === 'delete' ? 'spam deleted' : 'quarantined') . ', score ' . ($spam['score'] ?? '?'));
+                continue;
+            }
+
             // 1. Account-level forwarding.
             $fwd = Forwarding::get($uid);
-            if ($fwd['enabled'] && $fwd['addresses'] && !$isLoop) {
+            // Junk is not forwarded: it would hurt the reputation of our server.
+            if ($fwd['enabled'] && $fwd['addresses'] && !$isLoop && $level === 'ok') {
                 Forwarding::redirect($user, $raw, $fwd['addresses']);
                 if (!$fwd['keep_copy']) {
                     $results[$rcpt] = 'ok';
@@ -77,18 +98,15 @@ final class Delivery
             }
 
             // 2. Default folder (spam detection by upstream filter headers).
-            $folder = Folders::byRole($uid, 'inbox');
-            if (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) || $suspicious || $disposable !== '') {
-                $folder = Folders::byRole($uid, 'spam');
-            }
+            $folder = Folders::byRole($uid, $level === 'suspect' ? 'spam' : 'inbox');
             $folderId = (int) $folder['id'];
 
             // 3. User rules.
             $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
-            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && !$suspicious) {
+            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && $level === 'ok') {
                 $folderId = (int) $actions['folder'];
             }
-            if ($suspicious) {
+            if ($suspicious || $level !== 'ok') {
                 $actions['redirects'] = [];
                 $actions['replies'] = [];
             }
@@ -149,7 +167,7 @@ final class Delivery
                 Vacation::maybeRespond($user, $parsed, $envelopeFrom);
             }
             $results[$rcpt] = 'ok';
-            Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', $source);
+            Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', $source . ($level === 'suspect' ? ', junk' . ($spam ? ', score ' . $spam['score'] : '') : ''));
         }
         return $results;
     }

@@ -509,7 +509,18 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     </ol>
     <p>La carte « Enregistrements DNS » de la page récapitule les valeurs à publier (MX, SPF, DKIM, DMARC).</p>
     <h3>Réception</h3>
-    <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes <code>X-Spam-Flag</code> / <code>X-Spam-Status</code> posés par un antispam en amont (SpamAssassin, Rspamd) classent le message en indésirable si l'option est active.</p>
+    <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes posés par un antispam en amont (SpamAssassin, Rspamd, OVH) s'ajoutent au score du <a href="#a-spam">filtre antispam</a>.</p>
+  </section>
+
+  <section id="a-spam" class="m4w-help-section admin">
+    <h2><i class="bi bi-funnel"></i>Filtre antispam</h2>
+    <p>Dans <?= $go('admin/spam', 'Antispam') ?>, chaque message reçu obtient un score : authentification (SPF, DKIM, DMARC), avis du filtre de l'hébergeur, en-têtes anormaux, vocabulaire, liens trompeurs, demandes d'identifiants, pièces jointes dangereuses, listes noires DNS. Un correspondant à qui l'utilisateur a déjà écrit gagne un peu de confiance. Trois seuils décident :</p>
+    <ul>
+      <li><strong>Suspect</strong> : le message va dans les <em>Indésirables</em> de l'utilisateur, qui voit pourquoi en l'ouvrant. Il n'est pas transféré, ne déclenche ni règle ni réponse automatique.</li>
+      <li><strong>Quarantaine</strong> : le message est retenu, l'utilisateur ne le voit pas. Le bouton « Quarantaine » ouvre la liste ; « Restaurer » le libère, non lu, dans la boîte de réception.</li>
+      <li><strong>Supprimé</strong> : le message n'est jamais distribué ; une copie reste consultable dans les <?= $go('admin/deleted', 'Messages supprimés') ?> pendant la durée de conservation.</li>
+    </ul>
+    <p>Les <strong>expéditeurs autorisés</strong> passent toujours (sauf usurpation), les <strong>bloqués</strong> sont toujours supprimés. Pour régler les seuils, collez la source d'un message dans « Tester un message » : le détail du score s'affiche.</p>
   </section>
 
   <section id="a-security" class="m4w-help-section admin">

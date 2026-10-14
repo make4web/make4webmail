@@ -225,8 +225,21 @@ final class MailController extends Controller
             'unsubscribe' => $unsub,
             'auto'        => $parsed->isAutomated(),
             'reply_target' => self::replyTargetKind($parsed),
+            'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    /** Why a message is in the Junk folder: score and the tests that weighed most. */
+    private static function spamInfo(\M4W\Mail\ParsedMessage $p, int $folderId): ?array
+    {
+        $r = \M4W\Service\SpamFilter::parse($p->header(\M4W\Service\SpamFilter::HEADER));
+        if (!$r || \M4W\Core\Database::value('SELECT role FROM folders WHERE id = :id', ['id' => $folderId]) !== 'spam') {
+            return null;
+        }
+        $tests = array_filter($r['tests'], static fn($w) => $w > 0);
+        arsort($tests);
+        return ['score' => $r['score'], 'reasons' => array_map([\M4W\Service\SpamFilter::class, 'label'], array_slice(array_keys($tests), 0, 5))];
     }
 
     /** Whether a reply would reach anybody: 'disposable', 'noreply' or ''. */

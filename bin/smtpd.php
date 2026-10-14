@@ -282,7 +282,7 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                         $auth = null;
                         if ((int) M4W\Core\Settings::get('inbound.auth_checks', 1)) {
                             try {
-                                $auth = M4W\Mail\MailAuth::evaluate($data, $ip, (string) $from, $helo, [Users::class, 'isLocalDomain']);
+                                $auth = M4W\Mail\MailAuth::evaluate($data, $ip, (string) $from, $helo, [Users::class, 'isLocalDomain']) + ['ip' => $ip];
                             } catch (\Throwable $e) {
                                 smtpd_log('auth check error: ' . $e->getMessage());
                             }

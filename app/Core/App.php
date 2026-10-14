@@ -377,6 +377,9 @@ final class App
         $r->post('/admin/mail/collector/test', [Controller\AdminController::class, 'testCollector'], $admin);
         $r->post('/admin/mail/collector/sync', [Controller\AdminController::class, 'syncCollector'], $admin);
         $r->get('/admin/mail/collector/stats', [Controller\AdminController::class, 'collectorStats'], $admin);
+        $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $admin);
+        $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
+        $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
