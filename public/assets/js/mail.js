@@ -311,21 +311,48 @@
     return (list || []).map(function (a) { return '<span title="' + esc(a.email) + '">' + esc(a.name || a.email) + '</span>'; }).join(', ');
   }
 
+  // Risky attachment: explain before opening.
+  $(document).on('click', '[data-att-warn]', function (e) {
+    if (this.dataset.confirmed) { delete this.dataset.confirmed; return; }
+    e.preventDefault();
+    var link = this, why = $(this).attr('data-att-warn');
+    $('#m4w-att-confirm').remove();
+    var $m = $('<div class="modal fade" id="m4w-att-confirm" tabindex="-1" aria-labelledby="m4w-att-confirm-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">'
+      + '<div class="modal-header"><h2 class="modal-title fs-5" id="m4w-att-confirm-title"><i class="bi bi-exclamation-triangle text-warning me-2"></i>' + esc(t('att_confirm_title')) + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + esc(t('close')) + '"></button></div>'
+      + '<div class="modal-body"><p>' + esc(why) + '</p><p class="small text-muted mb-0">' + esc(t('att_confirm_hint')) + '</p></div>'
+      + '<div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">' + esc(t('cancel')) + '</button><button type="button" class="btn btn-light text-danger" data-att-go>' + esc(t('att_confirm_open')) + '</button></div>'
+      + '</div></div></div>').appendTo(document.body);
+    $m.on('click', '[data-att-go]', function () { bootstrap.Modal.getInstance($m[0]).hide(); link.dataset.confirmed = '1'; link.click(); })
+      .on('hidden.bs.modal', function () { $m.remove(); });
+    bootstrap.Modal.getOrCreateInstance($m[0]).show();
+  });
+
   function attachmentsHtml(msg) {
     var atts = (msg.attachments || []).filter(function (a) { return !a.inline; });
     if (!atts.length) return '';
     var total = 0;
     var html = atts.map(function (a) {
       total += a.size;
+      if (a.removed) {
+        // Removed by the antivirus: still listed, so nobody wonders where it went.
+        return '<div class="m4w-att is-removed" title="' + esc(t('att_removed_title', { signature: a.removed.signature || '?' })) + '"><span class="m4w-att-icon"><i class="bi bi-shield-x"></i></span>'
+          + '<div class="min-w-0 flex-grow-1"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size text-danger">' + esc(t('att_removed')) + (a.removed.signature ? ' · ' + esc(a.removed.signature) : '') + '</div></div></div>';
+      }
+      var why = a.risk ? t('att_why_' + a.why, { kind: a.kind || '' }) : '';
+      if (a.risk === 'block') {
+        return '<div class="m4w-att is-blocked" title="' + esc(why) + '"><span class="m4w-att-icon"><i class="bi bi-shield-exclamation"></i></span>'
+          + '<div class="min-w-0 flex-grow-1"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size text-danger">' + esc(t('att_blocked')) + ' · ' + esc(a.kind) + '</div></div></div>';
+      }
+      var warnAttrs = a.risk === 'warn' ? ' data-att-warn="' + esc(why) + '"' : '';
       var ic = M4W.fileIcon(a.name, a.mime);
       var inlineUrl = M4W.url('api/messages/' + msg.id + '/part/' + encodeURIComponent(a.part), { inline: 1 });
       var dlUrl = M4W.url('api/messages/' + msg.id + '/part/' + encodeURIComponent(a.part));
       var thumb = ic[0] === 'img' ? '<img src="' + esc(inlineUrl) + '" alt="" loading="lazy">' : '<i class="bi bi-' + ic[1] + '"></i>';
       var previewable = /^image\/(png|jpe?g|gif|webp)$/.test(a.mime) || a.mime === 'application/pdf' || a.mime === 'text/plain';
-      return '<div class="m4w-att" title="' + esc(a.name) + '"><a class="m4w-att-icon ' + ic[0] + '" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener">' + thumb + '</a>'
-        + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + esc(M4W.bytes(a.size)) + '</div></a>'
+      return '<div class="m4w-att' + (a.risk === 'warn' ? ' is-warn' : '') + '" title="' + esc(a.name) + '"><a class="m4w-att-icon ' + ic[0] + '" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"' + warnAttrs + '>' + thumb + '</a>'
+        + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"' + warnAttrs + '><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + (a.risk === 'warn' ? '<span class="text-warning-emphasis fw-semibold"><i class="bi bi-exclamation-triangle me-1"></i>' + esc(t('att_warn')) + '</span> · ' : '') + esc(M4W.bytes(a.size)) + '</div></a>'
         + (M4W.FilesPicker ? '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-save-files="' + msg.id + '" data-parts="' + esc(a.part) + '" title="' + esc(t('fs_save_to')) + '" aria-label="' + esc(t('fs_save_to')) + '"><i class="bi bi-folder-plus"></i></button>' : '')
-        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" aria-label="' + esc(t('download')) + '" download><i class="bi bi-download"></i></a></div>';
+        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" aria-label="' + esc(t('download')) + '" download' + warnAttrs + '><i class="bi bi-download"></i></a></div>';
     }).join('');
     var zip = atts.length > 1 ? ' · <a href="' + esc(M4W.url('api/messages/' + msg.id + '/zip')) + '"><i class="bi bi-file-zip"></i> ' + esc(t('download_all')) + '</a>' : '';
     if (atts.length > 1 && M4W.FilesPicker) zip += ' · <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-save-files="' + msg.id + '" data-parts="' + esc(atts.map(function (a) { return a.part; }).join(',')) + '"><i class="bi bi-folder-plus"></i> ' + esc(t('fs_save_all_to')) + '</button>';

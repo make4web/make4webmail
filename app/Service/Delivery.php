@@ -20,6 +20,8 @@ final class Delivery
     public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
         $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        // Antivirus: infected attachments are replaced by a notice before anything else sees them.
+        $raw = AttachmentGuard::process($raw)['raw'];
         if ($auth !== null) {
             $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
         }

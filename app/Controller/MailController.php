@@ -218,7 +218,8 @@ final class MailController extends Controller
             'draft'       => (bool) $m['is_draft'],
             'draft_meta'  => $draftMeta,
             'priority'    => (int) $m['priority'],
-            'attachments' => json_decode((string) $m['attachments'], true) ?: [],
+            // Read live: the risk analysis also applies to messages stored before it existed.
+            'attachments' => $m['has_attachments'] ? $parsed->attachmentList() : [],
             'blocked_images' => $blocked,
             'trackers'    => $trackers,
             'unsubscribe' => $unsub,
@@ -326,6 +327,14 @@ final class MailController extends Controller
         $name = $p->filename() ?: 'attachment';
         $mime = $p->type;
         $inline = !empty($this->req->query['inline']);
+        // Programs and scripts (whatever their name says) are not handed out, unless the administration allows it.
+        if ($p->header('X-M4W-Removed') === null && (int) Settings::get('security.block_executables', 1) === 1) {
+            $ft = \M4W\Mail\FileType::classify($name, $content);
+            if ($ft['risk'] === 'block') {
+                \M4W\Core\Audit::log('mail.attachment_blocked', $name, ['type' => $ft['type']], (int) $this->actor()['id']);
+                throw new HttpException(403, t('att.blocked_download', ['type' => $ft['label']]));
+            }
+        }
         // Only render safe types inline; everything else is a download.
         $safeInline = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf', 'text/plain'];
         if ($inline && !in_array($mime, $safeInline, true)) {
@@ -366,7 +375,8 @@ final class MailController extends Controller
         $zip->open($tmp, \ZipArchive::OVERWRITE);
         $used = [];
         foreach ($parsed->attachmentList() as $a) {
-            if ($a['inline']) {
+            // Removed by the antivirus, or a program: never packed for download.
+            if ($a['inline'] || $a['removed'] || ($a['risk'] === 'block' && (int) Settings::get('security.block_executables', 1) === 1)) {
                 continue;
             }
             $part = $parsed->findPart($a['part']);

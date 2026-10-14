@@ -57,6 +57,9 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <ul>
       <li><strong>Images bloquées</strong> : <?= $cfg['block_images'] ? 'par sécurité, les images distantes (souvent des traceurs publicitaires) ne sont pas chargées. Cliquez sur « Afficher les images » si vous faites confiance à l\'expéditeur.' : 'les images distantes sont affichées automatiquement.' ?></li>
       <li><strong>Pièces jointes</strong> : cliquez pour les prévisualiser (images, PDF, texte) ou sur <?= $ui('download', '') ?> pour les télécharger. Avec plusieurs pièces, « Tout télécharger » crée une archive ZIP. <?= $ui('folder-plus', '') ?> les enregistre dans vos <a href="#files">Fichiers</a>.</li>
+      <li><strong>Pièce jointe « Retirée par l'antivirus »</strong> : le fichier contenait un virus. Il a été supprimé avant d'arriver dans votre boîte ; seul son nom reste affiché pour que vous sachiez qu'il existait. Si vous l'attendiez, demandez à l'expéditeur de vérifier son ordinateur.</li>
+      <li><strong>« Programme bloqué »</strong> : le fichier est un programme (même renommé en .pdf ou sans extension). Il ne peut pas être ouvert ni téléchargé depuis la messagerie.</li>
+      <li><strong>« À vérifier »</strong> : macros, archive protégée, page web, nom qui ne correspond pas au contenu… Une confirmation est demandée avant l'ouverture. Dans le doute, appelez l'expéditeur.</li>
       <li><strong>Lettres d'information</strong> : un bandeau propose de vous désabonner en un clic quand l'expéditeur le permet.</li>
       <li><strong>Bandeau rouge « Attention, usurpation probable »</strong> : le message prétend venir de votre organisation ou d'un domaine connu, mais n'a pas été envoyé par ses serveurs. Ne répondez pas, ne cliquez sur aucun lien et prévenez votre administrateur.</li>
     </ul>

@@ -367,8 +367,11 @@ final class FilesController extends Controller
         try {
             foreach (array_slice($parts, 0, 50) as $partId) {
                 $p = $parsed->findPart((string) $partId);
-                if (!$p || $p->isMultipart()) {
+                if (!$p || $p->isMultipart() || $p->header('X-M4W-Removed') !== null) {
                     continue;
+                }
+                if (\M4W\Mail\FileType::classify($p->filename(), $p->decodedBody())['risk'] === 'block' && (int) \M4W\Core\Settings::get('security.block_executables', 1) === 1) {
+                    throw new \InvalidArgumentException(t('att.blocked_save', ['name' => $p->filename() ?: '—']));
                 }
                 $saved[] = Files::addFromString($user, $folder, $p->decodedBody(), $p->filename() ?: 'piece-jointe', $p->type);
             }

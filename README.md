@@ -17,6 +17,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Recherche instantanée avec opérateurs (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `is:starred`, `before:`, `after:`, `larger:`) et formulaire de recherche avancée.
 - Lecture sécurisée : le HTML est assaini côté serveur puis affiché dans une iframe isolée (sandbox + CSP stricte). Les images distantes et les pixels de suivi sont bloqués par défaut, avec un bouton « Afficher les images ». Le désabonnement en un clic (RFC 8058) est pris en charge.
 - Pièces jointes : vignettes, aperçu (images, PDF, texte), téléchargement à l'unité ou en archive ZIP.
+- **Antivirus et vrai type de fichier** : chaque pièce jointe reçue passe par ClamAV (clamd, protocole INSTREAM, rien n'est écrit sur disque). Un fichier infecté est remplacé par une notice : il reste listé, barré, « Retiré par l'antivirus » avec la signature détectée, et ne peut ressortir par aucun chemin (téléchargement, ZIP, transfert, .eml, Fichiers). Le type est reconnu d'après le contenu (signatures binaires) : un programme renommé en .pdf, sans extension, en double extension ou avec un caractère RTL est bloqué ; macros, archives contenant des programmes ou chiffrées, HTML/SVG et noms trompeurs demandent une confirmation. Les fichiers déposés dans l'espace Fichiers sont aussi analysés.
 - Rédaction :
   - éditeur WYSIWYG Jodit auto-hébergé : polices, tailles, couleurs, listes, alignement, liens, images (collées, déposées ou importées, envoyées en pièces jointes inline), tableaux, caractères spéciaux, code source ;
   - destinataires sous forme de pastilles, avec autocomplétion sur les contacts et l'annuaire ;
@@ -167,6 +168,7 @@ En mode webmail :
 - La signature DKIM n'est apposée que sur les messages dont l'expéditeur appartient au domaine signataire : les transferts conservent la signature d'origine et ne peuvent pas servir à usurper le domaine.
 - Codes TOTP non rejouables ; désactiver la 2FA demande le mot de passe et un code. Verrouillage par compte et par adresse IP (un tiers ne peut pas bloquer un compte), ralentissement progressif en cas d'attaque distribuée, temps de réponse identique que le compte existe ou non.
 - Espace fichiers : contrôle des droits côté serveur à chaque requête (404 si l'élément n'est pas visible), noms nettoyés, téléchargements en `attachment` sauf types sûrs, CSP `sandbox` sur tout fichier servi.
+- Antivirus ClamAV (réglable dans « Administration → Sécurité », état du démon affiché) ; marquages internes `X-M4W-AV`/`X-M4W-Removed` envoyés par un tiers supprimés à la réception.
 - Démon SMTP : limites de connexions (globale et par IP), refus des commandes envoyées en clair après `STARTTLS`.
 - En-têtes HTTP : CSP stricte, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP, HSTS (nginx/Apache aussi sur les fichiers statiques), pas de `X-Powered-By` ni de version du serveur.
 
@@ -182,7 +184,7 @@ En mode boîte collectrice :
 - Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
 
 ## Prérequis
-PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.
+ClamAV (`clamav-daemon`, recommandé) et PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.
 
 ## Installation
 

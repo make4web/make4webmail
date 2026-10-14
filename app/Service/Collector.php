@@ -104,7 +104,7 @@ final class Collector
             }
             $head = 'Delivered-To: ' . $u['email'] . "\n" . ($unrouted ? 'X-M4W-Unrouted: ' . self::address() . "\n" : '');
             if ($folder === 'spam') {
-                Mailbox::store((int) $u['id'], (int) Folders::byRole((int) $u['id'], 'spam')['id'], $head . $raw);
+                Mailbox::store((int) $u['id'], (int) Folders::byRole((int) $u['id'], 'spam')['id'], $head . AttachmentGuard::process($raw)['raw']);
             } else {
                 Delivery::deliver($head . $raw, $envelope, [$u['email']], 'sync');
             }

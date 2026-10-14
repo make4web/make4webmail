@@ -1538,6 +1538,84 @@ test('pictures: fetched once after delivery, served locally, trackers removed, c
     }
 });
 
+// ------------------------------------------------------------------ attachments
+echo "\nAttachments (antivirus, real file type)\n";
+use M4W\Mail\FileType;
+use M4W\Service\Antivirus;
+use M4W\Service\AttachmentGuard;
+$avPort = random_int(30000, 32000);
+$avProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_clamd.php', (string) $avPort], [], $avPipes);
+usleep(300000);
+$eicar = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
+$mixed = static function (array $files) {
+    $raw = "From: x@ext.com\r\nTo: bob@test.local\r\nSubject: Pieces jointes\r\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"B1\"\r\n\r\npreamble\r\n--B1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nBonjour\r\n";
+    foreach ($files as [$name, $mime, $bytes]) {
+        $raw .= "--B1\r\nContent-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . chunk_split(base64_encode($bytes)) . "\r\n";
+    }
+    return $raw . "--B1--\r\n";
+};
+test('antivirus: clamd protocol', function () use ($avPort, $eicar) {
+    Settings::set('security.clamd', 'tcp://127.0.0.1:' . $avPort);
+    ok(Antivirus::ping(), 'PING');
+    eq(Antivirus::scan('hello')['status'], 'clean');
+    eq(Antivirus::scan(str_repeat('x', 200000) . $eicar), ['status' => 'infected', 'signature' => 'Eicar-Test-Signature'], 'streamed in chunks');
+    Settings::set('security.clamd', 'tcp://127.0.0.1:1');
+    eq(Antivirus::scan('x')['status'], 'error', 'daemon down is not "clean"');
+    Settings::set('security.clamd', 'tcp://127.0.0.1:' . $avPort);
+});
+test('antivirus: an infected attachment is replaced by a notice, still listed', function () use ($bob, $mixed, $eicar) {
+    $raw = $mixed([['rapport.pdf', 'application/pdf', '%PDF-1.4 ok'], ['facture.zip', 'application/zip', $eicar]]);
+    Delivery::deliver($raw, 'x@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Pieces jointes' ORDER BY id DESC", ['u' => $bob['id']]);
+    $stored = Mailbox::raw($m);
+    ok(!str_contains($stored, base64_encode($eicar)) && !str_contains($stored, 'EICAR-STANDARD'), 'the virus is not stored');
+    ok(str_contains($stored, 'X-M4W-AV: infected=1'), 'result stamped');
+    $list = Mailbox::parsed($m)->attachmentList();
+    eq(array_column($list, 'name'), ['rapport.pdf', 'facture.zip'], 'both still listed under their names');
+    eq($list[1]['removed']['signature'], 'Eicar-Test-Signature');
+    eq($list[0]['removed'], null);
+    // A sender cannot fake the marker.
+    $fake = str_replace("Content-Disposition: attachment; filename=\"rapport.pdf\"", "Content-Disposition: attachment; filename=\"rapport.pdf\"\r\nX-M4W-Removed: virus; name*=UTF-8''x; signature*=UTF-8''Fake", $mixed([['rapport.pdf', 'application/pdf', '%PDF-1.4 ok']]));
+    $out = AttachmentGuard::process($fake)['raw'];
+    ok(!str_contains($out, 'Fake'), 'forged marker dropped');
+});
+test('file types: programs recognised by content, whatever the name', function () {
+    $exe = "MZ\x90\x00" . str_repeat("\0", 60);
+    eq(FileType::classify('facture.pdf', $exe)['risk'], 'block', 'renamed executable');
+    eq(FileType::classify('facture.pdf', $exe)['why'], 'disguised');
+    eq(FileType::classify('scan', "\x7FELF" . str_repeat("\0", 20))['risk'], 'block', 'no extension');
+    eq(FileType::classify('lisezmoi.js', 'alert(1)')['risk'], 'block', 'script by extension');
+    eq(FileType::classify("facture\u{202E}fdp.exe", 'x')['risk'], 'block', 'RTL trick');
+    eq(FileType::classify('photo.jpg.txt', 'hello')['why'], 'double_ext');
+    eq(FileType::classify('devis.pdf', "%PDF-1.7\n")['risk'], '', 'genuine PDF');
+    eq(FileType::classify('devis.pdf', "PK\x03\x04" . str_repeat('x', 30))['why'], 'mismatch', 'zip named .pdf');
+    eq(FileType::classify('budget.xlsm', "PK\x03\x04")['why'], 'macros');
+    eq(FileType::classify('connexion.html', '<html><form>')['why'], 'active_content');
+    $z = new \ZipArchive(); $tmpz = tempnam(sys_get_temp_dir(), 'z'); $z->open($tmpz, \ZipArchive::OVERWRITE); $z->addFromString('setup.exe', 'MZ'); $z->close();
+    eq(FileType::classify('docs.zip', (string) file_get_contents($tmpz))['why'], 'exec_inside', 'program inside an archive');
+    @unlink($tmpz);
+});
+test('file types: a blocked program is not handed out', function () use ($bob, $mixed) {
+    Delivery::deliver(str_replace('Pieces jointes', 'Programme', $mixed([['facture.pdf', 'application/pdf', "MZ\x90\x00" . str_repeat("\0", 60)]])), 'x@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Programme' ORDER BY id DESC", ['u' => $bob['id']]);
+    $a = Mailbox::parsed($m)->attachmentList()[0];
+    eq([$a['risk'], $a['why']], ['block', 'disguised']);
+    \M4W\Core\Auth::setUser(Users::find((int) $bob['id']));
+    $_SESSION = [];
+    $c = new \M4W\Controller\MailController(new \M4W\Core\Request('GET', '/api/messages/' . $m['id'] . '/part/' . $a['part'], [], [], [], []));
+    $thrown = false;
+    try { $c->part((string) $m['id'], $a['part']); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    \M4W\Core\Auth::setUser(null);
+    ok($thrown, 'download refused');
+});
+test('antivirus: infected files never enter the file space', function () use ($bob, $eicar, $fsFile) {
+    $thrown = false;
+    try { Files::addFromPath(Users::find((int) $bob['id']), (int) Files::personalRoot((int) $bob['id'])['id'], $fsFile($eicar), 'outil.zip'); } catch (\InvalidArgumentException $e) { $thrown = str_contains($e->getMessage(), 'Eicar'); }
+    ok($thrown);
+});
+proc_terminate($avProc);
+Settings::set('security.antivirus', 0);
+
 // ------------------------------------------------------------------ my other mailboxes
 echo "\nShared mailboxes (my other mailboxes)\n";
 use M4W\Service\SharedMailboxes;

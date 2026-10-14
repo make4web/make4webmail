@@ -808,6 +808,11 @@ final class Files
     {
         self::require($user, $folderId, self::WRITE);
         $name = self::cleanName($name);
+        $av = Antivirus::scanFile($path);
+        if ($av['status'] === 'infected') {
+            Audit::log('files.virus_refused', $name, ['signature' => $av['signature']], (int) $user['id']);
+            throw new \InvalidArgumentException(t('av.upload_infected', ['name' => $name, 'signature' => $av['signature']]));
+        }
         $size = (int) filesize($path);
         if ($size > self::maxFileBytes()) {
             throw new \InvalidArgumentException(t('files.too_big', ['mb' => (int) Settings::get('files.max_file_mb', 200)]));
