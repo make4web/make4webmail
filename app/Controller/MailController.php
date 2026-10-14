@@ -226,8 +226,21 @@ final class MailController extends Controller
             'auto'        => $parsed->isAutomated(),
             'reply_target' => self::replyTargetKind($parsed),
             'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
+            'impersonation' => self::impersonation($parsed),
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    /** An outside sender using a colleague's name, or a domain imitating ours. */
+    private static function impersonation(\M4W\Mail\ParsedMessage $p): ?array
+    {
+        if (($c = \M4W\Service\SpamFilter::colleagueName($p)) !== null) {
+            return ['kind' => 'colleague', 'colleague' => $c, 'address' => $p->from()['email']];
+        }
+        if (($d = \M4W\Service\SpamFilter::lookalikeDomain(\M4W\Mail\Address::domain($p->from()['email']))) !== null) {
+            return ['kind' => 'lookalike', 'domain' => $d, 'address' => $p->from()['email']];
+        }
+        return null;
     }
 
     /** Why a message is in the Junk folder: score and the tests that weighed most. */
@@ -271,7 +284,8 @@ final class MailController extends Controller
             \M4W\Service\MailAssets::processPending(40, $mid, 12.0);
         }
         // With the proxy, the browser never loads a remote picture: only the cleaned local copies.
-        $sanitizer = new HtmlSanitizer($proxy || !$allowImages, $resolver, true, $proxy ? $this->remoteResolver($mid) : null);
+        $links = \M4W\Service\LinkGuard::enabled() ? static fn(string $href, string $text) => \M4W\Service\LinkGuard::wrap($href, $text, $mid) : null;
+        $sanitizer = new HtmlSanitizer($proxy || !$allowImages, $resolver, true, $proxy ? $this->remoteResolver($mid) : null, $links);
         $allowImages = $allowImages && !$proxy;
         $html = $sanitizer->sanitize($parsed->html());
         $dark = ($this->req->query['theme'] ?? '') === 'dark';

@@ -222,6 +222,19 @@ final class SpamFilter
             $add('LINK_ONLY', 1.5);
         }
 
+        // Links known as dangerous: URLhaus feed and the administrator's list (local, free); Google
+        // Safe Browsing too when the administrator chose to check at reception.
+        if ($links && LinkGuard::threats(array_column($links, 'href'), (int) Settings::get('security.safebrowsing_delivery', 0) === 1)) {
+            $add('LINK_THREAT', 15);
+        }
+        // Impersonation: a colleague's name on an outside address, a domain imitating ours.
+        if (self::colleagueName($p) !== null) {
+            $add('COLLEAGUE_NAME', 3);
+        }
+        if (self::lookalikeDomain(Address::domain($from)) !== null) {
+            $add('LOOKALIKE_DOMAIN', 4);
+        }
+
         // Attachments (risk analysis already done on delivery).
         foreach ($p->attachmentList() as $a) {
             if (!empty($a['removed'])) {
@@ -249,6 +262,62 @@ final class SpamFilter
         }
         $base['level'] = self::level($base['score']);
         return $base;
+    }
+
+    private static function plain(string $s): string
+    {
+        $s = mb_strtolower(trim($s));
+        if (class_exists(\Normalizer::class)) {
+            $s = preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize($s, \Normalizer::FORM_D)) ?? $s;
+        }
+        return trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', $s) ?? $s);
+    }
+
+    /** The colleague whose name an outside sender uses ("Marie Dupont <marie.dupont.pdg@gmail.com>"), or null. */
+    public static function colleagueName(ParsedMessage $p): ?string
+    {
+        $from = $p->from();
+        $name = self::plain((string) ($from['name'] ?? ''));
+        if ($name === '' || !str_contains($name, ' ') || Users::isLocalDomain(Address::domain((string) $from['email']))) {
+            return null;
+        }
+        foreach (DB::all("SELECT email, display_name, first_name, last_name FROM users") as $u) {
+            $names = [self::plain((string) $u['display_name']), self::plain($u['first_name'] . ' ' . $u['last_name']), self::plain($u['last_name'] . ' ' . $u['first_name'])];
+            if (in_array($name, array_filter($names, static fn($n) => str_contains($n, ' ')), true)) {
+                return (string) $u['email'];
+            }
+        }
+        return null;
+    }
+
+    /** Our hosted domain that an outside domain imitates (acme-corp.fr, acrne.fr, acme.com for acme.fr), or null. */
+    public static function lookalikeDomain(string $domain): ?string
+    {
+        $domain = strtolower($domain);
+        if ($domain === '' || Users::isLocalDomain($domain)) {
+            return null;
+        }
+        $reg = LinkCheck::registrable($domain);
+        $name = strstr($reg, '.', true) ?: $reg;
+        $flat = str_replace('-', '', $name);
+        foreach (DB::all('SELECT name FROM domains WHERE active = 1') as $d) {
+            $ours = (string) $d['name'];
+            $oName = strstr(LinkCheck::registrable($ours), '.', true) ?: $ours;
+            if ($reg === LinkCheck::registrable($ours)) {
+                continue; // a subdomain of ours is not an imitation
+            }
+            if ($name === $oName || $flat === $oName) {
+                return $ours; // same name, other extension or with a dash
+            }
+            if (strlen($oName) >= 5 && (levenshtein($flat, $oName) <= (strlen($oName) >= 8 ? 2 : 1) || (str_contains($flat, $oName) && strlen($flat) - strlen($oName) <= 8))) {
+                return $ours;
+            }
+            // Characters that look alike once rendered: rn/m, vv/w, 0/o, 1/l.
+            if (strtr(str_replace(['rn', 'vv'], ['m', 'w'], $flat), '01', 'ol') === strtr($oName, '01', 'ol') && $flat !== $oName) {
+                return $ours;
+            }
+        }
+        return null;
     }
 
     /** SpamAssassin / rspamd score in the headers, or null. */

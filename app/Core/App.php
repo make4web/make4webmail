@@ -220,6 +220,7 @@ final class App
         $r->post('/api/messages/action', [Controller\MailController::class, 'action']);
         $r->get('/api/messages/{id}', [Controller\MailController::class, 'show']);
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
+        $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
         $r->get('/api/messages/{id}/source', [Controller\MailController::class, 'source']);
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);

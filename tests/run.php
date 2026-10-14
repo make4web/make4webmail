@@ -702,6 +702,73 @@ test('antispam: people the user writes to are trusted a little more', function (
     eq($forged['score'], $before['score']);
     Settings::set('spam.suspect', 5);
 });
+test('links: checked on click, real destination on hover', function () {
+    $s = new HtmlSanitizer(true, null, true, null, static fn(string $h, string $t) => M4W\Service\LinkGuard::wrap($h, $t, 42));
+    $out = $s->sanitize('<a href="https://evil.example.ru/x?a=1&amp;b=2">www.mabanque.fr</a> <a href="mailto:a@b.fr">mail</a>');
+    ok(str_contains($out, 'title="https://evil.example.ru/x?a=1&amp;b=2"'), 'real address on hover');
+    ok(preg_match('#href="[^"]*/go\?u=https%3A%2F%2Fevil\.example\.ru%2Fx%3Fa%3D1%26b%3D2&amp;t=www\.mabanque\.fr&amp;m=42&amp;s=[0-9a-f]{32}"#', $out) === 1, 'goes through /go');
+    ok(str_contains($out, 'href="mailto:a@b.fr"'), 'mailto untouched');
+    $sig = M4W\Service\LinkGuard::sign('https://a.example/', 'x', 1);
+    ok(M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, $sig));
+    ok(!M4W\Service\LinkGuard::verify('https://evil.example/', 'x', 1, $sig), 'cannot reuse a signature for another address');
+});
+test('links: /go redirects, warns or blocks', function () use ($bob) {
+    \M4W\Core\Auth::setUser(Users::find((int) $bob['id']));
+    $_SESSION = [];
+    $go = static function (string $href, string $text = '', ?string $sig = null) {
+        $q = ['u' => $href, 't' => $text, 'm' => 7, 's' => $sig ?? M4W\Service\LinkGuard::sign($href, $text, 7)];
+        return (new M4W\Controller\LinkController(new \M4W\Core\Request('GET', '/go', $q, [], [], [])))->go();
+    };
+    $r = $go('https://www.example.org/page', 'Lire la suite');
+    eq([$r->status, $r->getHeader('Location')], [302, 'https://www.example.org/page'], 'clean link goes straight through');
+    eq($r->getHeader('Referrer-Policy'), 'no-referrer');
+    $r = $go('https://secure-verif.example.ru/login', 'https://www.mabanque.fr/');
+    eq([$r->status, $r->getHeader('Location')], [200, null], 'misleading link: warning page');
+    ok(str_contains($r->body, 'example.ru') && str_contains($r->body, 'href="https://secure-verif.example.ru/login"'), 'shows the real site, lets the user decide');
+    $r = $go('https://evil.example/', '', 'forged');
+    eq([$r->status, $r->getHeader('Location')], [400, null], 'not an open redirect');
+    // URLhaus feed (no key needed).
+    M4W\Service\LinkGuard::updateFeed("# URLhaus\n" . implode("\n", array_map(static fn($i) => "http://203.0.113.$i/bins/x.sh", range(1, 12))) . "\nhttps://malware.example.net/payload.exe\n");
+    $r = $go('https://malware.example.net/payload.exe', 'Facture');
+    ok($r->status === 200 && str_contains($r->body, 'URLhaus') && !str_contains($r->body, 'href="https://malware.example.net'), 'known malware: blocked, no way through');
+    ok((bool) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'link.blocked'"), 'journaled');
+    // Administrator's block list, subdomains included.
+    Settings::set('security.link_block', 'interdit.example');
+    ok(str_contains($go('https://www.interdit.example/', 'x')->body, 'bloqué par votre administrateur'));
+    Settings::set('security.link_block', '');
+    // Google Safe Browsing (fake transport), with its cache.
+    $calls = 0;
+    M4W\Service\LinkGuard::$transport = static function (string $api, array $urls) use (&$calls) {
+        $calls++;
+        return array_fill_keys(array_filter($urls, static fn($u) => str_contains($u, 'phish')), 'SOCIAL_ENGINEERING');
+    };
+    M4W\Service\LinkGuard::setApiKey('AIzaFakeKeyForTests_0123456789');
+    ok(str_contains($go('https://login.phish.example/', 'x')->body, 'hameçonnage (Google Safe Browsing)'));
+    $go('https://login.phish.example/', 'x');
+    eq($calls, 1, 'verdict cached');
+    eq($go('https://ok.example/', 'x')->status, 302);
+    M4W\Service\LinkGuard::$transport = null;
+    M4W\Service\LinkGuard::setApiKey('');
+    \M4W\Core\Auth::setUser(null);
+});
+test('impersonation: colleague names and look-alike domains', function () use ($bob, $sendTo) {
+    DB::insert('domains', ['name' => 'acmecorp.fr', 'active' => 1, 'created_at' => time()]);
+    foreach (['acmecorp.com', 'acme-corp.fr', 'acmecorp-paiement.fr', 'acrnecorp.fr', 'acmecorq.fr'] as $d) {
+        eq(SpamFilter::lookalikeDomain($d), 'acmecorp.fr', $d);
+    }
+    foreach (['acmecorp.fr', 'mail.acmecorp.fr', 'gmail.com', 'corp.fr'] as $d) {
+        eq(SpamFilter::lookalikeDomain($d), null, $d);
+    }
+    DB::run("DELETE FROM domains WHERE name = 'acmecorp.fr'");
+    $u = DB::one('SELECT first_name, last_name FROM users WHERE id = :id', ['id' => $bob['id']]);
+    $name = $u['first_name'] . ' ' . $u['last_name'];
+    $raw = $sendTo('bob@test.local', 'Virement urgent', 'pdg.direction@gmail.com');
+    $raw = preg_replace('/^From: .*$/m', 'From: "' . mb_strtoupper($name) . '" <pdg.direction@gmail.com>', $raw, 1);
+    $p = MimeParser::parse($raw);
+    eq(SpamFilter::colleagueName($p), $bob['email']);
+    ok(isset(SpamFilter::evaluate($p, null)['tests']['COLLEAGUE_NAME']));
+    eq(SpamFilter::colleagueName(MimeParser::parse($sendTo('bob@test.local', 'x', 'client@ext.com'))), null);
+});
 test('SSRF guard rejects private and IPv6 loopback', function () {
     foreach (['127.0.0.1', '::1', '10.1.2.3', '169.254.169.254', '::ffff:127.0.0.1', 'localhost'] as $h) {
         $thrown = false;

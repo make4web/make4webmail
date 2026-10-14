@@ -832,6 +832,11 @@ final class AdminController extends Controller
             'security.disposable_extra' => self::domainList($r->str('disposable_extra')),
             'security.disposable_allow' => self::domainList($r->str('disposable_allow')),
             'security.disposable_autoupdate' => $r->bool('disposable_autoupdate') ? 1 : 0,
+            'security.link_check' => $r->bool('link_check') ? 1 : 0,
+            'security.link_block' => self::domainList($r->str('link_block')),
+            'security.safebrowsing_api' => $r->str('safebrowsing_api') === 'webrisk' ? 'webrisk' : 'safebrowsing',
+            'security.safebrowsing_delivery' => $r->bool('safebrowsing_delivery') ? 1 : 0,
+            'security.urlhaus' => $r->bool('urlhaus') ? 1 : 0,
             'security.image_max_px' => max(200, min(4000, $r->int('image_max_px', 1600))),
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
@@ -858,6 +863,20 @@ final class AdminController extends Controller
         }
         Settings::setMany($values);
         \M4W\Service\Senders::reset();
+        $key = trim($r->str('safebrowsing_key'));
+        if ($key !== '' && preg_match('/^[A-Za-z0-9_\-]{20,100}$/', $key)) {
+            \M4W\Service\LinkGuard::setApiKey($key);
+        } elseif ($r->bool('safebrowsing_clear')) {
+            \M4W\Service\LinkGuard::setApiKey('');
+        }
+        if ($r->bool('urlhaus_update')) {
+            try {
+                $n = \M4W\Service\LinkGuard::updateFeed();
+                return $this->back('/admin/security', 'success', t('admin.links_urlhaus_ok', ['n' => number_format($n, 0, ',', ' ')]));
+            } catch (\Throwable $e) {
+                return $this->back('/admin/security', 'danger', t('admin.disp_update_fail', ['error' => $e->getMessage()]));
+            }
+        }
         Audit::log('admin.security_saved');
         if ($r->bool('disposable_update')) {
             try {

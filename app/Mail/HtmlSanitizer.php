@@ -46,12 +46,14 @@ final class HtmlSanitizer
      * @param ?\Closure $cidResolver fn(string $cid): ?string -> URL
      * @param ?\Closure $remoteResolver fn(string $url): ?string -> local copy of a remote picture,
      *        '' to drop it (tracking pixel), null when not available (kept blocked)
+     * @param ?\Closure $linkRewriter fn(string $href, string $text): string -> checked link (anti-phishing)
      */
     public function __construct(
         private bool $blockRemote = true,
         private ?\Closure $cidResolver = null,
         private bool $keepStyleTags = true,
         private ?\Closure $remoteResolver = null,
+        private ?\Closure $linkRewriter = null,
     ) {
     }
 
@@ -200,6 +202,12 @@ final class HtmlSanitizer
             if (!str_starts_with($href, '#')) {
                 $el->setAttribute('target', '_blank');
                 $el->setAttribute('rel', 'noopener noreferrer nofollow');
+            }
+            if ($this->linkRewriter && preg_match('#^https?://#i', $href)) {
+                // The real destination on hover, whatever the text pretends; the click goes through the check.
+                $real = html_entity_decode($href, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $el->setAttribute('title', mb_substr($real, 0, 300));
+                $el->setAttribute('href', ($this->linkRewriter)($real, (string) $el->textContent));
             }
         }
     }

@@ -38,6 +38,23 @@
     <div class="m4w-setting-row"><div class="label"><?= te('admin.ext_forward') ?><small><?= te('admin.ext_forward_desc') ?></small></div><div><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="allow_external_forward" value="1" <?= S::get('security.allow_external_forward') ? 'checked' : '' ?>></div><input class="form-control" name="forward_whitelist" value="<?= e(S::get('security.forward_whitelist')) ?>" placeholder="<?= te('admin.fwd_wl_ph') ?>"></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.max_attach') ?></div><div class="input-group" style="max-width:180px"><input class="form-control" type="number" name="max_attachment_mb" value="<?= (int) S::get('security.max_attachment_mb') ?>"><span class="input-group-text">Mo</span></div></div>
   </div>
+  <div class="m4w-section" id="links">
+    <div class="m4w-section-title"><i class="bi bi-link-45deg me-2 text-primary"></i><?= te('admin.links_title') ?></div>
+    <p class="small text-muted"><?= te('admin.links_desc') ?></p>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.links_check') ?><small><?= te('admin.links_check_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="link_check" value="1" aria-label="<?= te('admin.links_check') ?>" <?= S::get('security.link_check') ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.links_sb') ?><small><?= te('admin.links_sb_desc') ?></small></div>
+      <div class="d-flex flex-column gap-2" style="max-width:420px">
+        <select class="form-select" name="safebrowsing_api" aria-label="<?= te('admin.links_sb_api') ?>">
+          <?php foreach (['safebrowsing', 'webrisk'] as $api): ?><option value="<?= $api ?>" <?= S::get('security.safebrowsing_api') === $api ? 'selected' : '' ?>><?= te('admin.links_api_' . $api) ?></option><?php endforeach; ?>
+        </select>
+        <input class="form-control m4w-code" type="password" name="safebrowsing_key" autocomplete="off" aria-label="<?= te('admin.links_sb_key') ?>" placeholder="<?= M4W\Service\LinkGuard::hasApiKey() ? te('admin.links_sb_key_set') : te('admin.links_sb_key_ph') ?>">
+        <?php if (M4W\Service\LinkGuard::hasApiKey()): ?><div class="form-check"><input class="form-check-input" type="checkbox" name="safebrowsing_clear" value="1" id="sb-clear"><label class="form-check-label small" for="sb-clear"><?= te('admin.links_sb_clear') ?></label></div><?php endif; ?>
+        <div class="form-check"><input class="form-check-input" type="checkbox" name="safebrowsing_delivery" value="1" id="sb-deliv" <?= S::get('security.safebrowsing_delivery') ? 'checked' : '' ?>><label class="form-check-label small" for="sb-deliv"><?= te('admin.links_sb_delivery') ?></label></div>
+      </div></div>
+    <?php $uu = (int) S::get('security.urlhaus_updated', 0); ?>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.links_urlhaus') ?><small><?= $uu ? te('admin.links_urlhaus_state', ['n' => number_format(M4W\Service\LinkGuard::feedSize(), 0, ',', ' '), 'date' => format_datetime($uu, false)]) : te('admin.links_urlhaus_never') ?></small></div><div class="d-flex align-items-center gap-3"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="urlhaus" value="1" aria-label="<?= te('admin.links_urlhaus') ?>" <?= S::get('security.urlhaus') ? 'checked' : '' ?>></div><button class="btn btn-light btn-sm" name="urlhaus_update" value="1"><i class="bi bi-arrow-repeat me-1"></i><?= te('admin.disp_update_now') ?></button></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.links_block') ?><small><?= te('admin.links_block_desc') ?></small></div><div><textarea class="form-control m4w-code m4w-code-short" style="min-width:min(380px,70vw)" rows="3" name="link_block" aria-label="<?= te('admin.links_block') ?>"><?= e(S::get('security.link_block')) ?></textarea></div></div>
+  </div>
   <div class="m4w-section" id="disposable">
     <div class="m4w-section-title"><i class="bi bi-trash3 me-2 text-primary"></i><?= te('admin.disp_title') ?>
       <span class="badge badge-soft-primary ms-2"><?= te('admin.disp_count', ['n' => number_format(M4W\Service\Senders::listSize(), 0, ',', ' ')]) ?></span></div>

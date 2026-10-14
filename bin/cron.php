@@ -67,6 +67,16 @@ if ($hourly) {
             $out('disposable domains: update failed, ' . $e->getMessage());
         }
     }
+    M4W\Service\LinkGuard::gc();
+    if ((int) Settings::get('security.urlhaus', 1) && (int) Settings::get('security.urlhaus_updated', 0) < $now - 86400
+        && (int) Settings::get('security.urlhaus_tried', 0) < $now - 6 * 3600) {
+        Settings::set('security.urlhaus_tried', $now);
+        try {
+            $out('URLhaus feed: ' . M4W\Service\LinkGuard::updateFeed());
+        } catch (\Throwable $e) {
+            $out('URLhaus feed: update failed, ' . $e->getMessage());
+        }
+    }
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);

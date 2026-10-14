@@ -61,6 +61,8 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <li><strong>« Programme bloqué »</strong> : le fichier est un programme (même renommé en .pdf ou sans extension). Il ne peut pas être ouvert ni téléchargé depuis la messagerie.</li>
       <li><strong>« À vérifier »</strong> : macros, archive protégée, page web, nom qui ne correspond pas au contenu… Une confirmation est demandée avant l'ouverture. Dans le doute, appelez l'expéditeur.</li>
       <li><strong>Lettres d'information</strong> : un bandeau propose de vous désabonner en un clic quand l'expéditeur le permet.</li>
+      <li><strong>Liens</strong> : survolez un lien pour voir sa vraie adresse. Au clic, la messagerie le vérifie : un site signalé comme dangereux est bloqué, et un lien trompeur (le texte affiche une banque mais le lien mène ailleurs, adresse IP, lien raccourci, nom qui imite un autre site) affiche sa vraie destination avant de l'ouvrir.</li>
+      <li><strong>Bandeau rouge « possible usurpation d'un collègue »</strong> : le nom affiché est celui d'un collègue, mais l'adresse vient de l'extérieur. C'est l'arnaque classique au faux dirigeant : ne faites aucun virement et ne transmettez aucune information sans vérifier par téléphone.</li>
       <li><strong>Bandeau « Cette adresse n'accepte pas de réponse »</strong> : l'expéditeur est une adresse « no-reply » ou jetable ; votre réponse ne serait lue par personne. Utilisez plutôt le site ou le contact indiqué dans le message.</li>
       <li><strong>Bandeau rouge « Attention, usurpation probable »</strong> : le message prétend venir de votre organisation ou d'un domaine connu, mais n'a pas été envoyé par ses serveurs. Ne répondez pas, ne cliquez sur aucun lien et prévenez votre administrateur.</li>
     </ul>
@@ -530,6 +532,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Mots de passe</strong> : longueur minimale et nombre de familles de caractères exigées.</li>
       <li><strong>Protection de la connexion</strong> : tentatives avant blocage et durée du blocage, durée d'inactivité et durée maximale d'une session, double authentification obligatoire pour les administrateurs, restriction de l'administration à certaines adresses IP (attention à ne pas vous exclure : votre adresse actuelle est affichée).</li>
       <li><strong>Délégation des boîtes</strong> : voir <a href="#a-delegation">ci-dessus</a>.</li>
+      <li><strong>Liens et hameçonnage</strong> : vérification des liens au clic, clé Google Safe Browsing (ou Web Risk pour un usage commercial), flux public URLhaus mis à jour chaque jour, domaines bloqués.</li>
       <li><strong>Messagerie</strong> : blocage des images distantes, transfert externe autorisé ou limité à une liste de domaines, taille maximale des pièces jointes.</li>
       <li><strong>Fonctions</strong> : complément de signature par l'utilisateur, comptes externes, délai d'annulation d'envoi, langue par défaut.</li>
     </ul>

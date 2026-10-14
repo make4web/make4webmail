@@ -576,5 +576,14 @@ static function (): void {
 "CREATE INDEX mail_asset_refs_asset ON mail_asset_refs(asset_id)",
 "CREATE INDEX mail_asset_refs_status ON mail_asset_refs(status, created_at)",
 ],
+14 => [
+// Verdicts on links (Google Safe Browsing / Web Risk), cached to spare the API and keep clicks fast.
+"CREATE TABLE url_verdicts (
+  url_hash VARCHAR(64) NOT NULL PRIMARY KEY,
+  threat VARCHAR(40) NOT NULL DEFAULT '',
+  checked_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX url_verdicts_checked ON url_verdicts(checked_at)",
+],
 ];
 
