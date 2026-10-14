@@ -188,6 +188,15 @@ ClamAV (`clamav-daemon`, recommandé) et PHP ≥ 8.1 avec les extensions `pdo_sq
 
 ## Installation
 
+### Debian / Ubuntu : script automatique
+Sur un serveur Debian 12+ ou Ubuntu 22.04+, un seul script installe et vérifie tout : PHP et ses extensions, ClamAV (démon et mises à jour des signatures, test EICAR), la tâche planifiée `/etc/cron.d/make4webmail`, les droits sur `storage/` et `config/`, et en option le serveur web, le pilote MySQL et le démon SMTP.
+```bash
+sudo deploy/install-debian.sh --web=nginx --domain=example.com --admin=admin@example.com --password='Mot2Passe!Solide' --tests
+```
+Options : `--dir=` (dossier de l'application), `--user=` (utilisateur PHP, `www-data` par défaut), `--web=nginx|apache|none`, `--mysql`, `--smtpd`, `--no-clamav`, `--tests` (lance la suite de tests), `--check` (vérifie sans rien installer). Le script peut être relancé sans risque. `php bin/check.php` refait la vérification à tout moment.
+
+Sinon, étapes manuelles :
+
 ### 1. Fichiers
 Déposez le projet sur le serveur, par exemple dans `/var/www/make4webmail`, et faites pointer la racine web vers `public/`. Le serveur web doit pouvoir écrire dans `storage/` et `config/`.
 

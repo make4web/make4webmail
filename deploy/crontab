@@ -1,2 +1,2 @@
-# Make4WebMail scheduler: outgoing queue, scheduled sends, external IMAP accounts, purge.
+# Make4WebMail scheduler (installed as /etc/cron.d/make4webmail by deploy/install-debian.sh).
 * * * * * www-data /usr/bin/php /var/www/make4webmail/bin/cron.php

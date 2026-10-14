@@ -23,6 +23,9 @@ final class Installer
             'ext-dom'        => extension_loaded('dom'),
             'ext-fileinfo'   => extension_loaded('fileinfo'),
             'ext-iconv'      => extension_loaded('iconv'),
+            'ext-curl'       => function_exists('curl_init'),
+            'ext-gd'         => function_exists('imagecreatefromstring'),
+            'ext-zip'        => class_exists(\ZipArchive::class),
             'storage/ writable' => is_writable(Config::storagePath()),
             'config/ writable'  => is_writable(dirname(Config::path())),
         ];

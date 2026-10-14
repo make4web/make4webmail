@@ -7,7 +7,8 @@ declare(strict_types=1);
  * Runs against an isolated temporary installation.
  */
 
-$tmp = __DIR__ . '/_tmp';
+// tests/_tmp, or the system temp folder when the checkout is not writable (run as www-data).
+$tmp = getenv('M4W_TEST_TMP') ?: (is_writable(__DIR__) ? __DIR__ . '/_tmp' : sys_get_temp_dir() . '/m4w-tests-' . getmypid());
 if (is_dir($tmp)) {
     exec('rm -rf ' . escapeshellarg($tmp));
 }
