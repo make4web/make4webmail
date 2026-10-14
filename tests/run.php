@@ -368,6 +368,23 @@ test('signature values are escaped and template script stripped', function () us
     $html = Signatures::renderTemplate(Signatures::cleanTemplate('<p onclick="x()">{{display_name}}</p><script>alert(1)</script>'), $evil);
     ok(!str_contains($html, '<img') && !str_contains($html, 'onclick') && !str_contains($html, '<script'), $html);
 });
+test('the active template is everyone\'s signature, replies included, nothing personal', function () use ($bob) {
+    $a = Signatures::save(['name' => 'Officielle', 'html' => '<p>OFFICIELLE {{display_name}}</p>', 'is_default' => 1]);
+    $b = Signatures::save(['name' => 'Brouillon', 'html' => '<p>BROUILLON</p>']);
+    $u = $bob;
+    $u['signature_template_id'] = $b;            // a former per-user assignment is ignored
+    $u['personal_signature'] = '<p>PERSO</p>';   // so is a former personal signature
+    Settings::set('features.user_signature', 1);
+    foreach ([false, true] as $reply) {
+        $h = Signatures::render($u, 'preview', $reply)['html'];
+        ok(str_contains($h, 'OFFICIELLE') && !str_contains($h, 'BROUILLON') && !str_contains($h, 'PERSO'), ($reply ? 'reply: ' : 'new: ') . $h);
+    }
+    // Deleting the active template hands the role to another one: never no signature.
+    Signatures::delete($a);
+    ok(str_contains(Signatures::render($u)['html'], 'BROUILLON') || (int) DB::value('SELECT COUNT(*) FROM signature_templates WHERE is_default = 1') === 1, 'one active template remains');
+    Signatures::delete($b);
+    Settings::set('features.user_signature', 0);
+});
 test('signature injected before quoted text', function () {
     $body = '<p>Merci</p><div data-m4w-quote="1"><blockquote>old</blockquote></div>';
     $out = Signatures::inject($body, '<b>SIG</b>');

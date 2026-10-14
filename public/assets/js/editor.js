@@ -50,7 +50,7 @@
       askBeforePasteFromWord: false,
       defaultActionOnPaste: 'insert_clear_html',
       enableDragAndDropFileToEditor: !!o.onImage,
-      disablePlugins: ['speech-recognize', 'ai-assistant', 'about', 'powered-by-jodit', 'print', 'preview', 'file', 'video', 'iframe', 'mobile'],
+      disablePlugins: ['speech-recognize', 'ai-assistant', 'about', 'powered-by-jodit', 'print', 'preview', 'file', 'video', 'iframe', 'mobile', 'add-new-line'],
       link: { openInNewTabCheckbox: true, noFollowCheckbox: false, modeClassName: false },
       style: { fontFamily: o.font || 'Arial, Helvetica, sans-serif', fontSize: o.size || '14px', lineHeight: '1.55', color: '#1f2937' },
       controls: {

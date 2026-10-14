@@ -475,8 +475,11 @@
     if (writable) { m.push('-'); m.push(['delete', 'trash3', 'fs_delete', 'danger']); }
     return m;
   }
-  function showMenu(x, y, items) {
-    var $c = $('#fs-ctx').empty();
+  function showMenu(x, y, items, alignRight) {
+    // Fixed positioning is relative to the viewport only outside transformed (animated) ancestors.
+    var $c = $('#fs-ctx');
+    if (!$c.parent().is('body')) $c.appendTo(document.body);
+    $c.empty();
     menuFor(items).forEach(function (m) {
       if (m === '-') { if ($c.children().length && !$c.children().last().is('hr')) $c.append('<hr class="dropdown-divider">'); return; }
       $('<button type="button" class="dropdown-item" role="menuitem"></button>').toggleClass('text-danger', m[3] === 'danger')
@@ -487,8 +490,9 @@
     });
     $c.addClass('show').css({ left: 0, top: 0 });
     var w = $c.outerWidth(), h = $c.outerHeight();
+    if (alignRight) x -= w;
     $c.css({ left: Math.max(8, Math.min(x, window.innerWidth - w - 8)), top: Math.max(8, Math.min(y, window.innerHeight - h - 8)) });
-    $c.find('.dropdown-item').first().trigger('focus');
+    $c.find('.dropdown-item').first()[0].focus({ preventScroll: true });
   }
   function hideMenu() { $('#fs-ctx').removeClass('show'); }
   $(document).on('click', function (e) { if (!$(e.target).closest('#fs-ctx').length) hideMenu(); })
@@ -764,7 +768,7 @@
     var it = itemAt(+$(this).closest('[data-key]').data('i'));
     var items = S.selected[itemKey(it)] ? selectedItems() : [it];
     var r = this.getBoundingClientRect();
-    showMenu(r.left - 180, r.bottom + 4, items);
+    showMenu(r.right, r.bottom + 4, items, true);
   }).on('contextmenu', '[data-key]', function (e) {
     e.preventDefault();
     var it = itemAt(+$(this).data('i'));

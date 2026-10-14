@@ -62,7 +62,6 @@ final class HelpController extends Controller
                 'deleg_admins' => (int) Settings::get('delegation.admins', 1) === 1,
                 'deleg_notify' => (int) Settings::get('delegation.notify_owner', 1) === 1,
                 'hide_personal' => (int) Settings::get('delegation.hide_personal', 1) === 1,
-                'user_sig' => (int) Settings::get('features.user_signature', 1) === 1,
                 'fetch' => (int) Settings::get('features.fetch_accounts', 1) === 1,
                 'ext_forward' => (int) Settings::get('security.allow_external_forward', 1) === 1,
                 'user_spaces' => (int) Settings::get('files.users_create_spaces', 0) === 1,

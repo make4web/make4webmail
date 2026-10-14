@@ -27,7 +27,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
   - priorité haute et accusé de lecture ;
   - alerte « pièce jointe oubliée ? » ;
   - transfert en ligne ou en pièce jointe, et « modifier comme nouveau ».
-- **Signature centralisée** : l'administrateur définit le modèle et l'utilisateur en voit l'aperçu. Elle est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
+- **Signature centralisée et imposée** : un seul modèle actif, défini par l'administrateur, s'applique à tous les utilisateurs et à tous les messages, réponses comprises. L'utilisateur ne peut ni le modifier, ni en choisir un autre ; il en voit seulement l'aperçu. La signature est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
 - **Règles de messages entrants** :
   - conditions : expéditeur, destinataires, objet, corps, en-tête, taille, pièce jointe, priorité ;
   - actions : déplacer, copier, marquer comme lu, suivre, mettre à la corbeille, transférer, répondre automatiquement, supprimer, arrêter le traitement ;
@@ -116,11 +116,11 @@ En mode webmail :
   - changement de mot de passe forcé, réinitialisation de la 2FA ;
   - actions groupées et import CSV.
 - Domaines hébergés et alias.
-- **Modèles de signature** : éditeur HTML avec aperçu en direct pour n'importe quel utilisateur, variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Un modèle par défaut est défini, et l'attribution peut se faire par service.
+- **Modèles de signature** : éditeur HTML avec aperçu en direct pour n'importe quel utilisateur, variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Un seul modèle est actif pour tous ; les autres sont des brouillons, activables en un clic. Il y a toujours un modèle actif tant qu'il en existe un.
 - **Fichiers** : limites, conservation et liste des espaces d'équipe.
 - **Personnalisation** (propre à l'instance) avec aperçu en direct :
-  - nom et accroche ;
-  - logo clair et logo sombre, favicon, image de la page de connexion ;
+  - nom et accroche, nom de l'entreprise à côté du logo (option) ;
+  - logo clair et logo sombre, favicon, image de la page de connexion, image de fond du volet de lecture vide (remplir, centrer ou motif) ;
   - couleurs principale et secondaire ;
   - style du menu latéral (clair, sombre, couleur de marque), arrondi, police ;
   - message de connexion et CSS personnalisé.

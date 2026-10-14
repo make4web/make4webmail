@@ -69,7 +69,7 @@
       <div class="card-header d-flex"><?= te('admin.recent_activity') ?><a class="ms-auto small fw-normal" href="<?= e(url('admin/logs', ['tab' => 'audit'])) ?>"><?= te('admin.see_all') ?></a></div>
       <ul class="list-group list-group-flush">
         <?php foreach ($recent as $a): ?>
-        <li class="list-group-item d-flex gap-3 small align-items-center"><span class="m4w-avatar sm" style="background:<?= e(avatar_color((string) $a['email'])) ?>"><?= e(initials((string) ($a['email'] ?: '?'))) ?></span><div class="flex-grow-1 min-w-0"><div class="text-truncate"><b><?= e($a['email'] ?: t('admin.system')) ?></b> · <?= e(audit_label($a['action'])) ?> <span class="text-muted"><?= e(str_limit((string) $a['target'], 40)) ?></span></div></div><span class="text-muted text-nowrap"><?= e(format_datetime((int) $a['created_at'])) ?></span></li>
+        <li class="list-group-item d-flex gap-3 small align-items-center m4w-activity-item"><span class="m4w-avatar sm flex-shrink-0" style="background:<?= e(avatar_color((string) $a['email'])) ?>"><?= e(initials((string) ($a['email'] ?: '?'))) ?></span><div class="flex-grow-1 min-w-0"><div class="text-truncate"><b><?= e(audit_label($a['action'])) ?></b> <span class="text-muted"><?= e(str_limit((string) $a['target'], 60)) ?></span></div><div class="text-truncate text-muted"><?= e($a['email'] ?: t('admin.system')) ?> · <?= e(format_datetime((int) $a['created_at'])) ?></div></div></li>
         <?php endforeach; ?>
       </ul>
     </div>

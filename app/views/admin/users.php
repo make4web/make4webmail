@@ -20,9 +20,8 @@
     <span class="small fw-semibold ms-2" data-bulk-count></span>
     <select name="bulk_action" class="form-select form-select-sm w-auto">
       <option value="enable"><?= te('admin.b_enable') ?></option><option value="disable"><?= te('admin.b_disable') ?></option>
-      <option value="force_pw"><?= te('admin.b_force_pw') ?></option><option value="template"><?= te('admin.b_template') ?></option><option value="delete"><?= te('admin.b_delete') ?></option>
+      <option value="force_pw"><?= te('admin.b_force_pw') ?></option><option value="delete"><?= te('admin.b_delete') ?></option>
     </select>
-    <select name="template_id" class="form-select form-select-sm w-auto"><option value=""><?= te('admin.default_template') ?></option><?php foreach ($templates as $tp): ?><option value="<?= (int) $tp['id'] ?>"><?= e($tp['name']) ?></option><?php endforeach; ?></select>
     <button class="btn btn-primary btn-sm" data-confirm-bulk="<?= te('admin.bulk_confirm') ?>"><?= te('admin.apply') ?></button>
   </div>
   <div class="m4w-table-card"><div class="table-responsive"><table class="table table-hover">

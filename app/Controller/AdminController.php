@@ -128,7 +128,6 @@ final class AdminController extends Controller
             'job_title' => $r->str('job_title'), 'department' => $r->str('department'), 'phone' => $r->str('phone'),
             'mobile' => $r->str('mobile'), 'role' => $r->str('role') === 'admin' ? 'admin' : 'user',
             'status' => $r->str('status') === 'disabled' ? 'disabled' : 'active', 'quota_mb' => max(0, $r->int('quota_mb', 2048)),
-            'signature_template_id' => $r->int('signature_template_id') ?: null,
             'language' => isset(I18n::LANGUAGES[$r->str('language')]) ? $r->str('language') : 'fr',
             'must_change_password' => $r->bool('must_change_password') ? 1 : 0,
         ];
@@ -278,9 +277,6 @@ final class AdminController extends Controller
                     break;
                 case 'force_pw':
                     Users::update($id, ['must_change_password' => 1]);
-                    break;
-                case 'template':
-                    Users::update($id, ['signature_template_id' => $this->req->int('template_id') ?: null]);
                     break;
                 case 'delete':
                     Users::delete($id);
@@ -438,7 +434,7 @@ final class AdminController extends Controller
         $id = $this->req->int('id') ?: null;
         $id = Signatures::save([
             'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->req->raw('html'),
-            'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => $this->req->bool('apply_on_reply'),
+            'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => 1,
         ], $id);
         Audit::log('admin.signature_saved', (string) $id);
         return $this->back('/admin/signatures/' . $id, 'success', t('admin.signature_saved'));
@@ -458,17 +454,16 @@ final class AdminController extends Controller
         return $this->ok(['html' => $html]);
     }
 
-    public function assignSignature(): Response
+    /** The chosen template becomes the one applied to everyone. */
+    public function activateSignature(string $id): Response
     {
-        $tpl = $this->req->int('template_id') ?: null;
-        $dept = $this->req->str('department');
-        if ($dept === '*') {
-            $n = DB::run('UPDATE users SET signature_template_id = :t', ['t' => $tpl])->rowCount();
-        } else {
-            $n = DB::run('UPDATE users SET signature_template_id = :t WHERE department = :d', ['t' => $tpl, 'd' => $dept])->rowCount();
+        $tpl = Signatures::find((int) $id);
+        if (!$tpl) {
+            throw new HttpException(404);
         }
-        Audit::log('admin.signature_assigned', $dept, ['template' => $tpl]);
-        return $this->back('/admin/signatures', 'success', t('admin.bulk_done', ['n' => $n]));
+        DB::run('UPDATE signature_templates SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END', ['id' => $tpl['id']]);
+        Audit::log('admin.signature_activated', $tpl['name']);
+        return $this->back('/admin/signatures', 'success', t('admin.sig_activated', ['name' => $tpl['name']]));
     }
 
     // ---- Branding ------------------------------------------------------------
@@ -496,15 +491,17 @@ final class AdminController extends Controller
             'brand.login_message' => mb_substr($r->str('login_message'), 0, 500),
             'brand.footer' => mb_substr($r->str('footer'), 0, 300),
             'brand.custom_css' => mb_substr($r->raw('custom_css'), 0, 20000),
+            'brand.show_name' => $r->bool('show_name') ? 1 : 0,
+            'brand.reader_bg_fit' => in_array($r->str('reader_bg_fit'), ['cover', 'contain', 'tile'], true) ? $r->str('reader_bg_fit') : 'cover',
         ];
         try {
-            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg'] as $field => $prefix) {
+            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg', 'reader_bg' => 'readerbg'] as $field => $prefix) {
                 if ($r->bool('remove_' . $field)) {
                     $values['brand.' . $field] = '';
                 }
                 $f = $r->files[$field] ?? null;
                 if (is_array($f) && ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, $field === 'login_bg' ? 6_000_000 : 2_000_000);
+                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, in_array($field, ['login_bg', 'reader_bg'], true) ? 6_000_000 : 2_000_000);
                 }
             }
         } catch (\InvalidArgumentException $e) {
@@ -713,7 +710,6 @@ final class AdminController extends Controller
             'security.block_remote_images' => $r->bool('block_remote_images') ? 1 : 0,
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
-            'features.user_signature' => $r->bool('user_signature') ? 1 : 0,
             'delegation.admins' => $r->bool('deleg_admins') ? 1 : 0,
             'delegation.require_reason' => $r->bool('deleg_reason') ? 1 : 0,
             'delegation.notify_owner' => $r->bool('deleg_notify') ? 1 : 0,

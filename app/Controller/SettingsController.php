@@ -228,18 +228,7 @@ final class SettingsController extends Controller
         return $this->page('signature', [
             'preview' => Signatures::render($u)['html'],
             'template' => Signatures::forUser($u),
-            'allowPersonal' => (bool) (int) Settings::get('features.user_signature', 0),
         ]);
-    }
-
-    public function saveSignature(): Response
-    {
-        if (!(int) Settings::get('features.user_signature', 0)) {
-            return $this->back('/settings/signature', 'danger', t('error.forbidden'));
-        }
-        $html = (new HtmlSanitizer(false))->sanitize(mb_substr($this->req->raw('personal_signature'), 0, 20000));
-        Users::update($this->uid(), ['personal_signature' => $html]);
-        return $this->back('/settings/signature', 'success', t('settings.saved'));
     }
 
     // ---- Security ----------------------------------------------------------

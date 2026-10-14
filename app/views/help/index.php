@@ -98,7 +98,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <section id="compose" class="m4w-help-section">
     <h2><i class="bi bi-pencil-square"></i>Rédiger et envoyer</h2>
     <ol class="m4w-help-steps">
-      <li>Cliquez sur <?= $ui('pencil-square', 'Nouveau message') ?> (ou <?= $kbd('C') ?>). La fenêtre de rédaction s'ouvre en bas à droite ; <?= $ui('arrows-angle-expand', '') ?> l'agrandit, <?= $ui('dash-lg', '') ?> la réduit pour consulter un autre message.</li>
+      <li>Cliquez sur <?= $ui('pencil-square', 'Nouveau message') ?> (ou <?= $kbd('C') ?>). La fenêtre de rédaction s'ouvre en bas à droite ; <?= $ui('arrows-angle-expand', '') ?> l'agrandit, <?= $ui('dash-lg', '') ?> la réduit pour consulter un autre message. Sur ordinateur, déplacez-la où vous voulez en la tirant par sa barre de titre ; un double-clic sur cette barre la passe en plein écran.</li>
       <li>Saisissez les destinataires : les suggestions viennent de vos contacts et de l'annuaire de l'entreprise. Validez avec <?= $kbd('Entrée') ?> ou une virgule. Les liens <strong>Cc</strong> et <strong>Cci</strong> affichent les champs copie et copie cachée.</li>
       <li>Écrivez votre message. <?= $ui('type', 'Aa') ?> affiche la barre de mise en forme : gras, couleurs, listes, alignement, liens, tableaux, police et taille.</li>
       <li>Cliquez sur <?= $ui('send', 'Envoyer') ?> ou appuyez sur <?= $kbd('Ctrl', 'Entrée') ?>.</li>
@@ -165,8 +165,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Votre signature est générée à partir d'un modèle commun à l'entreprise et de vos informations (nom, fonction, service, téléphones). Elle est ajoutée <strong>à l'envoi</strong> ; elle n'apparaît donc pas dans le texte que vous rédigez, seulement dans l'encadré d'aperçu.</p>
     <ul>
       <li>Pour corriger une information (fonction, téléphone…), demandez à votre administrateur : elle est gérée dans votre fiche utilisateur.</li>
-      <?php if ($cfg['user_sig']): ?><li>Dans <?= $go('settings/signature', 'Paramètres → Signature') ?>, vous pouvez ajouter un complément personnel (message de fin, mention…).</li><?php endif; ?>
-      <li>Certaines entreprises n'ajoutent pas la signature complète dans les réponses : c'est un choix du modèle.</li>
+      <li>La signature est fixée par l'administration : il n'est pas possible d'en choisir une autre ni d'y ajouter un texte personnel. <?= $go('settings/signature', 'Paramètres → Signature') ?> vous en montre l'aperçu.</li>
     </ul>
   </section>
 
@@ -377,14 +376,13 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     </table>
     <p><strong>Sections conditionnelles</strong> : <code>{{#mobile}}Mob. {{mobile}}{{/mobile}}</code> n'affiche la ligne que si le mobile est renseigné. <code>{{^mobile}}…{{/mobile}}</code> fait l'inverse.</p>
     <ul>
-      <li>Un modèle est marqué <strong>par défaut</strong>. Les autres peuvent être attribués à un service entier ou à un utilisateur (fiche utilisateur).</li>
-      <li>L'option « Ajouter aux réponses » permet d'utiliser une signature allégée dans les échanges.</li>
+      <li>Un seul modèle est <strong>actif</strong> : il s'applique à tous les utilisateurs, à tous les messages, réponses et transferts compris. Les utilisateurs ne peuvent ni le modifier, ni en choisir un autre. Les autres modèles sont des brouillons ; « Appliquer à tous » en fait le modèle actif.</li>
     </ul>
   </section>
 
   <section id="a-branding" class="m4w-help-section admin">
     <h2><i class="bi bi-palette"></i>Personnalisation</h2>
-    <p>Dans <?= $go('admin/branding', 'Personnalisation') ?>, avec aperçu en direct : nom et accroche, logo clair et logo pour le thème sombre, favicon, image de la page de connexion, couleurs principale et secondaire, style du menu latéral (clair, sombre, couleur de marque), arrondi des angles, police, message d'accueil de la page de connexion, et CSS personnalisé pour les besoins avancés.</p>
+    <p>Dans <?= $go('admin/branding', 'Personnalisation') ?>, avec aperçu en direct : nom et accroche, logo clair et logo pour le thème sombre, favicon, image de la page de connexion, image de fond du volet de lecture (affichée quand aucun message n'est ouvert : remplir, centrer ou motif répété), nom de l'entreprise à côté du logo, couleurs principale et secondaire, style du menu latéral (clair, sombre, couleur de marque), arrondi des angles, police, message d'accueil de la page de connexion, et CSS personnalisé pour les besoins avancés.</p>
     <div class="m4w-help-note tip"><i class="bi bi-lightbulb"></i><div>Fournissez un logo en PNG ou SVG sur fond transparent, et une variante claire pour le thème sombre. La couleur du texte posé sur vos couleurs (boutons, menu) s'adapte automatiquement pour rester lisible.</div></div>
   </section>
 

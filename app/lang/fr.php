@@ -171,7 +171,7 @@ return [
     // Signature
     'sig.title' => 'Signature', 'sig.desc' => 'Votre signature est gérée de façon centralisée et ajoutée automatiquement à chaque envoi.',
     'sig.corporate' => 'Signature d\'entreprise', 'sig.corporate_desc' => 'Ce modèle est défini par votre administrateur et rempli avec vos informations.',
-    'sig.none' => 'Aucun modèle de signature n\'est défini pour votre compte.', 'sig.fields_hint' => 'Une information erronée ? Les champs proviennent de votre',
+    'sig.none' => 'Aucun modèle de signature n\'est défini pour votre compte.', 'sig.fields_hint' => 'Une information erronée (fonction, téléphone…) ? Demandez à votre administrateur de la corriger dans votre fiche.',
     'sig.personal' => 'Mention personnelle', 'sig.personal_desc' => 'Texte facultatif ajouté au-dessus de la signature d\'entreprise.', 'sig.personal_ph' => 'Ex. : Bonne journée !',
 
     // Sécurité
@@ -234,7 +234,7 @@ return [
     'admin.domains' => 'Domaines hébergés', 'admin.add_domain' => 'Ajouter', 'admin.confirm_delete_domain' => 'Supprimer le domaine :name ?',
     'admin.domain_in_use' => 'Ce domaine contient encore des utilisateurs.', 'admin.no_aliases' => 'Aucun alias.',
     'admin.dns_help' => 'Pour recevoir du courrier, faites pointer l\'enregistrement MX de vos domaines vers ce serveur et publiez les enregistrements SPF, DKIM et DMARC indiqués dans « Serveur de messagerie ».',
-    'admin.sig_title' => 'Signatures centralisées', 'admin.sig_desc' => 'Définissez les modèles de signature de l\'entreprise. Ils sont remplis avec les informations de chaque utilisateur et injectés automatiquement à l\'envoi : impossible de les oublier ou de les modifier.',
+    'admin.sig_title' => 'Signatures centralisées', 'admin.sig_desc' => 'La signature de l\'entreprise : le modèle actif est rempli avec les informations de chaque utilisateur et ajouté automatiquement à tous les envois, réponses comprises. Les utilisateurs ne peuvent ni le modifier, ni en choisir un autre. Les autres modèles sont des brouillons, prêts à être activés.',
     'admin.sig_new' => 'Nouveau modèle', 'admin.sig_empty' => 'Aucun modèle de signature', 'admin.sig_assign' => 'Attribution en masse',
     'admin.sig_assign_to' => 'Appliquer à', 'admin.all_users' => 'Tous les utilisateurs', 'admin.sig_assign_confirm' => 'Attribuer ce modèle aux utilisateurs concernés ?',
     'admin.sig_form_desc' => 'Modifiez le HTML à gauche, l\'aperçu se met à jour en temps réel.', 'admin.sig_name' => 'Nom du modèle',
@@ -916,4 +916,19 @@ return [
     'js.col_next' => 'Reprise automatique vers :time.',
     'js.empty_starred' => 'Aucun message suivi',
     'js.empty_starred_hint' => 'Cliquez sur l\'étoile d\'un message pour le retrouver ici.',
+    'admin.sig_active' => 'Appliqué à tous',
+    'admin.sig_inactive' => 'Non utilisé',
+    'admin.sig_activate' => 'Appliquer à tous',
+    'admin.sig_activate_confirm' => 'Ce modèle remplacera la signature de tous les utilisateurs, dès le prochain envoi. Continuer ?',
+    'admin.sig_activated' => '« :name » est désormais la signature de tous les utilisateurs.',
+    'admin.sig_active_desc' => 'Modèle actif : il est ajouté à tous les messages de tous les utilisateurs, réponses et transferts compris. Pour en changer, activez un autre modèle.',
+    'admin.sig_make_active' => 'Appliquer ce modèle à tous les utilisateurs',
+    'admin.brand_show_name' => 'Afficher le nom de l\'entreprise à côté du logo',
+    'admin.brand_show_name_hint' => 'En haut à gauche de chaque écran. Le champ « Entreprise » est utilisé, ou à défaut le nom de la messagerie.',
+    'admin.brand_reader_bg' => 'Fond du volet de lecture',
+    'admin.brand_reader_bg_hint' => 'Affiché quand aucun message n\'est ouvert (photo, illustration, motif). Paysage conseillé, 6 Mo max.',
+    'admin.brand_reader_fit' => 'Cadrage',
+    'admin.fit_cover' => 'Remplir le volet',
+    'admin.fit_contain' => 'Image entière, centrée',
+    'admin.fit_tile' => 'Motif répété',
 ];

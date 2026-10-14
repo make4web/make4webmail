@@ -68,7 +68,6 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <div class="col-md-6"><label class="form-label"><?= te('user.department') ?></label><input class="form-control" name="department" value="<?= e($u['department']) ?>" list="departments"><datalist id="departments"><?php foreach ($departments as $d): ?><option value="<?= e($d) ?>"><?php endforeach; ?></datalist></div>
           <div class="col-md-6"><label class="form-label"><?= te('user.phone') ?></label><input class="form-control" name="phone" value="<?= e($u['phone']) ?>"></div>
           <div class="col-md-6"><label class="form-label"><?= te('user.mobile') ?></label><input class="form-control" name="mobile" value="<?= e($u['mobile']) ?>"></div>
-          <div class="col-12"><label class="form-label"><?= te('admin.signature_template') ?></label><select class="form-select" name="signature_template_id"><option value=""><?= te('admin.default_template') ?></option><?php foreach ($templates as $tp): ?><option value="<?= (int) $tp['id'] ?>" <?= (int) $u['signature_template_id'] === (int) $tp['id'] ? 'selected' : '' ?>><?= e($tp['name']) ?><?= $tp['is_default'] ? ' (' . te('admin.default') . ')' : '' ?></option><?php endforeach; ?></select></div>
         </div></div>
       </div>
       <?php if (!$isNew): ?>

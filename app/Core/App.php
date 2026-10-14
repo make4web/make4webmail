@@ -297,7 +297,6 @@ final class App
         $r->get('/settings/forwarding', [Controller\SettingsController::class, 'forwarding']);
         $r->post('/settings/forwarding', [Controller\SettingsController::class, 'saveForwarding']);
         $r->get('/settings/signature', [Controller\SettingsController::class, 'signature']);
-        $r->post('/settings/signature', [Controller\SettingsController::class, 'saveSignature']);
         $r->get('/settings/security', [Controller\SettingsController::class, 'security']);
         $r->post('/settings/security/password', [Controller\SettingsController::class, 'changePassword']);
         $r->post('/settings/security/2fa/start', [Controller\SettingsController::class, 'start2fa']);
@@ -333,7 +332,7 @@ final class App
         $r->post('/admin/signatures/save', [Controller\AdminController::class, 'saveSignature'], $admin);
         $r->post('/admin/signatures/delete', [Controller\AdminController::class, 'deleteSignature'], $admin);
         $r->post('/admin/signatures/preview', [Controller\AdminController::class, 'previewSignature'], $admin);
-        $r->post('/admin/signatures/assign', [Controller\AdminController::class, 'assignSignature'], $admin);
+        $r->post('/admin/signatures/{id}/activate', [Controller\AdminController::class, 'activateSignature'], $admin);
         $r->get('/admin/branding', [Controller\AdminController::class, 'branding'], $admin);
         $r->post('/admin/branding', [Controller\AdminController::class, 'saveBranding'], $admin);
         $r->get('/admin/mail', [Controller\AdminController::class, 'mail'], $admin);

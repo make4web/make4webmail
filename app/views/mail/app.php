@@ -77,7 +77,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
           <span data-invite="enable"><?= te('push.invite_enable') ?></span>
           <span data-invite="ios" class="d-none"><?= te('push.invite_ios') ?></span>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" data-invite="enable" data-push-enable><?= te('push.enable') ?></button>
+        <button type="button" class="btn btn-primary btn-sm text-nowrap" data-invite="enable" data-push-enable><?= te('push.enable') ?></button>
         <a class="btn btn-light btn-sm d-none" data-invite="ios" href="<?= e(url('help')) ?>#mobile"><?= te('push.how') ?></a>
         <button type="button" class="btn-close btn-sm" data-invite-close aria-label="<?= te('common.close') ?>"></button>
       </div>
@@ -93,10 +93,11 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
     </section>
 
     <section class="m4w-panel m4w-reader" id="m4w-reader" aria-label="<?= te('mail.reader') ?>">
-      <div class="m4w-empty m4w-reader-empty" id="m4w-reader-empty">
+      <?php $rbg = (string) M4W\Core\Settings::get('brand.reader_bg', ''); $rfit = (string) M4W\Core\Settings::get('brand.reader_bg_fit', 'cover'); ?>
+      <div class="m4w-empty m4w-reader-empty<?= $rbg !== '' ? ' has-bg fit-' . e($rfit) : '' ?>" id="m4w-reader-empty"<?= $rbg !== '' ? ' style="background-image:url(\'' . e(url('brand/' . $rbg)) . '\')"' : '' ?>>
         <div class="m4w-empty-icon"><i class="bi bi-envelope-open"></i></div>
-        <h3><?= te('mail.no_selection') ?></h3>
-        <p class="small mb-0"><?= te('mail.no_selection_hint') ?></p>
+        <div class="m4w-reader-empty-text"><h3><?= te('mail.no_selection') ?></h3>
+        <p class="small mb-0"><?= te('mail.no_selection_hint') ?></p></div>
       </div>
       <div class="d-none flex-column h-100" id="m4w-reader-content"></div>
     </section>
