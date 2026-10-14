@@ -13,6 +13,7 @@ use M4W\Core\Session;
 use M4W\Core\Settings;
 use M4W\Core\Totp;
 use M4W\Mail\HtmlSanitizer;
+use M4W\Service\SharedMailboxes;
 use M4W\Service\Fetcher;
 use M4W\Service\Folders;
 use M4W\Service\Forwarding;
@@ -329,6 +330,37 @@ final class SettingsController extends Controller
         }
         Audit::log('sessions.revoked');
         return $this->back('/settings/security', 'success', t('sessions.revoked'));
+    }
+
+    // ---- My other mailboxes ------------------------------------------------
+
+    public function mailboxes(): Response
+    {
+        return $this->page('mailboxes', ['boxes' => SharedMailboxes::of((int) $this->actor()['id'])]);
+    }
+
+    public function addMailbox(): Response
+    {
+        try {
+            $box = SharedMailboxes::add($this->actor(), $this->req->str('email'), $this->req->raw('password'), $this->req->str('code'), $this->req);
+        } catch (\InvalidArgumentException $e) {
+            return $this->back('/settings/mailboxes', 'danger', $e->getMessage());
+        }
+        return $this->back('/settings/mailboxes', 'success', t('shared.added', ['email' => $box['email']]));
+    }
+
+    public function removeMailbox(): Response
+    {
+        SharedMailboxes::remove((int) $this->actor()['id'], $this->req->int('id'));
+        return $this->back('/settings/mailboxes', 'success', t('shared.removed'));
+    }
+
+    /** Switch to one of my other mailboxes (0 = mine) and land on its inbox. */
+    public function switchMailbox(): Response
+    {
+        $box = SharedMailboxes::open($this->actor(), $this->req->int('id'));
+        $to = $this->req->str('to');
+        return Response::redirect(str_starts_with($to, '/') && !str_starts_with($to, '//') ? $to : '/mail');
     }
 
     // ---- External accounts -------------------------------------------------

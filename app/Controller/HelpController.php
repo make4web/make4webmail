@@ -23,6 +23,7 @@ final class HelpController extends Controller
         'mobile' => ['phone', 'Sur téléphone et notifications'],
         'security' => ['shield-lock', 'Sécurité du compte'],
         'privacy' => ['lock', 'Messages personnels et accès'],
+        'shared' => ['inboxes', 'Mes autres boîtes e-mail'],
         'delegated' => ['person-badge', 'Boîtes déléguées'],
         'shortcuts' => ['keyboard', 'Raccourcis clavier'],
         'faq' => ['question-circle', 'Questions fréquentes'],

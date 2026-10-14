@@ -85,6 +85,7 @@ final class App
         I18n::setLanguage($user['language'] ?? (Session::get('lang') ?: I18n::detect($req->header('Accept-Language'))));
         View::share('currentUser', $user);
         View::share('delegation', $user ? \M4W\Service\Delegation::banner($user) : null);
+        View::share('sharedBox', $user ? \M4W\Service\SharedMailboxes::banner($user) : null);
         View::share('req', $req);
 
         $match = $router->match($req);
@@ -304,6 +305,10 @@ final class App
         $r->post('/settings/security/2fa/disable', [Controller\SettingsController::class, 'disable2fa']);
         $r->post('/settings/security/sessions/revoke', [Controller\SettingsController::class, 'revokeSessions']);
         $r->get('/settings/accounts', [Controller\SettingsController::class, 'accounts']);
+        $r->get('/settings/mailboxes', [Controller\SettingsController::class, 'mailboxes']);
+        $r->post('/settings/mailboxes/add', [Controller\SettingsController::class, 'addMailbox']);
+        $r->post('/settings/mailboxes/remove', [Controller\SettingsController::class, 'removeMailbox']);
+        $r->post('/mailbox/switch', [Controller\SettingsController::class, 'switchMailbox']);
         $r->post('/settings/accounts/save', [Controller\SettingsController::class, 'saveAccount']);
         $r->post('/settings/accounts/delete', [Controller\SettingsController::class, 'deleteAccount']);
         $r->post('/settings/accounts/run', [Controller\SettingsController::class, 'runAccount']);

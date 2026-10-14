@@ -1227,6 +1227,101 @@ proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
 
+// ------------------------------------------------------------------ my other mailboxes
+echo "\nShared mailboxes (my other mailboxes)\n";
+use M4W\Service\SharedMailboxes;
+$shReq = new \M4W\Core\Request('POST', '/settings/mailboxes/add', [], [], [], ['REMOTE_ADDR' => '198.51.100.' . random_int(2, 250)]);
+$shBox = Users::find(Users::create(['email' => 'contact@test.local', 'password' => 'Contact!Pass2026', 'first_name' => 'Contact', 'last_name' => 'Accueil']));
+$shUser = Users::find(Users::create(['email' => 'nina@test.local', 'password' => 'Nina!Pass20266', 'first_name' => 'Nina']));
+test('shared: a user proves the right to a mailbox with its password', function () use ($shBox, $shUser, $shReq) {
+    $thrown = false;
+    try { SharedMailboxes::add($shUser, 'contact@test.local', 'mauvais', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown && !SharedMailboxes::linked((int) $shUser['id'], (int) $shBox['id']), 'wrong password refused');
+    ok((int) DB::value("SELECT COUNT(*) FROM login_attempts WHERE email = 'contact@test.local' AND success = 0") >= 1, 'counted like a failed login');
+    $thrown = false;
+    try { SharedMailboxes::add($shUser, 'nina@test.local', 'x', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'not your own mailbox');
+    SharedMailboxes::add($shUser, 'Contact@test.local', 'Contact!Pass2026', '', $shReq);
+    ok(SharedMailboxes::linked((int) $shUser['id'], (int) $shBox['id']));
+    eq(SharedMailboxes::of((int) $shUser['id'])[0]['method'], 'password');
+});
+test('shared: two-factor mailboxes also need their code, never twice the same', function () use ($shReq) {
+    $secret = Totp::generateSecret();
+    $box = Users::find(Users::create(['email' => 'compta@test.local', 'password' => 'Compta!Pass2026', 'first_name' => 'Compta']));
+    DB::update('users', ['totp_enabled' => 1, 'totp_secret' => Crypto::encrypt($secret)], 'id = :i', ['i' => $box['id']]);
+    $u1 = Users::find(Users::create(['email' => 'u1@test.local', 'password' => 'Somebody!Pass26']));
+    $u2 = Users::find(Users::create(['email' => 'u2@test.local', 'password' => 'Somebody!Pass26']));
+    $thrown = false;
+    try { SharedMailboxes::add($u1, 'compta@test.local', 'Compta!Pass2026', '', $shReq); } catch (\InvalidArgumentException $e) { $thrown = $e->getMessage() === t('shared.need_code'); }
+    ok($thrown, 'code asked');
+    $code = Totp::code($secret);
+    SharedMailboxes::add($u1, 'compta@test.local', 'Compta!Pass2026', $code, $shReq);
+    ok(SharedMailboxes::linked((int) $u1['id'], (int) $box['id']));
+    $thrown = false;
+    try { SharedMailboxes::add($u2, 'compta@test.local', 'Compta!Pass2026', $code, $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'replayed code refused');
+});
+test('shared: administrators attach any mailbox without its password', function () use ($alice, $shBox, $shReq) {
+    SharedMailboxes::add($alice, 'contact@test.local', '', '', $shReq);
+    eq(SharedMailboxes::of((int) $alice['id'])[0]['method'], 'admin');
+    $thrown = false;
+    try { SharedMailboxes::add($alice, 'nobody@test.local', '', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'unknown mailbox');
+});
+test('shared: switching leaves no delegation trace, sends as the mailbox, hides nothing', function () use ($shBox, $shUser, $alice) {
+    $_SESSION = [];
+    $logs = (int) DB::value('SELECT COUNT(*) FROM delegation_log');
+    $audit = (int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action LIKE 'delegation.%'");
+    $boxInbox = Folders::byRole((int) $shBox['id'], 'inbox');
+    Mailbox::store((int) $shBox['id'], (int) $boxInbox['id'], "From: x@ext.com\r\nTo: contact@test.local\r\nSubject: [Perso] visible quand même\r\nMessage-ID: <sh1@ext.com>\r\n\r\nx\r\n");
+    SharedMailboxes::open($shUser, (int) $shBox['id']);
+    $mb = Delegation::mailbox($shUser);
+    eq($mb['email'], 'contact@test.local', 'works in the shared mailbox');
+    ok(empty($mb['_actor']) && !Mailbox::$privacy, 'not a delegation: nothing hidden');
+    Composer::send($mb, ['to' => 'admin@test.local', 'subject' => 'Réponse de l\'accueil', 'html' => '<p>Bonjour</p>']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Réponse de l''accueil'", ['u' => $alice['id']]);
+    $raw = Mailbox::raw($m);
+    ok(str_contains($raw, 'contact@test.local') && !preg_match('/^Sender:/mi', $raw), 'From the shared mailbox, no Sender:');
+    eq((int) DB::value('SELECT COUNT(*) FROM delegation_log'), $logs, 'no access journal');
+    eq((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action LIKE 'delegation.%'"), $audit, 'no delegation audit');
+    // Through a mail screen controller, as the web requests do.
+    \M4W\Core\Auth::setUser($shUser);
+    $ctl = new class (new \M4W\Core\Request('GET', '/api/messages', [], [], [], [])) extends \M4W\Controller\Controller {
+        protected function delegable(): bool { return true; }
+        public function who(): array { return $this->user(); }
+    };
+    eq($ctl->who()['email'], 'contact@test.local', 'mail screens follow the switch');
+    \M4W\Core\Auth::setUser(null);
+    SharedMailboxes::open($shUser, 0);
+    eq(Delegation::mailbox($shUser)['email'], 'nina@test.local', 'back to my mailbox');
+    // Someone without the link cannot open it, even with a forged session.
+    $outsider = Users::findByEmail('u2@test.local');
+    $_SESSION['shared_mbx'] = ['box' => (int) $shBox['id']];
+    eq(Delegation::mailbox($outsider)['email'], 'u2@test.local', 'forged session ignored');
+    $_SESSION = [];
+});
+test('shared: members by administration, push to members, cleanup', function () use ($shBox, $shUser, $alice, $sendTo) {
+    $bobId = (int) Users::findByEmail('bob@test.local')['id'];
+    SharedMailboxes::setMembers((int) $shBox['id'], [(int) $shUser['id'], $bobId], (int) $alice['id']);
+    eq(count(SharedMailboxes::members((int) $shBox['id'])), 2, 'admin link replaced by the chosen list');
+    ok(!SharedMailboxes::linked((int) $alice['id'], (int) $shBox['id']));
+    // Members are alerted on their devices when mail reaches the shared inbox.
+    $sent = [];
+    \M4W\Service\WebPush::$transport = function (string $ep) use (&$sent) { $sent[] = $ep; return 201; };
+    $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($k)['ec'];
+    $pub = \M4W\Service\WebPush::b64u("\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT));
+    \M4W\Service\WebPush::subscribe((int) $shUser['id'], 'https://fcm.googleapis.com/fcm/send/nina', $pub, \M4W\Service\WebPush::b64u(random_bytes(16)), 'ua');
+    try {
+        Delivery::deliver($sendTo('contact@test.local', 'Demande de devis'), 'client@ext.com', ['contact@test.local']);
+    } finally {
+        \M4W\Service\WebPush::$transport = null;
+    }
+    ok(in_array('https://fcm.googleapis.com/fcm/send/nina', $sent, true), 'member notified');
+    Users::delete((int) $shBox['id']);
+    eq(SharedMailboxes::of((int) $shUser['id']), [], 'links gone with the mailbox');
+});
+
 // ------------------------------------------------------------------ push notifications
 echo "\nPush notifications\n";
 /** EC private key from its raw scalar and public point (SEC1 DER). */

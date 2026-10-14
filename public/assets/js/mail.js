@@ -109,7 +109,7 @@
     (function walk(pid, depth) {
       (children[pid] || []).sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (f) { out += folderItem(f, depth); walk(f.id, depth + 1); });
     })(0, 0);
-    $('#m4w-user-folders').html(out || '<li class="px-3 small text-muted" style="padding-left:1.1rem!important">' + esc(t('no_folders')) + '</li>');
+    $('#m4w-user-folders').html(out || '<li class="px-3 small m4w-nav-empty" style="padding-left:1.1rem!important">' + esc(t('no_folders')) + '</li>');
     highlightFolder();
     renderMoveMenus();
   }

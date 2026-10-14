@@ -26,9 +26,10 @@ abstract class Controller
         if ($this->delegable()) {
             $owner = \M4W\Service\Delegation::mailbox($actor);
             if ($owner !== $actor) {
-                // Every change made in a delegated mailbox is traced to the person who made it.
+                // Every change made in a delegated mailbox is traced to the person who made it
+                // (not in one of "my other mailboxes": a standing access, not a delegation).
                 static $logged = false;
-                if (!$logged && !in_array($this->req->method, ['GET', 'HEAD'], true)) {
+                if (!$logged && !empty($owner['_actor']) && !in_array($this->req->method, ['GET', 'HEAD'], true)) {
                     $logged = true;
                     \M4W\Core\Audit::log('delegation.action', $owner['email'], ['path' => $this->req->path], (int) $actor['id']);
                 }

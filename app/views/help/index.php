@@ -269,6 +269,17 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <?php endif; ?>
   </section>
 
+  <section id="shared" class="m4w-help-section">
+    <h2><i class="bi bi-inboxes"></i>Mes autres boîtes e-mail</h2>
+    <p>Une boîte partagée (contact@, support@, compta@…) ou une autre adresse qui vous revient peut être rattachée à votre compte : vous passez de l'une à l'autre sans vous reconnecter.</p>
+    <ol class="m4w-help-steps">
+      <li>Dans <?= $go('settings/mailboxes', 'Paramètres → Mes autres boîtes') ?>, saisissez l'adresse de la boîte et <strong>son mot de passe</strong> (et son code de double authentification si elle en a une) : c'est la preuve que vous y avez droit. Un administrateur peut aussi vous y donner accès directement ; il n'a pas besoin du mot de passe.</li>
+      <li>Ouvrez le menu de votre avatar, en haut à droite : la rubrique <strong>Mes autres boîtes e-mail</strong> liste vos boîtes avec leurs messages non lus. Cliquez sur une boîte pour y travailler.</li>
+      <li>Une pastille <span class="m4w-help-ui"><i class="bi bi-inboxes" aria-hidden="true"></i>Boîte contact@…</span> rappelle la boîte ouverte ; « Ma boîte » vous ramène à la vôtre.</li>
+    </ol>
+    <p>Dans une autre boîte, vous lisez, classez, répondez et envoyez <strong>au nom de cette boîte</strong>, avec sa signature, et gérez ses règles et sa réponse automatique. Ce n'est pas une délégation : pas de motif, pas de journal d'accès, pas de notification. Si vous avez activé les notifications, un nouveau message dans une de vos boîtes vous est aussi signalé ; le toucher ouvre la bonne boîte.</p>
+  </section>
+
   <section id="delegated" class="m4w-help-section">
     <h2><i class="bi bi-person-badge"></i>Gérer une boîte déléguée</h2>
     <p>Si vous êtes délégué d'une boîte (par exemple pour remplacer un collègue absent), elle apparaît dans le menu de votre avatar, rubrique « Boîtes aux lettres déléguées ».</p>
@@ -405,6 +416,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li>La messagerie bascule sur sa boîte. Le bandeau orange rappelle dans quelle boîte vous êtes ; « Quitter » vous ramène à la vôtre.</li>
     </ol>
     <p>Dans la boîte ouverte, vous pouvez lire, classer, répondre, envoyer (le destinataire voit l'adresse de la boîte et votre nom comme expéditeur réel), et régler sa <strong>réponse d'absence</strong>, son <strong>transfert</strong> et ses <strong>règles</strong>. Son mot de passe, sa double authentification et ses fichiers restent hors de portée.</p>
+    <h3>Boîtes partagées, sans délégation</h3>
+    <p>Pour une boîte que plusieurs personnes utilisent au quotidien (contact@, support@, compta@…), la délégation n'est pas le bon outil. Créez la boîte comme un utilisateur, puis, dans sa fiche, carte « Boîte partagée », cochez les personnes qui y travaillent : elles la retrouvent dans « Mes autres boîtes e-mail », sans motif, sans journal d'accès et sans notification. Vous pouvez aussi rattacher n'importe quelle boîte à votre propre compte depuis <?= $go('settings/mailboxes', 'Paramètres → Mes autres boîtes') ?>, sans son mot de passe. Les utilisateurs, eux, doivent prouver qu'ils y ont droit avec le mot de passe de la boîte (et son code de double authentification) ; un mauvais mot de passe compte comme un échec de connexion. Les ajouts et changements d'accès sont inscrits dans les journaux d'administration.</p>
     <h3>Désigner des délégués</h3>
     <p>Dans la fiche d'un utilisateur, carte « Délégation de la boîte », cochez les collègues qui pourront ouvrir sa boîte (assistant, remplaçant). Ils la retrouvent dans le menu de leur avatar. Décocher retire l'accès immédiatement, même si la boîte est ouverte.</p>
     <h3>Encadrement</h3>

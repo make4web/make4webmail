@@ -60,6 +60,11 @@ Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisa
 - **Vie privée** (recommandations de la CNIL) : les messages dont l'objet commence par `[Perso]`, `[Privé]`, `[Personnel]`, `Perso :`… et les dossiers nommés « Perso », « Personnel » ou « Privé » (avec leurs sous-dossiers) sont invisibles et inaccessibles pour les délégués.
 - Réglages dans « Administration → Sécurité » : accès des administrateurs, motif obligatoire, information de l'utilisateur, masquage des éléments personnels. Retirer un délégué ou désactiver l'accès des administrateurs coupe immédiatement les sessions déléguées en cours.
 
+### Mes autres boîtes e-mail (boîtes partagées)
+- Une personne peut rattacher d'autres boîtes à son compte (contact@, support@, une boîte partagée à plusieurs) et basculer de l'une à l'autre depuis le menu de son avatar. La rubrique « Mes autres boîtes e-mail », placée avant les délégations, affiche le nombre de non-lus.
+- Pour rattacher une boîte, l'utilisateur fournit son mot de passe, ainsi que son code TOTP si elle a la double authentification ; un code n'est jamais accepté deux fois. Un échec compte comme une connexion ratée (verrouillage, ralentissement). Les administrateurs n'ont pas besoin du mot de passe, et peuvent désigner les membres d'une boîte depuis sa fiche.
+- Ce n'est pas une délégation : pas de motif, pas de journal d'accès, pas de notification au titulaire, pas d'en-tête `Sender:`, rien de masqué. L'envoi se fait au nom de la boîte, avec sa signature. Les droits sont revérifiés à chaque requête, et les notifications push préviennent aussi les membres.
+
 ### Messages supprimés (seconde corbeille)
 - Quand un message est supprimé définitivement, une copie complète (.eml compressé) est conservée dans le stockage de l'instance. C'est le cas de la corbeille vidée, de la suppression directe, de la purge automatique à 30 jours, d'une règle « supprimer » ou de la suppression d'un compte.
 - La copie note qui a supprimé, quand, depuis quelle adresse IP, pour quel motif et depuis quel dossier d'origine. Elle est invisible pour les utilisateurs et ne compte pas dans leur quota.
@@ -208,7 +213,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 106 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 112 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

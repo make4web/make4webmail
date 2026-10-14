@@ -122,6 +122,19 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
         </div>
       </div>
       <div class="card mb-4">
+        <div class="card-header d-flex align-items-center"><i class="bi bi-inboxes me-2 text-primary"></i><?= te('shared.card_title') ?></div>
+        <div class="card-body">
+          <p class="small text-muted"><?= te('shared.card_desc') ?></p>
+          <input type="hidden" name="members_present" value="1">
+          <input class="form-control form-control-sm mb-2" type="search" placeholder="<?= te('deleg.filter_users') ?>" aria-label="<?= te('deleg.filter_users') ?>" data-filter-list="#members-list">
+          <div class="m4w-check-list" id="members-list">
+            <?php foreach ($others as $o): $on = $o['display_name'] ?: $o['email']; ?>
+            <label class="m4w-check-item" data-filter-text="<?= e(mb_strtolower($on . ' ' . $o['email'])) ?>"><input class="form-check-input" type="checkbox" name="members[]" value="<?= (int) $o['id'] ?>" <?= in_array((int) $o['id'], $members, true) ? 'checked' : '' ?>><span class="min-w-0"><span class="d-block text-truncate"><?= e($on) ?></span><small class="text-muted d-block text-truncate"><?= e($o['email']) ?></small></span></label>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      </div>
+      <div class="card mb-4">
         <div class="card-header"><i class="bi bi-info-circle me-2 text-primary"></i><?= te('admin.info') ?></div>
         <ul class="list-group list-group-flush small">
           <li class="list-group-item d-flex justify-content-between"><span class="text-muted"><?= te('admin.storage') ?></span><span><?= e(format_bytes((int) $u['used_bytes'])) ?></span></li>

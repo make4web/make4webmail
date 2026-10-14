@@ -109,6 +109,7 @@ final class AdminController extends Controller
             'user' => $user,
             'aliases' => $aliases,
             'delegates' => $user ? array_map('intval', array_column(\M4W\Service\Delegation::delegates((int) $user['id']), 'id')) : [],
+            'members' => $user ? array_map('intval', array_column(\M4W\Service\SharedMailboxes::members((int) $user['id']), 'id')) : [],
             'journal' => $user ? \M4W\Service\Delegation::journal((int) $user['id'], 10) : [],
             'others' => $user ? DB::all("SELECT id, email, display_name, role FROM users WHERE id <> :u AND status = 'active' ORDER BY display_name, email", ['u' => $user['id']]) : [],
             'templates' => Signatures::all(),
@@ -153,6 +154,9 @@ final class AdminController extends Controller
             Users::update($id, $data);
             if ($r->bool('delegates_present')) {
                 \M4W\Service\Delegation::setDelegates($id, $r->arr('delegates'), $this->uid());
+            }
+            if ($r->bool('members_present')) {
+                \M4W\Service\SharedMailboxes::setMembers($id, $r->arr('members'), $this->uid());
             }
             if ($err = $this->saveRemoteFields($id)) {
                 return $this->back($redirect, 'warning', t('admin.user_saved') . ' ' . $err);

@@ -28,6 +28,14 @@ final class MailController extends Controller
 
     public function shell(): Response
     {
+        // Link from a notification of one of "my other mailboxes": open that mailbox first.
+        if (isset($this->req->query['mbx'])) {
+            $mbx = (int) $this->req->query['mbx'];
+            $actor = $this->actor();
+            if ($mbx === (int) $actor['id'] || \M4W\Service\SharedMailboxes::linked((int) $actor['id'], $mbx)) {
+                \M4W\Service\SharedMailboxes::open($actor, $mbx);
+            }
+        }
         $u = $this->user();
         return $this->view('mail/app', ['user' => $u], 'layouts/mail');
     }

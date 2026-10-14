@@ -106,6 +106,7 @@ final class Delegation
             throw new \InvalidArgumentException(t('deleg.reason_required'));
         }
         self::close($actor);
+        SharedMailboxes::close();
         $now = time();
         $logId = DB::insert('delegation_log', [
             'owner_id' => $ownerId, 'actor_id' => (int) $actor['id'], 'actor_name' => mb_substr($actor['name'] ?: $actor['email'], 0, 190),
@@ -171,7 +172,8 @@ final class Delegation
     {
         $owner = self::current($actor);
         if (!$owner) {
-            return $actor;
+            // One of "my other mailboxes": a standing access, nothing hidden.
+            return SharedMailboxes::current($actor) ?? $actor;
         }
         Mailbox::$privacy = (int) Settings::get('delegation.hide_personal', 1) === 1;
         return $owner;

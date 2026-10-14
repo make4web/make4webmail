@@ -486,5 +486,18 @@ static function (): void {
 ) {OPT}",
 "CREATE UNIQUE INDEX collector_seen_msg ON collector_seen(msg_hash, user_id)",
 ],
+9 => [
+// "My other mailboxes": shared mailboxes attached to a person's account.
+"CREATE TABLE mailbox_links (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  mailbox_id INTEGER NOT NULL,
+  method VARCHAR(10) NOT NULL DEFAULT 'admin',
+  created_by INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mailbox_links_pair ON mailbox_links(user_id, mailbox_id)",
+"CREATE INDEX mailbox_links_box ON mailbox_links(mailbox_id)",
+],
 ];
 

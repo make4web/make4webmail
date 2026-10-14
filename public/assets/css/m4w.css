@@ -987,3 +987,10 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-reader-empty.has-bg p { color: var(--m4w-text-2); }
 .m4w-brand-company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
 @media (max-width: 991.98px) { .m4w-brand-company { display: none; } }
+/* "My other mailboxes": which mailbox is open */
+.m4w-shared-pill { display: flex; align-items: center; gap: .5rem; min-width: 0; max-width: 420px; padding: .2rem .25rem .2rem .7rem; border-radius: 999px; background: var(--m4w-primary-soft); color: var(--m4w-text); border: 1px solid color-mix(in srgb, var(--m4w-primary) 35%, transparent); font-size: .86rem; margin: 0; }
+.m4w-shared-pill > .bi { color: var(--m4w-primary); }
+.m4w-shared-pill .btn { --bs-btn-padding-y: .15rem; --bs-btn-padding-x: .6rem; border-radius: 999px; background: var(--m4w-primary); color: var(--m4w-on-primary); border: 0; white-space: nowrap; }
+.m4w-shared-pill .btn:hover { filter: brightness(.92); color: var(--m4w-on-primary); }
+@media (max-width: 767.98px) { .m4w-shared-pill .m4w-deleg-label { display: none; } .m4w-shared-pill { max-width: 46vw; } }
+.m4w-nav-empty { color: var(--m4w-sidebar-muted); }
