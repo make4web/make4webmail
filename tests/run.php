@@ -1098,6 +1098,148 @@ test('webmail: wrong provider password is reported, not retried blindly', functi
 proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
+
+// ------------------------------------------------------------------ push notifications
+echo "\nPush notifications\n";
+/** EC private key from its raw scalar and public point (SEC1 DER). */
+$ecKey = static function (string $d, string $pub): \OpenSSLAsymmetricKey {
+    $der = hex2bin('307702010104') . "\x20" . $d . hex2bin('a00a06082a8648ce3d030107a144034200') . $pub;
+    return openssl_pkey_get_private("-----BEGIN EC PRIVATE KEY-----\n" . chunk_split(base64_encode($der), 64, "\n") . "-----END EC PRIVATE KEY-----\n");
+};
+/** Decryption by the browser side (RFC 8291 §3.4), written independently of the service. */
+$pushDecrypt = static function (string $body, \OpenSSLAsymmetricKey $uaKey, string $uaPublic, string $auth): string {
+    $salt = substr($body, 0, 16);
+    $idlen = ord($body[20]);
+    $asPublic = substr($body, 21, $idlen);
+    $rest = substr($body, 21 + $idlen);
+    $spki = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode(hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $asPublic), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    $shared = openssl_pkey_derive(openssl_pkey_get_public($spki), $uaKey, 32);
+    $ikm = hash_hkdf('sha256', $shared, 32, "WebPush: info\0" . $uaPublic . $asPublic, $auth);
+    $cek = hash_hkdf('sha256', $ikm, 16, "Content-Encoding: aes128gcm\0", $salt);
+    $nonce = hash_hkdf('sha256', $ikm, 12, "Content-Encoding: nonce\0", $salt);
+    $plain = openssl_decrypt(substr($rest, 0, -16), 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, substr($rest, -16));
+    if ($plain === false) {
+        throw new \RuntimeException('decryption failed');
+    }
+    return rtrim(substr($plain, 0, (int) strrpos($plain, "\x02")), "\0");
+};
+$b64 = [M4W\Service\WebPush::class, 'b64uDecode'];
+test('push: encryption matches the RFC 8291 test vector', function () use ($ecKey, $b64) {
+    $as = $ecKey($b64('yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw'), $b64('BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8'));
+    $out = M4W\Service\WebPush::encrypt('When I grow up, I want to be a watermelon', 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', $as, $b64('DGv6ra1nlYgDCS1FRnbzlw'));
+    eq(M4W\Service\WebPush::b64u($out), 'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN');
+});
+test('push: a browser decrypts what the server sends', function () use ($pushDecrypt) {
+    $ua = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($ua)['ec'];
+    $uaPub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+    $auth = random_bytes(16);
+    $msg = json_encode(['title' => 'Élodie', 'body' => 'Devis signé ✔']);
+    $body = M4W\Service\WebPush::encrypt($msg, M4W\Service\WebPush::b64u($uaPub), M4W\Service\WebPush::b64u($auth));
+    eq(unpack('N', substr($body, 16, 4))[1], 4096, 'record size');
+    eq($pushDecrypt($body, $ua, $uaPub, $auth), $msg);
+    ok(M4W\Service\WebPush::encrypt($msg, M4W\Service\WebPush::b64u($uaPub), M4W\Service\WebPush::b64u($auth)) !== $body, 'fresh key and salt each time');
+});
+test('push: VAPID token is a valid ES256 JWT for the push service', function () use ($b64) {
+    $h = M4W\Service\WebPush::vapidHeader('https://fcm.googleapis.com/fcm/send/abc:def');
+    ok((bool) preg_match('/^vapid t=([\w-]+)\.([\w-]+)\.([\w-]+), k=([\w-]+)$/', $h, $m), 'header format');
+    eq($m[4], M4W\Service\WebPush::vapid()['public']);
+    $claims = json_decode($b64($m[2]), true);
+    eq($claims['aud'], 'https://fcm.googleapis.com');
+    ok($claims['exp'] > time() && $claims['exp'] <= time() + 86400, 'expiry within 24 h');
+    ok(str_starts_with($claims['sub'], 'mailto:'), 'contact');
+    $sig = $b64($m[3]);
+    eq(strlen($sig), 64, 'raw R||S');
+    $int = static function (string $x): string { $x = ltrim($x, "\0"); if (ord($x[0]) & 0x80) { $x = "\0" . $x; } return "\x02" . chr(strlen($x)) . $x; };
+    $der = $int(substr($sig, 0, 32)) . $int(substr($sig, 32));
+    $der = "\x30" . chr(strlen($der)) . $der;
+    $pem = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode(hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $b64($m[4])), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    eq(openssl_verify($m[1] . '.' . $m[2], $der, openssl_pkey_get_public($pem), OPENSSL_ALGO_SHA256), 1, 'signature verifies');
+    eq(M4W\Service\WebPush::vapid()['public'], $m[4], 'key pair kept');
+});
+test('push: only known push services are accepted (no SSRF)', function () use ($bob) {
+    $ok = ['https://fcm.googleapis.com/fcm/send/x', 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://web.push.apple.com/QH', 'https://wns2-par02p.notify.windows.com/w/?token=x'];
+    foreach ($ok as $u) { ok(M4W\Service\WebPush::allowedEndpoint($u), $u); }
+    $bad = ['http://fcm.googleapis.com/x', 'https://127.0.0.1/x', 'https://evilfcm.googleapis.com.attacker.io/x', 'https://localhost/x', 'file:///etc/passwd', 'https://notify.windows.com.evil.net/'];
+    foreach ($bad as $u) { ok(!M4W\Service\WebPush::allowedEndpoint($u), $u); }
+    $thrown = false;
+    try { M4W\Service\WebPush::subscribe((int) $bob['id'], 'https://169.254.169.254/latest', str_repeat('A', 87), 'AAAAAAAAAAAAAAAAAAAAAA', 'ua'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'internal address refused');
+    $thrown = false;
+    try { M4W\Service\WebPush::subscribe((int) $bob['id'], 'https://fcm.googleapis.com/fcm/send/x', 'short', 'AAAAAAAAAAAAAAAAAAAAAA', 'ua'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'bad key refused');
+});
+test('push: new inbox mail reaches the devices; expired ones are forgotten', function () use ($bob, $pushDecrypt, $sendTo) {
+    DB::delete('push_subscriptions', '1 = 1');
+    $devices = [];
+    foreach (['https://fcm.googleapis.com/fcm/send/phone', 'https://updates.push.services.mozilla.com/wpush/v2/gone'] as $ep) {
+        $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+        $d = openssl_pkey_get_details($k)['ec'];
+        $pub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+        $auth = random_bytes(16);
+        M4W\Service\WebPush::subscribe((int) $bob['id'], $ep, M4W\Service\WebPush::b64u($pub), M4W\Service\WebPush::b64u($auth), 'Mozilla/5.0 (Linux; Android 14) Chrome/130.0 Mobile Safari/537.36');
+        $devices[$ep] = [$k, $pub, $auth];
+    }
+    $sent = [];
+    M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) {
+        $sent[] = [$ep, $h, $body];
+        return str_contains($ep, 'gone') ? 410 : 201;
+    };
+    try {
+        Delivery::deliver($sendTo('bob@test.local', 'Devis à valider', 'claire@client.fr'), 'claire@client.fr', ['bob@test.local']);
+        eq(count($sent), 2, 'both devices tried');
+        [$ep, $h, $body] = $sent[0];
+        eq($h['Content-Encoding'], 'aes128gcm');
+        ok(str_starts_with($h['Authorization'], 'vapid t='), 'VAPID');
+        $dev = $devices[$ep];
+        $msg = json_decode($pushDecrypt($body, $dev[0], $dev[1], $dev[2]), true);
+        eq($msg['title'], 'Client Ext');
+        eq($msg['body'], 'Devis à valider');
+        ok((bool) preg_match('~^mail#f/\d+/m/\d+$~', $msg['url']), 'opens the message: ' . $msg['url']);
+        eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 1, 'expired subscription removed');
+        eq(M4W\Service\WebPush::deviceLabel(M4W\Service\WebPush::devices((int) $bob['id'])[0]['user_agent']), 'Chrome · Android');
+
+        // Discreet mode: nothing readable on a lock screen.
+        Settings::set('push.preview', 0);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Salaires 2026', 'rh@client.fr'), 'rh@client.fr', ['bob@test.local']);
+        $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
+        ok(!str_contains(json_encode($msg, JSON_UNESCAPED_UNICODE), 'Salaires') && !str_contains($msg['title'], 'Client'), 'no subject nor sender');
+        Settings::set('push.preview', 1);
+
+        // Personal subjects stay hidden.
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', '[Perso] rendez-vous médecin', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
+        ok(!str_contains($msg['body'], 'médecin'), 'personal subject hidden');
+
+        // Mail filed away by a rule, or turned off in preferences: no alert.
+        $sent = [];
+        Users::savePrefs((int) $bob['id'], ['notifications' => 0]);
+        Delivery::deliver($sendTo('bob@test.local', 'Silence', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'preference respected');
+        Users::savePrefs((int) $bob['id'], ['notifications' => 1]);
+        Settings::set('push.enabled', 0);
+        Delivery::deliver($sendTo('bob@test.local', 'Coupé', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'disabled by the administrator');
+        Settings::set('push.enabled', 1);
+    } finally {
+        M4W\Service\WebPush::$transport = null;
+    }
+});
+test('push: a device moves to whoever signs in on it, and leaves with a deleted user', function () use ($bob) {
+    $tmpId = Users::create(['email' => 'stagiaire@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Sam', 'last_name' => 'Stage']);
+    $ep = 'https://fcm.googleapis.com/fcm/send/phone';
+    $row = DB::one('SELECT p256dh, auth FROM push_subscriptions WHERE endpoint_hash = :h', ['h' => hash('sha256', $ep)]);
+    M4W\Service\WebPush::subscribe($tmpId, $ep, $row['p256dh'], $row['auth'], 'ua');
+    eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 0, 'no longer Bob\'s');
+    eq(count(M4W\Service\WebPush::devices($tmpId)), 1);
+    M4W\Service\WebPush::unsubscribe((int) $bob['id'], null, (int) M4W\Service\WebPush::devices($tmpId)[0]['id']);
+    eq(count(M4W\Service\WebPush::devices($tmpId)), 1, 'cannot remove someone else\'s device');
+    Users::delete($tmpId);
+    eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

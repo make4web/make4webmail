@@ -23,6 +23,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <a href="#compose" class="m4w-help-card"><i class="bi bi-pencil-square"></i><span>Écrire un message</span></a>
     <a href="#vacation" class="m4w-help-card"><i class="bi bi-airplane"></i><span>Prévenir de mon absence</span></a>
     <a href="#files" class="m4w-help-card"><i class="bi bi-folder2-open"></i><span>Partager des fichiers</span></a>
+    <a href="#mobile" class="m4w-help-card"><i class="bi bi-phone"></i><span>Installer sur mon téléphone</span></a>
     <a href="#security" class="m4w-help-card"><i class="bi bi-shield-lock"></i><span>Sécuriser mon compte</span></a>
     <?php if ($isAdmin): ?><a href="#a-users" class="m4w-help-card admin"><i class="bi bi-person-gear"></i><span>Gérer les utilisateurs</span></a><?php endif; ?>
   </nav>
@@ -214,6 +215,27 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>
     <h3>Avec la messagerie</h3>
     <p>En rédaction, <?= $ui('folder2-open', '') ?> joint un fichier de l'espace. Dans un message reçu, <?= $ui('folder-plus', '') ?> enregistre une pièce jointe dans le dossier de votre choix.</p>
+  </section>
+
+  <section id="mobile" class="m4w-help-section">
+    <h2><i class="bi bi-phone"></i>Sur téléphone et notifications</h2>
+    <p><?= $b ?> s'installe comme une application sur votre téléphone, votre tablette ou votre ordinateur : une icône sur l'écran d'accueil, un affichage plein écran, sans passer par une boutique d'applications. Vous vous connectez avec les mêmes identifiants que sur ordinateur ; il n'y a rien d'autre à configurer.</p>
+    <h3>Installer l'application</h3>
+    <ul>
+      <li><strong>iPhone et iPad</strong> (Safari) : ouvrez <?= $b ?>, touchez <?= $ui('box-arrow-up', 'Partager') ?>, puis « Sur l'écran d'accueil ». Ouvrez ensuite l'application depuis sa nouvelle icône.</li>
+      <li><strong>Android</strong> (Chrome, Edge, Samsung Internet) : menu <?= $ui('three-dots-vertical', '⋮') ?> → « Installer l'application » ou « Ajouter à l'écran d'accueil ».</li>
+      <li><strong>Ordinateur</strong> (Chrome, Edge) : cliquez sur l'icône d'installation à droite de la barre d'adresse.</li>
+    </ul>
+    <?php if ($cfg['push']): ?>
+    <h3>Recevoir les notifications</h3>
+    <ol class="m4w-help-steps">
+      <li>Dans <?= $go('settings#mobile', 'Paramètres → Profil & préférences') ?>, rubrique « Notifications sur cet appareil », touchez <?= $ui('bell', 'Activer les notifications') ?> et acceptez la demande du navigateur. Un bandeau dans la messagerie vous le propose aussi.</li>
+      <li>« Envoyer un test » vérifie que l'appareil reçoit bien les alertes.</li>
+      <li>Répétez l'opération sur chaque appareil : la liste « Appareils enregistrés » les montre tous, et vous pouvez en retirer un (téléphone perdu ou remplacé).</li>
+    </ol>
+    <p>Une notification est envoyée pour chaque nouveau message non lu qui arrive dans votre boîte de réception ; toucher la notification ouvre le message. Les messages rangés par une règle dans un autre dossier ne déclenchent pas d'alerte.</p>
+    <div class="m4w-help-note info"><i class="bi bi-info-circle"></i><div>Sur iPhone et iPad, les notifications ne fonctionnent qu'une fois l'application installée sur l'écran d'accueil (iOS 16.4 ou plus récent). Si la demande d'autorisation a été refusée, réactivez-la dans les réglages du navigateur pour ce site.</div></div>
+    <?php endif; ?>
   </section>
 
   <section id="security" class="m4w-help-section">
@@ -425,7 +447,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     </table>
     <h3>Mode webmail (boîtes chez OVH, Infomaniak, Gandi…)</h3>
     <ol class="m4w-help-steps">
-      <li>Choisissez « Webmail sur boîtes existantes » et votre fournisseur : les serveurs IMAP et SMTP se remplissent tout seuls. Réglez la fréquence de relève et ce que deviennent les messages relevés chez le fournisseur (conservés pour les téléphones en IMAP, ou supprimés pour libérer de l'espace).</li>
+      <li>Choisissez « Webmail sur boîtes existantes » et votre fournisseur : les serveurs IMAP et SMTP se remplissent tout seuls. Réglez la fréquence de relève et ce que deviennent les messages relevés chez le fournisseur (conservés comme sauvegarde, ou supprimés pour libérer de l'espace). Les mots de passe des boîtes restant inconnus des utilisateurs, ceux-ci consultent leur courrier sur téléphone avec l'application <?= $b ?> et ses notifications (voir <a href="#mobile">Sur téléphone</a>), et non avec une application de messagerie IMAP..</li>
       <li>Dans la fiche de chaque utilisateur, bloc « Boîte chez le fournisseur », saisissez le <strong>mot de passe de sa boîte</strong>. Il est distinct de son mot de passe du webmail, conservé chiffré et jamais réaffiché. « Tester la connexion » vérifie IMAP et SMTP. Pour relier un lot de comptes, ajoutez ce mot de passe en 8ᵉ colonne de l'import CSV.</li>
       <li>La pastille de chaque utilisateur dans la liste indique l'état : <span class="badge badge-soft-success">Reliée</span> <span class="badge badge-soft-warning">En attente</span> <span class="badge badge-soft-danger">Erreur</span> <span class="badge badge-soft-secondary">Non reliée</span>. Une boîte en erreur a généralement un mot de passe changé chez le fournisseur : mettez-le à jour.</li>
     </ol>

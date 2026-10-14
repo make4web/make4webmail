@@ -46,11 +46,19 @@ final class AssetController extends Controller
         return new Response(json_encode([
             'name' => $name,
             'short_name' => mb_substr($name, 0, 12),
+            'id' => url('mail'),
             'start_url' => url('mail'),
+            'scope' => url('/'),
             'display' => 'standalone',
             'background_color' => '#ffffff',
             'theme_color' => (string) Settings::get('brand.primary', '#2563eb'),
-            'icons' => [['src' => $icon, 'sizes' => 'any']],
+            // PNG icons are required to install on Android and iOS; the brand logo comes on top.
+            'icons' => array_values(array_filter([
+                ['src' => asset('img/icon-192.png'), 'sizes' => '192x192', 'type' => 'image/png'],
+                ['src' => asset('img/icon-512.png'), 'sizes' => '512x512', 'type' => 'image/png'],
+                ['src' => asset('img/icon-maskable-512.png'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
+                Branding::logoUrl() ? ['src' => $icon, 'sizes' => 'any'] : null,
+            ])),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 200, ['Content-Type' => 'application/manifest+json']);
     }
 }

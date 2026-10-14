@@ -16,8 +16,14 @@ DirectoryIndex index.php
     <FilesMatch "\.(css|js|woff2|svg|png|ico|webmanifest)$">
         Header set Cache-Control "public, max-age=2592000"
         Header set Cross-Origin-Resource-Policy "same-origin"
-        Header set Content-Security-Policy "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
+        Header set Content-Security-Policy "default-src 'none'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
     </FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+    <Files "sw.js">
+        Header set Cache-Control "no-cache"
+    </Files>
 </IfModule>
 
 <FilesMatch "\.(php|phtml)$">

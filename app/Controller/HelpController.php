@@ -20,6 +20,7 @@ final class HelpController extends Controller
         'signature' => ['pen', 'Signature'],
         'contacts' => ['people', 'Contacts et annuaire'],
         'files' => ['folder2-open', 'Fichiers partagés'],
+        'mobile' => ['phone', 'Sur téléphone et notifications'],
         'security' => ['shield-lock', 'Sécurité du compte'],
         'privacy' => ['lock', 'Messages personnels et accès'],
         'delegated' => ['person-badge', 'Boîtes déléguées'],
@@ -67,6 +68,7 @@ final class HelpController extends Controller
                 'user_spaces' => (int) Settings::get('files.users_create_spaces', 0) === 1,
                 'block_images' => (int) Settings::get('security.block_remote_images', 1) === 1,
                 'max_attempts' => (int) Settings::get('security.max_attempts', 5),
+                'push' => \M4W\Service\WebPush::enabled(),
                 'lockout' => (int) Settings::get('security.lockout_minutes', 15),
             ],
         ]);

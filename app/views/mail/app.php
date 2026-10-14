@@ -70,6 +70,18 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
           </div>
         </div>
       </div>
+      <?php if (M4W\Service\WebPush::enabled() && !empty($prefs['notifications'])): ?>
+      <div class="m4w-push-invite d-none" id="m4w-push-invite" role="region" aria-label="<?= te('push.invite_title') ?>">
+        <i class="bi bi-bell"></i>
+        <div class="flex-grow-1">
+          <span data-invite="enable"><?= te('push.invite_enable') ?></span>
+          <span data-invite="ios" class="d-none"><?= te('push.invite_ios') ?></span>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" data-invite="enable" data-push-enable><?= te('push.enable') ?></button>
+        <a class="btn btn-light btn-sm d-none" data-invite="ios" href="<?= e(url('help')) ?>#mobile"><?= te('push.how') ?></a>
+        <button type="button" class="btn-close btn-sm" data-invite-close aria-label="<?= te('common.close') ?>"></button>
+      </div>
+      <?php endif; ?>
       <div class="m4w-filter-row" id="m4w-filters" role="toolbar" aria-label="<?= te('mail.filters') ?>">
         <button class="m4w-chip active" data-filter=""><?= te('mail.f_all') ?></button>
         <button class="m4w-chip" data-filter="unread"><i class="bi bi-envelope"></i><?= te('mail.f_unread') ?></button>

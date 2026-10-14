@@ -31,9 +31,6 @@
       poll(true);
       setInterval(function () { if (!document.hidden) poll(false); }, 30000);
       if (boot.compose && M4W.Compose) M4W.Compose.open({ mode: 'new', to: boot.compose.to, subject: boot.compose.subject, files: boot.compose.files });
-      if ('Notification' in window && S.prefs.notifications && Notification.permission === 'default') {
-        $(document).one('click', function () { try { Notification.requestPermission(); } catch (e) {} });
-      }
     });
     bindUi();
     bindKeyboard();

@@ -96,8 +96,16 @@ En mode webmail :
 - Le serveur peut donc travailler seul : la tâche planifiée et chaque consultation relèvent les boîtes. Les messages relevés suivent le même circuit de distribution que dans les autres modes (règles, absence, transfert, seconde corbeille, notifications).
 - Tout ce qui part au nom d'un utilisateur emprunte le SMTP du fournisseur avec sa boîte : messages, réponses d'absence et de règle, transferts, envois d'un délégué (en-tête `Sender:` en plus). Les transferts sont réécrits « Auteur (via Utilisateur) » avec `Reply-To` vers l'auteur, car un fournisseur refuse d'envoyer au nom d'un tiers.
 - Les messages entre collègues passent par le fournisseur (pas de distribution locale) et la signature DKIM est laissée au fournisseur.
-- Les messages relevés peuvent être conservés chez le fournisseur (lecture sur téléphone en IMAP) ou supprimés après 0, 7, 30 ou 90 jours. Un dossier indésirables du fournisseur peut être relevé vers les Indésirables.
+- Les messages relevés peuvent être conservés chez le fournisseur (sauvegarde) ou supprimés après 0, 7, 30 ou 90 jours. Comme les utilisateurs ne connaissent pas le mot de passe de leur boîte, ils consultent leur courrier sur téléphone avec l'application Make4WebMail (voir ci-dessous) et non avec une application IMAP. Un dossier indésirables du fournisseur peut être relevé vers les Indésirables.
 - Un test de bout en bout (`tests/run.php`) vérifie le mode webmail contre un faux fournisseur IMAP/SMTP sur de vraies sockets. Ce faux fournisseur, comme les vrais, refuse tout expéditeur autre que la boîte authentifiée.
+
+### Application mobile et notifications push
+- Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.
+- **Notifications Web Push** à l'arrivée d'un message non lu dans la boîte de réception, même navigateur fermé. Toucher la notification ouvre le message. Implémentation native en PHP, sans dépendance ni service tiers : clés VAPID (RFC 8292) générées à l'installation, contenu chiffré de bout en bout jusqu'au navigateur (RFC 8291, aes128gcm), vérifié dans les tests avec le vecteur officiel de la RFC.
+- Chaque utilisateur active les notifications appareil par appareil (Paramètres → Profil & préférences), envoie un test et retire un appareil perdu. Sur iPhone, l'interface explique qu'il faut d'abord installer l'application sur l'écran d'accueil (iOS 16.4+).
+- L'administrateur peut couper les notifications ou passer en **mode discret** (ni expéditeur ni objet sur l'écran verrouillé). Les objets marqués personnels ne sont jamais affichés.
+- Seuls les services push des navigateurs sont contactés (Google, Mozilla, Apple, Microsoft) : liste blanche contre la SSRF, abonnements expirés oubliés automatiquement.
+- HTTPS est obligatoire (exigence des navigateurs).
 
 ### Administration
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
@@ -193,7 +201,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 95 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, mode webmail, TOTP, quotas…
+php tests/run.php   # 101 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, mode webmail, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

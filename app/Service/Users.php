@@ -186,7 +186,7 @@ final class Users
             }
         }
         DB::transaction(function () use ($id) {
-            foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases'] as $t) {
+            foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases', 'push_subscriptions'] as $t) {
                 DB::delete($t, 'user_id = :u', ['u' => $id]);
             }
             DB::delete('vacations', 'user_id = :u', ['u' => $id]);

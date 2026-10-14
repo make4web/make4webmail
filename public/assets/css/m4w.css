@@ -931,3 +931,8 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-mode-body { color: var(--m4w-text-2); line-height: 1.55; }
 .m4w-mode-needs { color: var(--m4w-text-2); border-top: 1px dashed var(--m4w-border); padding-top: .6rem; line-height: 1.45; }
 .m4w-mode-needs .bi-dot { color: var(--m4w-primary); font-size: 1.2rem; line-height: 1; margin: -.15rem -.35rem 0 -.4rem; }
+/* Push notifications */
+.m4w-push-invite { display: flex; align-items: center; gap: .6rem; padding: .55rem .9rem; background: var(--m4w-primary-soft); color: var(--m4w-text, inherit); font-size: .84rem; border-bottom: 1px solid var(--m4w-border); }
+.m4w-push-invite.d-none { display: none !important; }
+.m4w-push-invite > .bi { color: var(--m4w-primary); font-size: 1.05rem; }
+.m4w-push-devices .min-w-0 { min-width: 0; }

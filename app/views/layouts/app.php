@@ -25,6 +25,7 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 </div>
 <div class="m4w-toasts" id="m4w-toasts" aria-live="polite"></div>
 <?php include __DIR__ . '/../partials/scripts.php'; ?>
+<script src="<?= e(asset('js/push.js')) ?>"></script>
 <script src="<?= e(asset('vendor/qrcode/qrcode.js')) ?>"></script>
 <link rel="stylesheet" href="<?= e(asset('vendor/jodit/jodit.min.css')) ?>">
 <script src="<?= e(asset('vendor/jodit/jodit.min.js')) ?>"></script>

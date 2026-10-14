@@ -14,11 +14,12 @@ if ($path !== '/' && $file !== false && str_starts_with($file, __DIR__ . DIRECTO
     header_remove('X-Powered-By');
     header('Content-Type: ' . ($types[$ext] ?? 'application/octet-stream'));
     header('Content-Length: ' . filesize($file));
-    header('Cache-Control: public, max-age=2592000');
+    // The service worker must always be revalidated so updates reach installed apps.
+    header('Cache-Control: ' . (basename($file) === 'sw.js' ? 'no-cache' : 'public, max-age=2592000'));
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
     header('Cross-Origin-Resource-Policy: same-origin');
-    header("Content-Security-Policy: default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'none'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; frame-ancestors 'none'");
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') {
         readfile($file);
     }

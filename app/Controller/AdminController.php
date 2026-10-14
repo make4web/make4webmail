@@ -672,6 +672,8 @@ final class AdminController extends Controller
             'delegation.notify_owner' => $r->bool('deleg_notify') ? 1 : 0,
             'delegation.hide_personal' => $r->bool('deleg_private') ? 1 : 0,
             'features.fetch_accounts' => $r->bool('fetch_accounts') ? 1 : 0,
+            'push.enabled' => $r->bool('push_enabled') ? 1 : 0,
+            'push.preview' => $r->int('push_preview', 1) === 0 ? 0 : 1,
             'features.undo_send_seconds' => max(0, min(30, $r->int('undo_send_seconds', 5))),
             'features.default_language' => isset(I18n::LANGUAGES[$r->str('default_language')]) ? $r->str('default_language') : 'fr',
         ];

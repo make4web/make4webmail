@@ -233,6 +233,13 @@ final class App
         $r->post('/contacts/import', [Controller\ContactsController::class, 'import']);
         $r->get('/contacts/export', [Controller\ContactsController::class, 'export']);
 
+        // Push notifications
+        $r->get('/api/push/key', [Controller\PushController::class, 'key']);
+        $r->post('/api/push/subscribe', [Controller\PushController::class, 'subscribe']);
+        $r->post('/api/push/renew', [Controller\PushController::class, 'renew']);
+        $r->post('/api/push/unsubscribe', [Controller\PushController::class, 'unsubscribe']);
+        $r->post('/api/push/test', [Controller\PushController::class, 'test']);
+
         // User guide
         $r->get('/help', [Controller\HelpController::class, 'index']);
 

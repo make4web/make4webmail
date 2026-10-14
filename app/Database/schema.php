@@ -450,5 +450,22 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX remote_uids_account ON remote_uids(account_id, imported_at)",
 ],
+7 => [
+// Web Push subscriptions (one per browser / installed app).
+"CREATE TABLE push_subscriptions (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  endpoint {TEXT},
+  endpoint_hash VARCHAR(64) NOT NULL,
+  p256dh VARCHAR(200) NOT NULL,
+  auth VARCHAR(64) NOT NULL,
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  failures INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX push_subscriptions_endpoint ON push_subscriptions(endpoint_hash)",
+"CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id)",
+],
 ];
 

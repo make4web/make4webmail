@@ -100,7 +100,15 @@ final class Delivery
             }
 
             // 4. Store.
-            Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            $newId = Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            // Phone / desktop notification, like the in-page one: unread mail landing in the inbox.
+            if (!$actions['read'] && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
+                try {
+                    WebPush::newMail($user, $newId, $parsed->from(), $parsed->subject(), $folderId);
+                } catch (\Throwable $e) {
+                    error_log('[m4w] push: ' . $e->getMessage());
+                }
+            }
             foreach (array_unique($actions['copies']) as $copy) {
                 if ($copy !== $folderId) {
                     Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
