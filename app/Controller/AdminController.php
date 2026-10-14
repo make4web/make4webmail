@@ -51,9 +51,16 @@ final class AdminController extends Controller
                 'out' => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'out' AND created_at >= :s AND created_at < :e", ['s' => $start, 'e' => $start + 86400]),
             ];
         }
+        $mode = \M4W\Service\RemoteMailbox::mode();
         $checks = [
-            'smtp'  => trim((string) Settings::get('smtp.host', '')) !== '',
-            'dkim'  => Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== '',
+            // Relay mode needs its relay; server mode sends on its own; webmail mode needs every mailbox linked.
+            'smtp'  => match ($mode) {
+                'relay' => trim((string) Settings::get('smtp.host', '')) !== '',
+                'collector' => \M4W\Service\RemoteMailbox::status(\M4W\Service\Collector::account()) === 'ok',
+                'webmail' => !DB::value("SELECT COUNT(*) FROM users u LEFT JOIN remote_accounts r ON r.user_id = u.id WHERE u.status = 'active' AND (r.id IS NULL OR r.password_enc = '' OR r.last_error <> '')"),
+                default => true,
+            },
+            'dkim'  => in_array($mode, ['webmail', 'collector'], true) || (Settings::get('smtp.dkim_selector', '') !== '' && Settings::get('smtp.dkim_private', '') !== ''),
             'https' => $this->req->isSecure(),
             'logo'  => Settings::get('brand.logo', '') !== '',
             'cron'  => (int) Settings::get('system.cron_last', 0) > time() - 900,
@@ -83,7 +90,11 @@ final class AdminController extends Controller
             $where .= " AND u.role = 'admin'";
         }
         $users = DB::all("SELECT u.*, t.name AS template_name FROM users u LEFT JOIN signature_templates t ON t.id = u.signature_template_id WHERE $where ORDER BY u.email", $p);
-        return $this->page('users', ['users' => $users, 'q' => $q, 'status' => $status, 'templates' => Signatures::all()]);
+        $remotes = [];
+        foreach (DB::all('SELECT * FROM remote_accounts') as $ra) {
+            $remotes[(int) $ra['user_id']] = $ra;
+        }
+        return $this->page('users', ['users' => $users, 'q' => $q, 'status' => $status, 'templates' => Signatures::all(), 'remotes' => $remotes]);
     }
 
     public function userForm(?string $id = null): Response
@@ -94,9 +105,11 @@ final class AdminController extends Controller
         }
         $aliases = $user ? DB::all('SELECT * FROM aliases WHERE user_id = :u ORDER BY address', ['u' => $user['id']]) : [];
         return $this->page('user_form', [
+            'remote' => $user ? \M4W\Service\RemoteMailbox::find((int) $user['id']) : null,
             'user' => $user,
             'aliases' => $aliases,
             'delegates' => $user ? array_map('intval', array_column(\M4W\Service\Delegation::delegates((int) $user['id']), 'id')) : [],
+            'members' => $user ? array_map('intval', array_column(\M4W\Service\SharedMailboxes::members((int) $user['id']), 'id')) : [],
             'journal' => $user ? \M4W\Service\Delegation::journal((int) $user['id'], 10) : [],
             'others' => $user ? DB::all("SELECT id, email, display_name, role FROM users WHERE id <> :u AND status = 'active' ORDER BY display_name, email", ['u' => $user['id']]) : [],
             'templates' => Signatures::all(),
@@ -116,7 +129,6 @@ final class AdminController extends Controller
             'job_title' => $r->str('job_title'), 'department' => $r->str('department'), 'phone' => $r->str('phone'),
             'mobile' => $r->str('mobile'), 'role' => $r->str('role') === 'admin' ? 'admin' : 'user',
             'status' => $r->str('status') === 'disabled' ? 'disabled' : 'active', 'quota_mb' => max(0, $r->int('quota_mb', 2048)),
-            'signature_template_id' => $r->int('signature_template_id') ?: null,
             'language' => isset(I18n::LANGUAGES[$r->str('language')]) ? $r->str('language') : 'fr',
             'must_change_password' => $r->bool('must_change_password') ? 1 : 0,
         ];
@@ -143,6 +155,12 @@ final class AdminController extends Controller
             if ($r->bool('delegates_present')) {
                 \M4W\Service\Delegation::setDelegates($id, $r->arr('delegates'), $this->uid());
             }
+            if ($r->bool('members_present')) {
+                \M4W\Service\SharedMailboxes::setMembers($id, $r->arr('members'), $this->uid());
+            }
+            if ($err = $this->saveRemoteFields($id)) {
+                return $this->back($redirect, 'warning', t('admin.user_saved') . ' ' . $err);
+            }
             if ($data['status'] === 'disabled' || $pw !== '') {
                 Auth::revokeOtherSessions($id, 0);
             }
@@ -163,10 +181,75 @@ final class AdminController extends Controller
         }
         $newId = Users::create($data + ['email' => $email, 'password' => $pw]);
         Audit::log('admin.user_created', $email);
+        if ($err = $this->saveRemoteFields($newId)) {
+            return $this->back('/admin/users/' . $newId, 'warning', t('admin.user_created', ['email' => $email]) . ' ' . $err);
+        }
         if ($r->bool('send_welcome')) {
             \M4W\Service\Installer::welcome($newId);
         }
         return $this->back('/admin/users', 'success', t('admin.user_created', ['email' => $email]));
+    }
+
+    /** Webmail mode: provider mailbox link entered in the user form. Returns an error message or null. */
+    private function saveRemoteFields(int $userId): ?string
+    {
+        $r = $this->req;
+        if (!$r->bool('remote_present')) {
+            return null;
+        }
+        $hasAccount = \M4W\Service\RemoteMailbox::find($userId) !== null;
+        if (!$hasAccount && $r->raw('remote_password') === '') {
+            return null; // nothing entered yet: the mailbox stays "not linked"
+        }
+        try {
+            \M4W\Service\RemoteMailbox::save($userId, [
+                'login' => $r->str('remote_login'), 'password' => $r->raw('remote_password'), 'enabled' => $r->bool('remote_enabled') || !$hasAccount,
+                'imap_host' => $r->str('remote_imap_host'), 'imap_port' => $r->int('remote_imap_port'), 'imap_security' => $r->str('remote_imap_security'),
+                'smtp_host' => $r->str('remote_smtp_host'), 'smtp_port' => $r->int('remote_smtp_port'), 'smtp_security' => $r->str('remote_smtp_security'),
+            ], $this->uid());
+        } catch (\InvalidArgumentException $e) {
+            return $e->getMessage();
+        }
+        return null;
+    }
+
+    /** Webmail mode: check IMAP and SMTP credentials of a mailbox (AJAX). */
+    public function testRemote(string $id): Response
+    {
+        $res = \M4W\Service\RemoteMailbox::test((int) $id);
+        return $this->ok(['imap' => $res['imap'], 'smtp' => $res['smtp'], 'message' => $res['imap'] === '' && $res['smtp'] === '' ? t('wm.test_ok') : t('wm.test_failed')]);
+    }
+
+    /** Collector mode: check the shared mailbox (AJAX). */
+    public function testCollector(): Response
+    {
+        return $this->testRemote((string) \M4W\Service\Collector::ACCOUNT);
+    }
+
+    /** Collector mode: pull and dispatch now (AJAX). */
+    public function syncCollector(): Response
+    {
+        return $this->syncRemote((string) \M4W\Service\Collector::ACCOUNT);
+    }
+
+    /** Collector mode: live sending gauge (AJAX, refreshed by the admin pages). */
+    public function collectorStats(): Response
+    {
+        $s = \M4W\Service\Collector::stats();
+        return $this->ok(['stats' => $s + ['next_time' => $s['next'] ? date('H:i', $s['next']) : '']]);
+    }
+
+    /** Webmail mode: pull new mail now (AJAX). */
+    public function syncRemote(string $id): Response
+    {
+        $acc = \M4W\Service\RemoteMailbox::find((int) $id);
+        if (!$acc) {
+            return $this->fail(t('wm.not_linked'));
+        }
+        DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+        $acc['last_sync_at'] = 0;
+        $res = \M4W\Service\RemoteMailbox::sync($acc);
+        return $res['error'] !== '' ? $this->fail($res['error']) : $this->ok(['message' => t('wm.synced', ['n' => $res['fetched']])]);
     }
 
     public function deleteUser(): Response
@@ -198,9 +281,6 @@ final class AdminController extends Controller
                     break;
                 case 'force_pw':
                     Users::update($id, ['must_change_password' => 1]);
-                    break;
-                case 'template':
-                    Users::update($id, ['signature_template_id' => $this->req->int('template_id') ?: null]);
                     break;
                 case 'delete':
                     Users::delete($id);
@@ -235,11 +315,19 @@ final class AdminController extends Controller
                 $errors[] = $email;
                 continue;
             }
-            Users::create([
+            $newId = Users::create([
                 'email' => $email, 'first_name' => $c[1] ?? '', 'last_name' => $c[2] ?? '', 'job_title' => $c[3] ?? '',
                 'department' => $c[4] ?? '', 'phone' => $c[5] ?? '', 'password' => $pw, 'must_change_password' => 1,
                 'display_name' => trim(($c[1] ?? '') . ' ' . ($c[2] ?? '')),
             ]);
+            // Webmail mode: optional 8th column = mailbox password at the provider.
+            if (\M4W\Service\RemoteMailbox::active() && trim($c[7] ?? '') !== '') {
+                try {
+                    \M4W\Service\RemoteMailbox::save($newId, ['login' => '', 'password' => trim($c[7]), 'enabled' => 1], $this->uid());
+                } catch (\InvalidArgumentException) {
+                    $errors[] = $email . ' (boîte)';
+                }
+            }
             $n++;
         }
         Audit::log('admin.users_imported', (string) $n);
@@ -350,7 +438,7 @@ final class AdminController extends Controller
         $id = $this->req->int('id') ?: null;
         $id = Signatures::save([
             'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->req->raw('html'),
-            'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => $this->req->bool('apply_on_reply'),
+            'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => 1,
         ], $id);
         Audit::log('admin.signature_saved', (string) $id);
         return $this->back('/admin/signatures/' . $id, 'success', t('admin.signature_saved'));
@@ -370,17 +458,16 @@ final class AdminController extends Controller
         return $this->ok(['html' => $html]);
     }
 
-    public function assignSignature(): Response
+    /** The chosen template becomes the one applied to everyone. */
+    public function activateSignature(string $id): Response
     {
-        $tpl = $this->req->int('template_id') ?: null;
-        $dept = $this->req->str('department');
-        if ($dept === '*') {
-            $n = DB::run('UPDATE users SET signature_template_id = :t', ['t' => $tpl])->rowCount();
-        } else {
-            $n = DB::run('UPDATE users SET signature_template_id = :t WHERE department = :d', ['t' => $tpl, 'd' => $dept])->rowCount();
+        $tpl = Signatures::find((int) $id);
+        if (!$tpl) {
+            throw new HttpException(404);
         }
-        Audit::log('admin.signature_assigned', $dept, ['template' => $tpl]);
-        return $this->back('/admin/signatures', 'success', t('admin.bulk_done', ['n' => $n]));
+        DB::run('UPDATE signature_templates SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END', ['id' => $tpl['id']]);
+        Audit::log('admin.signature_activated', $tpl['name']);
+        return $this->back('/admin/signatures', 'success', t('admin.sig_activated', ['name' => $tpl['name']]));
     }
 
     // ---- Branding ------------------------------------------------------------
@@ -408,15 +495,17 @@ final class AdminController extends Controller
             'brand.login_message' => mb_substr($r->str('login_message'), 0, 500),
             'brand.footer' => mb_substr($r->str('footer'), 0, 300),
             'brand.custom_css' => mb_substr($r->raw('custom_css'), 0, 20000),
+            'brand.show_name' => $r->bool('show_name') ? 1 : 0,
+            'brand.reader_bg_fit' => in_array($r->str('reader_bg_fit'), ['cover', 'contain', 'tile'], true) ? $r->str('reader_bg_fit') : 'cover',
         ];
         try {
-            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg'] as $field => $prefix) {
+            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg', 'reader_bg' => 'readerbg'] as $field => $prefix) {
                 if ($r->bool('remove_' . $field)) {
                     $values['brand.' . $field] = '';
                 }
                 $f = $r->files[$field] ?? null;
                 if (is_array($f) && ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, $field === 'login_bg' ? 6_000_000 : 2_000_000);
+                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, in_array($field, ['login_bg', 'reader_bg'], true) ? 6_000_000 : 2_000_000);
                 }
             }
         } catch (\InvalidArgumentException $e) {
@@ -438,7 +527,18 @@ final class AdminController extends Controller
             $dkimPublic = 'v=DKIM1; k=rsa; p=' . preg_replace('/-----(BEGIN|END) PUBLIC KEY-----|\s+/', '', $pub);
         }
         $domains = array_column(DB::all('SELECT name FROM domains WHERE active = 1 ORDER BY name'), 'name');
-        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '']);
+        $linked = [
+            'total' => (int) DB::value("SELECT COUNT(*) FROM users WHERE status = 'active'"),
+            'ok' => (int) DB::value("SELECT COUNT(*) FROM remote_accounts r JOIN users u ON u.id = r.user_id WHERE u.status = 'active' AND r.enabled = 1 AND r.password_enc <> ''"),
+        ];
+        $collector = [
+            'account' => \M4W\Service\Collector::account(),
+            'stats' => \M4W\Service\Collector::stats(),
+            'redirect' => \M4W\Service\Collector::addressesToRedirect(),
+            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role = 'admin' DESC, email"),
+            'fallback' => \M4W\Service\Collector::fallbackUser(),
+        ];
+        return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked, 'collector' => $collector]);
     }
 
     public function saveMail(): Response
@@ -461,13 +561,46 @@ final class AdminController extends Controller
             'inbound.allowed_ips' => $r->str('inbound_ips'),
             'inbound.spam_header' => $r->bool('spam_header') ? 1 : 0,
         ];
+        $mode = in_array($r->str('mode'), ['server', 'relay', 'webmail', 'collector'], true) ? $r->str('mode') : \M4W\Service\RemoteMailbox::mode();
+        $values['mail.mode'] = $mode;
+        $host = static fn(string $v) => mb_strtolower(preg_replace('/[^a-z0-9.-]/i', '', $v) ?? '');
+        $sec = static fn(string $v) => in_array($v, ['ssl', 'tls', 'none'], true) ? $v : 'ssl';
+        $values += [
+            'webmail.preset' => array_key_exists($r->str('wm_preset'), \M4W\Service\RemoteMailbox::PRESETS) ? $r->str('wm_preset') : 'custom',
+            'webmail.imap_host' => $host($r->str('wm_imap_host')), 'webmail.imap_port' => max(1, min(65535, $r->int('wm_imap_port', 993))), 'webmail.imap_security' => $sec($r->str('wm_imap_security')),
+            'webmail.smtp_host' => $host($r->str('wm_smtp_host')), 'webmail.smtp_port' => max(1, min(65535, $r->int('wm_smtp_port', 465))), 'webmail.smtp_security' => $sec($r->str('wm_smtp_security')),
+            'webmail.interval' => max(1, min(60, $r->int('wm_interval', 2))),
+            'webmail.leave_days' => in_array($r->int('wm_leave_days', -1), [-1, 0, 7, 30, 90], true) ? $r->int('wm_leave_days', -1) : -1,
+            'webmail.spam_folder' => mb_substr(preg_replace('/[\r\n\x00"\\\\]/', '', $r->str('wm_spam_folder')) ?? '', 0, 100),
+            'webmail.verify_peer' => $r->bool('wm_verify_peer') ? 1 : 0,
+            'collector.hourly_limit' => max(1, min(100000, $r->int('col_limit', 200))),
+            'collector.fallback_user' => (int) DB::value("SELECT id FROM users WHERE id = :i AND status = 'active'", ['i' => $r->int('col_fallback')]),
+        ];
+        if ($mode === 'relay' && $values['smtp.host'] === '') {
+            return $this->back('/admin/mail', 'danger', t('wm.relay_needs_host'));
+        }
+        // Collector mode: the shared mailbox at the provider.
+        if ($r->str('col_address') !== '' || $r->raw('col_password') !== '') {
+            try {
+                $current = \M4W\Service\Collector::account();
+                if (!$current && $r->raw('col_password') === '') {
+                    throw new \InvalidArgumentException(t('wm.need_password'));
+                }
+                \M4W\Service\Collector::save($r->str('col_address') ?: (string) ($current['login'] ?? ''), $r->raw('col_password'), $this->uid());
+            } catch (\InvalidArgumentException $e) {
+                return $this->back('/admin/mail', 'danger', $e->getMessage());
+            }
+        }
+        if ($mode === 'collector' && !\M4W\Service\Collector::account()) {
+            return $this->back('/admin/mail', 'danger', t('col.needs_account'));
+        }
         Settings::setMany($values);
         if ($r->raw('password') !== '') {
             Settings::setSecret('smtp.password', $r->raw('password'));
         } elseif ($r->bool('clear_password')) {
             Settings::set('smtp.password', '');
         }
-        Audit::log('admin.mail_saved', $values['smtp.host']);
+        Audit::log('admin.mail_saved', $mode . ($mode === 'relay' ? ' ' . $values['smtp.host'] : ''));
         return $this->back('/admin/mail', 'success', t('settings.saved'));
     }
 
@@ -502,6 +635,9 @@ final class AdminController extends Controller
         if ($res['failed']) {
             return $this->fail(implode(' — ', $res['failed']));
         }
+        if ($res['deferred']) {
+            return $this->ok(['message' => t('col.test_held', ['time' => date('H:i', $res['retry_at'])])]);
+        }
         return $this->ok(['message' => t('admin.test_ok', ['email' => $to])]);
     }
 
@@ -515,12 +651,12 @@ final class AdminController extends Controller
             $spaces[] = $s;
         }
         $stats = [
-            'files' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at = 0'),
+            'files' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at = 0 AND archived_at = 0'),
             'versions' => (int) DB::value('SELECT COUNT(*) FROM fs_versions'),
             'trash' => (int) DB::value('SELECT COUNT(*) FROM fs_files WHERE deleted_at > 0'),
         ];
         return $this->page('files', [
-            'spaces' => $spaces, 'stats' => $stats, 'usage' => \M4W\Service\Files::usage(),
+            'spaces' => $spaces, 'stats' => $stats, 'usage' => \M4W\Service\Files::usage(), 'archived' => \M4W\Service\Files::archived(),
             'driver' => \M4W\Storage\Storage::store()->name(),
             'phpMax' => min(self::iniBytes((string) ini_get('upload_max_filesize')), self::iniBytes((string) ini_get('post_max_size'))),
         ]);
@@ -539,16 +675,128 @@ final class AdminController extends Controller
         $r = $this->req;
         $values = [
             'files.max_file_mb' => max(1, min(10240, $r->int('max_file_mb', 200))),
+            'files.transfer_services' => mb_substr(str_replace("\r", '', $r->raw('transfer_services')), 0, 2000),
             'files.quota_gb' => max(0, min(100000, $r->int('quota_gb', 0))),
             'files.versions' => max(0, min(100, $r->int('versions', 10))),
             'files.trash_days' => max(1, min(365, $r->int('trash_days', 30))),
             'files.users_create_spaces' => $r->bool('users_create_spaces') ? 1 : 0,
+            'files.expiry_max_days' => max(30, min(3650, $r->int('expiry_max_days', 1095))),
         ];
+        $url = static fn(string $v) => preg_match('#^https?://[a-z0-9.-]+(:\d+)?(/[^\s"<>]*)?$#i', $v) ? rtrim($v, '/') : '';
+        $values['office.url'] = $url($r->str('office_url'));
+        $values['office.wopi_base'] = $url($r->str('office_wopi_base'));
+        $values['files.expiry_default_days'] = max(1, min($values['files.expiry_max_days'], $r->int('expiry_default_days', 365)));
         foreach ($values as $k => $v) {
             Settings::set($k, $v);
         }
         Audit::log('admin.files_saved');
         return $this->back('/admin/files', 'success', t('settings.saved'));
+    }
+
+    /** Online editing: reach the office server and read its formats (AJAX). */
+    public function officeTest(): Response
+    {
+        $err = \M4W\Service\Office::test();
+        return $err === '' ? $this->ok(['message' => t('admin.office_ok', ['n' => count(\M4W\Service\Office::editable())])]) : $this->fail($err);
+    }
+
+    /** Expired documents: put back, download or delete for good. */
+    public function archivedFile(string $id): Response
+    {
+        $f = DB::one('SELECT * FROM fs_files WHERE id = :id AND archived_at > 0', ['id' => (int) $id]);
+        if (!$f) {
+            throw new HttpException(404, t('files.not_found'));
+        }
+        $action = $this->req->str('action');
+        if ($this->req->method === 'GET') {
+            $tmp = \M4W\Service\Files::toTempFile($f['blob_id']);
+            register_shutdown_function(static fn() => @unlink($tmp));
+            Audit::log('files.archive_downloaded', $f['name']);
+            return Response::file($tmp, 'application/octet-stream', $f['name']);
+        }
+        if ($action === 'restore') {
+            \M4W\Service\Files::restoreArchived((int) $f['id'], $this->uid());
+            return $this->back('/admin/files#archive', 'success', t('files.archive_restored', ['name' => $f['name']]));
+        }
+        if ($action === 'delete') {
+            \M4W\Service\Files::destroyFile((int) $f['id']);
+            Audit::log('files.archive_deleted', $f['name']);
+            return $this->back('/admin/files#archive', 'success', t('files.archive_deleted', ['name' => $f['name']]));
+        }
+        return $this->back('/admin/files#archive');
+    }
+
+    public function spam(?array $test = null): Response
+    {
+        $since = time() - 7 * 86400;
+        $count = static fn(string $like) => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'in' AND created_at > :t AND info LIKE :l", ['t' => $since, 'l' => $like]);
+        $stats = [
+            'received' => (int) DB::value("SELECT COUNT(*) FROM mail_log WHERE direction = 'in' AND created_at > :t", ['t' => $since]),
+            'suspect' => $count('%, junk%'),
+            'quarantine' => $count('quarantined%'),
+            'delete' => $count('spam deleted%'),
+            'held' => (int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE reason = 'quarantine' AND restored_at = 0"),
+        ];
+        return $this->page('spam', ['stats' => $stats, 'test' => $test]);
+    }
+
+    public function saveSpam(): Response
+    {
+        $r = $this->req;
+        $sus = max(1, min(100, (float) $r->str('suspect', '5')));
+        $qua = (float) $r->str('quarantine', '10');
+        $del = (float) $r->str('delete', '20');
+        // Each level above the previous one; 0 switches a level off.
+        $qua = $qua <= 0 ? 0 : max($sus + 0.5, min(200, $qua));
+        $del = $del <= 0 ? 0 : max(max($sus, $qua) + 0.5, min(500, $del));
+        $zones = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($r->str('dnsbl'))) ?: [] as $z) {
+            if (preg_match('/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/', $z)) {
+                $zones[] = $z;
+            }
+        }
+        Settings::setMany([
+            'spam.enabled' => $r->bool('enabled') ? 1 : 0,
+            'spam.suspect' => $sus,
+            'spam.quarantine' => $qua,
+            'spam.delete' => $del,
+            'spam.allow' => self::senderList($r->str('allow')),
+            'spam.block' => self::senderList($r->str('block')),
+            'spam.dnsbl' => implode("\n", array_slice(array_unique($zones), 0, 5)),
+            'spam.keep_days' => max(1, min(365, $r->int('keep_days', 30))),
+            'inbound.spam_header' => $r->bool('upstream') ? 1 : 0,
+        ]);
+        Audit::log('admin.spam_saved');
+        return $this->back('/admin/spam', 'success', t('settings.saved'));
+    }
+
+    /** Score a pasted message source with the current settings, without delivering it. */
+    public function testSpam(): Response
+    {
+        $raw = str_replace(["\r\n", "\r"], "\n", mb_substr($this->req->str('source'), 0, 2_000_000));
+        if (trim($raw) === '') {
+            return $this->back('/admin/spam', 'danger', t('admin.spam_test_empty'));
+        }
+        $p = \M4W\Mail\MimeParser::parse($raw);
+        $r = \M4W\Service\SpamFilter::evaluate($p, null, '');
+        $r['level'] = $r['list'] === 'block' ? 'delete' : ($r['list'] === 'allow' ? 'ok' : \M4W\Service\SpamFilter::level($r['score']));
+        $r['subject'] = $p->subject();
+        $r['from'] = $p->from()['email'];
+        $r['source'] = $raw;
+        return $this->spam($r);
+    }
+
+    /** Addresses or domains, one per line, lower case. */
+    private static function senderList(string $raw): string
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($raw)) ?: [] as $d) {
+            $d = trim($d);
+            if (is_valid_email($d) || preg_match('/^@?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/', $d)) {
+                $out[ltrim($d, '@')] = true;
+            }
+        }
+        return implode("\n", array_keys($out));
     }
 
     public function security(): Response
@@ -576,14 +824,29 @@ final class AdminController extends Controller
             'security.allow_external_forward' => $r->bool('allow_external_forward') ? 1 : 0,
             'security.forward_whitelist' => mb_strtolower($r->str('forward_whitelist')),
             'security.block_remote_images' => $r->bool('block_remote_images') ? 1 : 0,
+            'security.image_proxy' => $r->bool('image_proxy') ? 1 : 0,
+            'security.antivirus' => $r->bool('antivirus') ? 1 : 0,
+            'security.clamd' => preg_match('#^(unix:///[\w./-]+|tcp://[a-z0-9.\-\[\]:]+:\d{1,5})$#i', $r->str('clamd')) ? $r->str('clamd') : 'unix:///var/run/clamav/clamd.ctl',
+            'security.block_executables' => $r->bool('block_executables') ? 1 : 0,
+            'security.disposable_action' => in_array($r->str('disposable_action'), ['reject', 'spam', 'off'], true) ? $r->str('disposable_action') : 'reject',
+            'security.disposable_extra' => self::domainList($r->str('disposable_extra')),
+            'security.disposable_allow' => self::domainList($r->str('disposable_allow')),
+            'security.disposable_autoupdate' => $r->bool('disposable_autoupdate') ? 1 : 0,
+            'security.link_check' => $r->bool('link_check') ? 1 : 0,
+            'security.link_block' => self::domainList($r->str('link_block')),
+            'security.safebrowsing_api' => $r->str('safebrowsing_api') === 'webrisk' ? 'webrisk' : 'safebrowsing',
+            'security.safebrowsing_delivery' => $r->bool('safebrowsing_delivery') ? 1 : 0,
+            'security.urlhaus' => $r->bool('urlhaus') ? 1 : 0,
+            'security.image_max_px' => max(200, min(4000, $r->int('image_max_px', 1600))),
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
-            'features.user_signature' => $r->bool('user_signature') ? 1 : 0,
             'delegation.admins' => $r->bool('deleg_admins') ? 1 : 0,
             'delegation.require_reason' => $r->bool('deleg_reason') ? 1 : 0,
             'delegation.notify_owner' => $r->bool('deleg_notify') ? 1 : 0,
             'delegation.hide_personal' => $r->bool('deleg_private') ? 1 : 0,
             'features.fetch_accounts' => $r->bool('fetch_accounts') ? 1 : 0,
+            'push.enabled' => $r->bool('push_enabled') ? 1 : 0,
+            'push.preview' => $r->int('push_preview', 1) === 0 ? 0 : 1,
             'features.undo_send_seconds' => max(0, min(30, $r->int('undo_send_seconds', 5))),
             'features.default_language' => isset(I18n::LANGUAGES[$r->str('default_language')]) ? $r->str('default_language') : 'fr',
         ];
@@ -599,8 +862,44 @@ final class AdminController extends Controller
             }
         }
         Settings::setMany($values);
+        \M4W\Service\Senders::reset();
+        $key = trim($r->str('safebrowsing_key'));
+        if ($key !== '' && preg_match('/^[A-Za-z0-9_\-]{20,100}$/', $key)) {
+            \M4W\Service\LinkGuard::setApiKey($key);
+        } elseif ($r->bool('safebrowsing_clear')) {
+            \M4W\Service\LinkGuard::setApiKey('');
+        }
+        if ($r->bool('urlhaus_update')) {
+            try {
+                $n = \M4W\Service\LinkGuard::updateFeed();
+                return $this->back('/admin/security', 'success', t('admin.links_urlhaus_ok', ['n' => number_format($n, 0, ',', ' ')]));
+            } catch (\Throwable $e) {
+                return $this->back('/admin/security', 'danger', t('admin.disp_update_fail', ['error' => $e->getMessage()]));
+            }
+        }
         Audit::log('admin.security_saved');
+        if ($r->bool('disposable_update')) {
+            try {
+                $n = \M4W\Service\Senders::update();
+                return $this->back('/admin/security', 'success', t('admin.disp_update_ok', ['n' => number_format($n, 0, ',', ' ')]));
+            } catch (\Throwable $e) {
+                return $this->back('/admin/security', 'danger', t('admin.disp_update_fail', ['error' => $e->getMessage()]));
+            }
+        }
         return $this->back('/admin/security', 'success', t('settings.saved'));
+    }
+
+    /** One valid domain per line, lower case. */
+    private static function domainList(string $raw): string
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($raw)) ?: [] as $d) {
+            $d = trim($d, " .@\t");
+            if (preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/', $d)) {
+                $out[$d] = true;
+            }
+        }
+        return implode("\n", array_keys($out));
     }
 
     // ---- Logs ----------------------------------------------------------------

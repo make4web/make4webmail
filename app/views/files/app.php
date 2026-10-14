@@ -1,5 +1,5 @@
 <?php /** @var int $maxFile */ ?>
-<div id="fs-app" data-max-file="<?= (int) $maxFile ?>">
+<div id="fs-app" data-max-file="<?= (int) $maxFile ?>" data-office-edit="<?= e(implode(',', M4W\Service\Office::editable())) ?>" data-office-view="<?= e(implode(',', M4W\Service\Office::viewable())) ?>">
   <div class="fs-header">
     <nav aria-label="<?= te('files.path') ?>" class="fs-crumbs-wrap"><ol class="fs-crumbs" id="fs-crumbs"></ol></nav>
     <div class="fs-header-tools">
@@ -30,6 +30,7 @@
       <button class="btn btn-light btn-sm" type="button" data-fs="download" data-sel="files"><i class="bi bi-download me-1"></i><?= te('files.download') ?></button>
       <button class="btn btn-light btn-sm" type="button" data-fs="attach-mail" data-sel="files"><i class="bi bi-envelope me-1"></i><?= te('files.send_mail') ?></button>
       <button class="btn btn-light btn-sm" type="button" data-fs="move" data-sel="write"><i class="bi bi-folder-symlink me-1"></i><?= te('files.move') ?></button>
+      <button class="btn btn-light btn-sm" type="button" data-fs="compress" data-sel="here-write"><i class="bi bi-file-earmark-zip me-1"></i><?= te('files.compress') ?></button>
       <button class="btn btn-light btn-sm" type="button" data-fs="copy" data-sel="any"><i class="bi bi-copy me-1"></i><?= te('files.copy') ?></button>
       <button class="btn btn-light btn-sm" type="button" data-fs="rename" data-sel="one-write"><i class="bi bi-input-cursor-text me-1"></i><?= te('files.rename') ?></button>
       <button class="btn btn-light btn-sm text-danger" type="button" data-fs="delete" data-sel="write"><i class="bi bi-trash3 me-1"></i><?= te('common.delete') ?></button>
@@ -76,7 +77,7 @@
         </div>
         <button class="btn btn-light" type="button" data-fs="share-everyone"><i class="bi bi-globe2 me-1"></i><?= te('files.everyone') ?></button>
       </div>
-      <p class="small text-muted mt-2 mb-3"><?= te('files.share_help') ?></p>
+      <p class="small text-muted mt-2 mb-3" id="fs-share-help" data-folder="<?= te('files.share_help') ?>" data-file="<?= te('files.share_file_help') ?>"><?= te('files.share_help') ?></p>
       <ul class="fs-acl-list" id="fs-acl-list"></ul>
       <div id="fs-acl-inherited"></div>
     </div>
@@ -96,7 +97,7 @@
 <div class="modal fade" id="fs-preview-modal" tabindex="-1" aria-hidden="true" aria-labelledby="fs-preview-title">
   <div class="modal-dialog modal-dialog-centered modal-xl"><div class="modal-content">
     <div class="modal-header"><h2 class="modal-title fs-6 text-truncate" id="fs-preview-title"></h2>
-      <div class="ms-auto d-flex gap-1"><a class="btn btn-light btn-sm" id="fs-preview-dl" href="#"><i class="bi bi-download me-1"></i><?= te('files.download') ?></a><button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="<?= te('common.close') ?>"></button></div></div>
+      <div class="ms-auto d-flex gap-1"><button type="button" class="btn btn-primary btn-sm d-none" id="fs-preview-edit"><i class="bi bi-pencil-square me-1"></i><?= te('office.edit') ?></button><a class="btn btn-light btn-sm" id="fs-preview-dl" href="#"><i class="bi bi-download me-1"></i><?= te('files.download') ?></a><button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="<?= te('common.close') ?>"></button></div></div>
     <div class="modal-body fs-preview-body" id="fs-preview-body"></div>
   </div></div>
 </div>

@@ -24,6 +24,8 @@ $out = static function (string $m) {
     }
 };
 M4W\Database\Migrator::migrate();
+$out('provider sync: ' . M4W\Service\RemoteMailbox::syncAll());
+$out('mail pictures: ' . M4W\Service\MailAssets::processPending(200));
 $out('scheduled: ' . M4W\Service\Composer::processScheduled(100));
 $out('queue: ' . M4W\Service\Transport::processQueue(200));
 if ((int) Settings::get('features.fetch_accounts', 1)) {
@@ -34,6 +36,10 @@ $hourly = (int) Settings::get('system.cron_hourly', 0) < $now - 3600;
 if ($hourly) {
     $out('purged: ' . M4W\Service\Mailbox::autoPurge(30));
     $out('retention expired: ' . M4W\Service\Retention::expire());
+    M4W\Service\Collector::purge();
+    M4W\Service\MailAssets::gc();
+    [$rem, $arc] = M4W\Service\Files::processExpiry();
+    $out('files expiry: ' . $rem . ' reminder(s), ' . $arc . ' archived');
     $out('files purged: ' . M4W\Service\Files::autoPurge(max(1, (int) Settings::get('files.trash_days', 30))));
     DB::run('DELETE FROM login_attempts WHERE created_at < :t', ['t' => $now - 7 * 86400]);
     DB::run('DELETE FROM user_sessions WHERE (revoked = 1 OR last_seen_at < :t)', ['t' => $now - 30 * 86400]);
@@ -51,6 +57,25 @@ if ($hourly) {
     }
     foreach (DB::all('SELECT id FROM users') as $u) {
         M4W\Service\Users::recalcUsage((int) $u['id']);
+    }
+    if ((int) Settings::get('security.disposable_autoupdate', 1) && (int) Settings::get('security.disposable_updated', 0) < $now - 7 * 86400
+        && (int) Settings::get('security.disposable_tried', 0) < $now - 86400) {
+        Settings::set('security.disposable_tried', $now);
+        try {
+            $out('disposable domains: ' . M4W\Service\Senders::update());
+        } catch (\Throwable $e) {
+            $out('disposable domains: update failed, ' . $e->getMessage());
+        }
+    }
+    M4W\Service\LinkGuard::gc();
+    if ((int) Settings::get('security.urlhaus', 1) && (int) Settings::get('security.urlhaus_updated', 0) < $now - 86400
+        && (int) Settings::get('security.urlhaus_tried', 0) < $now - 6 * 3600) {
+        Settings::set('security.urlhaus_tried', $now);
+        try {
+            $out('URLhaus feed: ' . M4W\Service\LinkGuard::updateFeed());
+        } catch (\Throwable $e) {
+            $out('URLhaus feed: update failed, ' . $e->getMessage());
+        }
     }
     Settings::set('system.cron_hourly', $now);
 }

@@ -19,14 +19,28 @@ final class Delivery
      */
     public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
-        $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        $raw = self::sanitizeIncoming($raw);
         if ($auth !== null) {
             $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
         }
         // Unauthenticated mail must not trigger forwarding of spoofed content to auto-replies, nor rule actions keyed on the sender.
         $suspicious = $auth !== null && $auth['verdict'] !== 'ok';
         $parsed = MimeParser::parse($raw);
+        // Disposable senders (bots, probes, spam): refused by default, never answered.
+        $disposable = $source !== 'local' && Senders::inboundAction() !== 'off' ? Senders::disposableSender($parsed, $envelopeFrom) : '';
+        if ($disposable !== '' && Senders::inboundAction() === 'reject') {
+            $results = [];
+            foreach ($recipients as $rcpt) {
+                $user = Users::resolveLocal($rcpt);
+                $results[$rcpt] = $user ? 'rejected: disposable sender' : 'unknown recipient';
+                if ($user) {
+                    Transport::log('in', (int) $user['id'], $envelopeFrom, [$rcpt], $raw, 'rejected', 'disposable ' . $disposable);
+                }
+            }
+            return $results;
+        }
         $loopHeaders = array_map('mb_strtolower', $parsed->headerAll('X-M4W-Loop'));
+        $spamBase = $source !== 'local' && SpamFilter::enabled() ? SpamFilter::evaluate($parsed, $auth, $envelopeFrom) : null;
         $results = [];
         $done = [];
 
@@ -50,9 +64,28 @@ final class Delivery
             $userRaw = 'Delivered-To: ' . $user['email'] . "\n" . $raw;
             $isLoop = in_array(mb_strtolower($user['email']), $loopHeaders, true);
 
+            // Spam filter: inbox, Junk (suspect), administrators' quarantine, or deleted.
+            $spam = $spamBase ? SpamFilter::forUser($spamBase, $uid, $parsed, $auth) : null;
+            $level = $spam['level'] ?? (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) ? 'suspect' : 'ok');
+            // Failed authentication, or a disposable sender in "spam" mode, is at least suspect.
+            if (($suspicious || $disposable !== '') && $level === 'ok') {
+                $level = 'suspect';
+            }
+            if ($spam) {
+                $spam['level'] = $level;
+                $userRaw = SpamFilter::header($spam) . $userRaw;
+            }
+            if ($level === 'delete' || $level === 'quarantine') {
+                Retention::keepIncoming($user, $userRaw, $level === 'delete' ? 'spam' : 'quarantine', $level === 'quarantine');
+                $results[$rcpt] = 'ok';
+                Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', ($level === 'delete' ? 'spam deleted' : 'quarantined') . ', score ' . ($spam['score'] ?? '?'));
+                continue;
+            }
+
             // 1. Account-level forwarding.
             $fwd = Forwarding::get($uid);
-            if ($fwd['enabled'] && $fwd['addresses'] && !$isLoop) {
+            // Junk is not forwarded: it would hurt the reputation of our server.
+            if ($fwd['enabled'] && $fwd['addresses'] && !$isLoop && $level === 'ok') {
                 Forwarding::redirect($user, $raw, $fwd['addresses']);
                 if (!$fwd['keep_copy']) {
                     $results[$rcpt] = 'ok';
@@ -62,18 +95,15 @@ final class Delivery
             }
 
             // 2. Default folder (spam detection by upstream filter headers).
-            $folder = Folders::byRole($uid, 'inbox');
-            if (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) || $suspicious) {
-                $folder = Folders::byRole($uid, 'spam');
-            }
+            $folder = Folders::byRole($uid, $level === 'suspect' ? 'spam' : 'inbox');
             $folderId = (int) $folder['id'];
 
             // 3. User rules.
             $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
-            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && !$suspicious) {
+            if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && $level === 'ok') {
                 $folderId = (int) $actions['folder'];
             }
-            if ($suspicious) {
+            if ($suspicious || $level !== 'ok') {
                 $actions['redirects'] = [];
                 $actions['replies'] = [];
             }
@@ -100,10 +130,30 @@ final class Delivery
             }
 
             // 4. Store.
-            Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            $newId = Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            // Phone / desktop notification, like the in-page one: unread mail landing in the inbox.
+            if (!$actions['read'] && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
+                try {
+                    WebPush::newMail($user, $newId, $parsed->from(), $parsed->subject(), $folderId);
+                } catch (\Throwable $e) {
+                    error_log('[m4w] push: ' . $e->getMessage());
+                }
+            }
+            $copyIds = [];
             foreach (array_unique($actions['copies']) as $copy) {
                 if ($copy !== $folderId) {
-                    Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+                    $copyIds[] = Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+                }
+            }
+            // Remote pictures are fetched by the server soon after delivery, never at reading time.
+            // Not for spam: fetching them would confirm to a spammer that the address is alive.
+            if ($folderId !== (int) Folders::byRole($uid, 'spam')['id']) {
+                try {
+                    foreach (array_merge([$newId], $copyIds) as $mid) {
+                        MailAssets::register((int) $mid, $uid, $parsed->html());
+                    }
+                } catch (\Throwable $e) {
+                    error_log('[m4w] mail assets: ' . $e->getMessage());
                 }
             }
             Contacts::touchSender($uid, $parsed->from());
@@ -114,12 +164,24 @@ final class Delivery
                 Vacation::maybeRespond($user, $parsed, $envelopeFrom);
             }
             $results[$rcpt] = 'ok';
-            Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', $source);
+            Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', $source . ($level === 'suspect' ? ', junk' . ($spam ? ', score ' . $spam['score'] : '') : ''));
         }
         return $results;
     }
 
     /** Remove every occurrence of a header (with continuation lines) from a LF-normalized message. */
+    /**
+     * Every received message, whatever the path (SMTP, pipe, provider sync, provider spam):
+     * our own trust markers sent by outsiders are dropped, then the antivirus pass runs
+     * (infected attachments replaced by a notice before anything else sees them).
+     */
+    public static function sanitizeIncoming(string $raw): string
+    {
+        $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        $raw = self::stripHeader($raw, SpamFilter::HEADER);
+        return AttachmentGuard::process($raw)['raw'];
+    }
+
     public static function stripHeader(string $raw, string $name): string
     {
         $pos = strpos($raw, "\n\n");
@@ -134,7 +196,7 @@ final class Delivery
     private static function ruleReply(array $user, \M4W\Mail\ParsedMessage $msg, array $reply, string $envelopeFrom): void
     {
         $sender = $envelopeFrom !== '' ? $envelopeFrom : $msg->from()['email'];
-        if ($sender === '' || !is_valid_email($sender) || $msg->isAutomated()) {
+        if (Senders::noAutoReply($sender) || $msg->isAutomated()) {
             return;
         }
         // One rule reply per sender per day (backscatter protection).

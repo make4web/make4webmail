@@ -64,3 +64,43 @@
   </div>
   <div class="m4w-sticky-actions"><a href="<?= e(url('mail')) ?>" class="btn btn-light"><?= te('common.cancel') ?></a><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button></div>
 </form>
+
+<?php if (M4W\Service\WebPush::enabled()): $devices = M4W\Service\WebPush::devices((int) $u['id']); ?>
+<div class="m4w-section mt-4" id="m4w-push" data-state="">
+  <div class="m4w-section-title" id="mobile"><?= te('push.title') ?></div>
+  <p class="text-muted small mb-3"><?= te('push.desc') ?></p>
+  <div class="m4w-push-status">
+    <div data-push-state="off" class="d-none">
+      <p class="mb-2"><?= te('push.state_off') ?></p>
+      <button type="button" class="btn btn-primary" data-push-enable><i class="bi bi-bell me-1"></i><?= te('push.enable') ?></button>
+    </div>
+    <div data-push-state="on" class="d-none">
+      <p class="mb-2"><i class="bi bi-check-circle-fill text-success me-1"></i><?= te('push.state_on') ?></p>
+      <button type="button" class="btn btn-light" data-push-test><i class="bi bi-send me-1"></i><?= te('push.test') ?></button>
+      <button type="button" class="btn btn-light" data-push-disable><i class="bi bi-bell-slash me-1"></i><?= te('push.disable') ?></button>
+    </div>
+    <div data-push-state="denied" class="d-none"><div class="alert alert-warning mb-0"><?= te('push.state_denied') ?></div></div>
+    <div data-push-state="ios-install" class="d-none"><div class="alert alert-info mb-0"><i class="bi bi-phone me-1"></i><?= te('push.state_ios') ?></div></div>
+    <div data-push-state="unsupported" class="d-none"><div class="alert alert-secondary mb-0"><?= te('push.state_unsupported') ?></div></div>
+  </div>
+  <?php if (!(int) ($p['notifications'] ?? 1)): ?><div class="alert alert-warning mt-3 mb-0 small"><?= te('push.pref_off') ?></div><?php endif; ?>
+
+  <h3 class="fs-6 fw-semibold mt-4 mb-2"><?= te('push.devices') ?></h3>
+  <?php if (!$devices): ?>
+  <p class="text-muted small mb-0"><?= te('push.no_devices') ?></p>
+  <?php else: ?>
+  <ul class="list-group m4w-push-devices">
+    <?php foreach ($devices as $d): ?>
+    <li class="list-group-item d-flex align-items-center gap-3" data-device data-id="<?= (int) $d['id'] ?>" data-hash="<?= e($d['endpoint_hash']) ?>">
+      <i class="bi bi-<?= e(M4W\Service\WebPush::deviceIcon($d['user_agent'])) ?> fs-5 text-muted"></i>
+      <div class="flex-grow-1 min-w-0">
+        <div class="fw-medium"><?= e(M4W\Service\WebPush::deviceLabel($d['user_agent'])) ?> <span class="badge badge-soft-primary ms-1 d-none" data-this-device><?= te('push.this_device') ?></span></div>
+        <div class="small text-muted"><?= te('push.added', ['date' => date('d/m/Y', (int) $d['created_at'])]) ?> · <?= te('push.last_used', ['date' => date('d/m/Y H:i', (int) $d['last_used_at'])]) ?></div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-device-remove title="<?= te('push.remove') ?>" aria-label="<?= te('push.remove') ?>"><i class="bi bi-x-lg"></i></button>
+    </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</div>
+<?php endif; ?>

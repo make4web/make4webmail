@@ -415,5 +415,175 @@ static function (): void {
 "ALTER TABLE messages ADD COLUMN trashed_from INTEGER NULL",
 "ALTER TABLE messages ADD COLUMN trashed_from_name VARCHAR(255) NOT NULL DEFAULT ''",
 ],
+6 => [
+// "Webmail" mode: each user's mailbox lives at an external provider (IMAP + SMTP).
+"CREATE TABLE remote_accounts (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  login VARCHAR(190) NOT NULL DEFAULT '',
+  password_enc {TEXT},
+  imap_host VARCHAR(190) NOT NULL DEFAULT '',
+  imap_port INTEGER NOT NULL DEFAULT 0,
+  imap_security VARCHAR(10) NOT NULL DEFAULT '',
+  smtp_host VARCHAR(190) NOT NULL DEFAULT '',
+  smtp_port INTEGER NOT NULL DEFAULT 0,
+  smtp_security VARCHAR(10) NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  inbox_uid INTEGER NOT NULL DEFAULT 0,
+  inbox_validity INTEGER NOT NULL DEFAULT 0,
+  spam_uid INTEGER NOT NULL DEFAULT 0,
+  spam_validity INTEGER NOT NULL DEFAULT 0,
+  last_sync_at INTEGER NOT NULL DEFAULT 0,
+  last_ok_at INTEGER NOT NULL DEFAULT 0,
+  last_error VARCHAR(500) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX remote_accounts_user ON remote_accounts(user_id)",
+"CREATE TABLE remote_uids (
+  id {PK},
+  account_id INTEGER NOT NULL,
+  folder VARCHAR(10) NOT NULL DEFAULT 'inbox',
+  validity INTEGER NOT NULL DEFAULT 0,
+  uid INTEGER NOT NULL,
+  imported_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX remote_uids_account ON remote_uids(account_id, imported_at)",
+],
+7 => [
+// Web Push subscriptions (one per browser / installed app).
+"CREATE TABLE push_subscriptions (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  endpoint {TEXT},
+  endpoint_hash VARCHAR(64) NOT NULL,
+  p256dh VARCHAR(200) NOT NULL,
+  auth VARCHAR(64) NOT NULL,
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  failures INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX push_subscriptions_endpoint ON push_subscriptions(endpoint_hash)",
+"CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id)",
+],
+8 => [
+// Collector mode: outgoing volume of the shared provider account (hourly limit)…
+"CREATE TABLE send_log (
+  id {PK},
+  user_id INTEGER NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'mail',
+  recipients INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX send_log_time ON send_log(created_at)",
+// …and messages already handed to a user, so a copy received twice is delivered once.
+"CREATE TABLE collector_seen (
+  id {PK},
+  msg_hash VARCHAR(64) NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX collector_seen_msg ON collector_seen(msg_hash, user_id)",
+],
+9 => [
+// "My other mailboxes": shared mailboxes attached to a person's account.
+"CREATE TABLE mailbox_links (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  mailbox_id INTEGER NOT NULL,
+  method VARCHAR(10) NOT NULL DEFAULT 'admin',
+  created_by INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mailbox_links_pair ON mailbox_links(user_id, mailbox_id)",
+"CREATE INDEX mailbox_links_box ON mailbox_links(mailbox_id)",
+],
+10 => [
+// A single file shared without its folder (read access).
+"CREATE TABLE fs_file_acl (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  principal_type VARCHAR(20) NOT NULL,
+  principal VARCHAR(190) NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX fs_file_acl_unique ON fs_file_acl(file_id, principal_type, principal)",
+"CREATE INDEX fs_file_acl_principal ON fs_file_acl(principal_type, principal)",
+],
+11 => [
+// Every stored document has an expiry date; past it, the document is archived.
+"ALTER TABLE fs_files ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN expiry_stage INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE fs_files ADD COLUMN archived_from INTEGER NULL",
+"CREATE INDEX fs_files_expiry ON fs_files(expires_at)",
+// Existing documents get the default period from today, never an immediate expiry.
+static function (): void {
+    $days = max(1, (int) \M4W\Core\Settings::get('files.expiry_default_days', 365));
+    \M4W\Core\Database::run('UPDATE fs_files SET expires_at = :t WHERE expires_at = 0', ['t' => time() + $days * 86400]);
+},
+],
+12 => [
+// Online editing through an office server (WOPI): access tokens and document locks.
+"CREATE TABLE wopi_tokens (
+  id {PK},
+  token_hash VARCHAR(64) NOT NULL,
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  can_write INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX wopi_tokens_hash ON wopi_tokens(token_hash)",
+"CREATE TABLE wopi_locks (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  lock_id VARCHAR(1024) NOT NULL,
+  expires_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX wopi_locks_file ON wopi_locks(file_id)",
+],
+13 => [
+// Pictures of received messages, fetched once and cleaned server side (anti-tracking).
+// Stored once per content (checksum), referenced by message: no reference left, picture gone.
+"CREATE TABLE mail_assets (
+  id {PK},
+  sha256 VARCHAR(64) NOT NULL,
+  blob_id VARCHAR(64) NOT NULL DEFAULT '',
+  kind VARCHAR(10) NOT NULL DEFAULT 'image',
+  mime VARCHAR(40) NOT NULL DEFAULT '',
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  size INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mail_assets_sha ON mail_assets(sha256)",
+"CREATE TABLE mail_asset_refs (
+  id {PK},
+  message_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  ref_key VARCHAR(64) NOT NULL,
+  url {TEXT},
+  asset_id INTEGER NULL,
+  status VARCHAR(10) NOT NULL DEFAULT 'pending',
+  tries INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mail_asset_refs_key ON mail_asset_refs(message_id, ref_key)",
+"CREATE INDEX mail_asset_refs_asset ON mail_asset_refs(asset_id)",
+"CREATE INDEX mail_asset_refs_status ON mail_asset_refs(status, created_at)",
+],
+14 => [
+// Verdicts on links (Google Safe Browsing / Web Risk), cached to spare the API and keep clicks fast.
+"CREATE TABLE url_verdicts (
+  url_hash VARCHAR(64) NOT NULL PRIMARY KEY,
+  threat VARCHAR(40) NOT NULL DEFAULT '',
+  checked_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX url_verdicts_checked ON url_verdicts(checked_at)",
+],
 ];
 

@@ -224,8 +224,13 @@ final class RuleEngine
     /** Run a rule on existing messages of a folder ("Run now"). Returns affected count. */
     public static function applyToFolder(int $userId, array $rule, int $folderId): int
     {
+        // A folder the current viewer may not see (a delegate and the owner's personal folders) is refused,
+        // and personal messages are skipped: a match count would reveal their content.
+        if (!Folders::find($userId, $folderId)) {
+            throw new \InvalidArgumentException(t('mail.not_found'));
+        }
         $n = 0;
-        $rows = DB::all('SELECT * FROM messages WHERE user_id = :u AND folder_id = :f ORDER BY id DESC LIMIT 2000', ['u' => $userId, 'f' => $folderId]);
+        $rows = DB::all('SELECT * FROM messages WHERE user_id = :u AND folder_id = :f' . Mailbox::privacySql($userId) . ' ORDER BY id DESC LIMIT 2000', ['u' => $userId, 'f' => $folderId]);
         foreach ($rows as $row) {
             $parsed = Mailbox::parsed($row);
             if (!self::matches($rule, $parsed)) {

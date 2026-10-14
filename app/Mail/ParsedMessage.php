@@ -123,8 +123,7 @@ final class ParsedMessage
             || $this->header('X-Auto-Response-Suppress') !== null || $this->header('X-Autoreply') !== null) {
             return true;
         }
-        $from = strtolower($this->from()['email']);
-        return (bool) preg_match('/^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounce|bounces|notifications?)[@+.-]/', $from);
+        return \M4W\Service\Senders::isNoReply($this->from()['email']);
     }
 
     public function isSpamFlagged(): bool
@@ -248,13 +247,21 @@ final class ParsedMessage
                     default => 'attachment.bin',
                 };
             }
+            $bytes = $p->decodedBody();
+            // Replaced by the antivirus pass: listed as the file it was, marked removed.
+            $removed = \M4W\Service\AttachmentGuard::removedInfo($p->header('X-M4W-Removed'));
+            $ft = $removed ? null : FileType::classify($name, $bytes);
             $out[] = [
-                'part'   => $p->id,
-                'name'   => $name,
-                'mime'   => $p->type,
-                'size'   => strlen($p->decodedBody()),
-                'cid'    => $cid,
-                'inline' => $inlineUsed,
+                'part'    => $p->id,
+                'name'    => $removed && $removed['name'] !== '' ? $removed['name'] : $name,
+                'mime'    => $p->type,
+                'size'    => $removed ? $removed['size'] : strlen($bytes),
+                'cid'     => $cid,
+                'inline'  => $inlineUsed && !$removed,
+                'removed' => $removed,
+                'kind'    => $ft['label'] ?? '',
+                'risk'    => $ft['risk'] ?? '',
+                'why'     => $ft['why'] ?? '',
             ];
         }
         return $out;

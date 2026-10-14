@@ -19,17 +19,30 @@ final class Transport
     /**
      * Deliver a raw message now.
      * @param string[] $recipients
-     * @return array{sent:string[],failed:array<string,string>}
+     * Collector mode: recipients beyond the provider's hourly limit are "deferred" and,
+     * unless the call comes from the queue itself, queued until the window reopens.
+     * @return array{sent:string[],failed:array<string,string>,deferred:string[],retry_at:int}
      */
-    public static function send(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, bool $sign = true): array
+    public static function send(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, bool $sign = true, bool $fromQueue = false, string $kind = 'mail'): array
     {
-        if ($sign) {
+        // Webmail mode: the provider signs and delivers everything, colleagues included,
+        // so their own mailbox (and their phone) receives it too.
+        $webmail = RemoteMailbox::active();
+        $collector = Collector::active();
+        if ($sign && !$webmail && !$collector) {
             $raw = self::dkim($raw);
         }
         $local = [];
         $remote = [];
         foreach (array_unique($recipients) as $r) {
-            if ((int) Settings::get('smtp.local_delivery', 1) && Users::isLocalDomain(Address::domain($r))) {
+            if ($collector) {
+                // Mailboxes only exist here: colleagues are served at once, without using the
+                // provider's hourly quota. Other addresses of the domain stay at the provider.
+                $isLocal = Users::resolveLocal($r) !== null;
+            } else {
+                $isLocal = !$webmail && (int) Settings::get('smtp.local_delivery', 1) && Users::isLocalDomain(Address::domain($r));
+            }
+            if ($isLocal) {
                 $local[] = $r;
             } else {
                 $remote[] = $r;
@@ -37,6 +50,8 @@ final class Transport
         }
         $sent = [];
         $failed = [];
+        $deferred = [];
+        $retryAt = 0;
         if ($local) {
             $res = Delivery::deliver($raw, $envelopeFrom, $local, 'local');
             foreach ($res as $rcpt => $status) {
@@ -48,18 +63,28 @@ final class Transport
             }
         }
         if ($remote) {
-            $r = self::sendRemote($raw, $envelopeFrom, $remote, $userId);
+            $r = $collector ? Collector::send($raw, $remote, $userId, $fromQueue, $kind) : self::sendRemote($raw, $envelopeFrom, $remote, $userId);
             $sent = array_merge($sent, $r['sent']);
             $failed += $r['failed'];
+            $deferred = $r['deferred'] ?? [];
+            $retryAt = (int) ($r['retry_at'] ?? 0);
         }
-        self::log('out', $userId, $envelopeFrom, $recipients, $raw, $failed ? (count($sent) ? 'partial' : 'failed') : 'ok', implode('; ', $failed));
-        return ['sent' => $sent, 'failed' => $failed];
+        if ($deferred && !$fromQueue) {
+            self::enqueue($raw, $envelopeFrom, $deferred, $userId, $kind, $retryAt, Collector::HELD);
+        }
+        $status = $failed ? (count($sent) ? 'partial' : 'failed') : ($deferred ? 'held' : 'ok');
+        self::log('out', $userId, $envelopeFrom, $recipients, $raw, $status, $failed ? implode('; ', $failed) : ($deferred ? t('col.log_held', ['n' => count($deferred), 'time' => date('H:i', $retryAt)]) : ''));
+        return ['sent' => $sent, 'failed' => $failed, 'deferred' => $deferred, 'retry_at' => $retryAt];
     }
 
     /** @return array{sent:string[],failed:array<string,string>} */
     private static function sendRemote(string $raw, string $from, array $rcpts, ?int $userId): array
     {
-        $host = trim((string) Settings::get('smtp.host', ''));
+        if (RemoteMailbox::active()) {
+            return RemoteMailbox::send($raw, $from, $rcpts, $userId);
+        }
+        // An explicit "server" mode ignores a relay left configured from before.
+        $host = RemoteMailbox::mode() === 'server' ? '' : trim((string) Settings::get('smtp.host', ''));
         if ($host !== '') {
             $username = (string) Settings::get('smtp.username', '');
             $password = Settings::secret('smtp.password');
@@ -161,7 +186,7 @@ final class Transport
     }
 
     /** Queue a message for asynchronous delivery (forwards, auto-replies, retries). */
-    public static function enqueue(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, string $kind = 'mail'): int
+    public static function enqueue(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, string $kind = 'mail', int $at = 0, string $note = ''): int
     {
         $rel = 'queue/' . date('Ymd') . '-' . bin2hex(random_bytes(10)) . '.eml';
         $path = storage_path($rel);
@@ -177,7 +202,8 @@ final class Transport
             'raw_path'        => $rel,
             'status'          => 'pending',
             'attempts'        => 0,
-            'next_attempt_at' => time(),
+            'next_attempt_at' => $at ?: time(),
+            'last_error'      => $note,
             'created_at'      => time(),
         ]);
     }
@@ -206,11 +232,19 @@ final class Transport
             $rcpts = json_decode((string) $row['recipients'], true) ?: [];
             try {
                 // Relayed mail keeps its author's From: and their own signature; ours would vouch for it.
-                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null, $row['kind'] !== 'forward');
+                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null, $row['kind'] !== 'forward', true, (string) $row['kind']);
             } catch (\Throwable $e) {
                 DB::update('mail_queue', [
                     'status' => 'pending', 'attempts' => (int) $row['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500),
                     'next_attempt_at' => time() + 300,
+                ], 'id = :id', ['id' => $row['id']]);
+                continue;
+            }
+            if ($res['deferred']) {
+                // Hourly limit of the provider: wait for the window, it is not a failed attempt.
+                DB::update('mail_queue', [
+                    'status' => 'pending', 'last_error' => Collector::HELD, 'attempts' => (int) $row['attempts'] + ($res['failed'] ? 1 : 0),
+                    'recipients' => json_encode(array_values(array_merge($res['deferred'], array_keys($res['failed'])))), 'next_attempt_at' => max(time() + 30, $res['retry_at']),
                 ], 'id = :id', ['id' => $row['id']]);
                 continue;
             }
@@ -264,7 +298,7 @@ final class Transport
     {
         $subject = '';
         if (preg_match('/^Subject:\s*(.*(?:\r?\n[ \t].*)*)/mi', substr($raw, 0, 16384), $m)) {
-            $subject = \M4W\Mail\Charset::decodeHeader(preg_replace('/\r?\n[ \t]+/', ' ', $m[1]) ?? '');
+            $subject = trim(\M4W\Mail\Charset::decodeHeader(preg_replace('/\r?\n[ \t]+/', ' ', $m[1]) ?? ''));
         }
         try {
             DB::insert('mail_log', [

@@ -15,6 +15,9 @@
   </div>
   <?php endforeach; ?>
 </div>
+<?php if (M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); ?>
+<div class="mb-4" data-aos="fade-up"><?php include __DIR__ . '/_send_gauge.php'; ?></div>
+<?php endif; ?>
 <div class="row g-4">
   <div class="col-xl-8">
     <div class="card h-100">
@@ -41,7 +44,7 @@
       <div class="card-header"><?= te('admin.checklist') ?></div>
       <ul class="list-unstyled m4w-checklist px-3 py-1 mb-0">
         <?php foreach ([
-            'smtp' => ['admin.chk_smtp', 'admin/mail'], 'dkim' => ['admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
+            'smtp' => [M4W\Service\RemoteMailbox::active() ? 'wm.chk_linked' : (M4W\Service\Collector::active() ? 'col.chk_account' : 'admin.chk_smtp'), M4W\Service\RemoteMailbox::active() ? 'admin/users' : 'admin/mail'], 'dkim' => [M4W\Service\RemoteMailbox::active() || M4W\Service\Collector::active() ? 'wm.chk_dkim_provider' : 'admin.chk_dkim', 'admin/mail#dkim'], 'https' => ['admin.chk_https', null],
             'logo' => ['admin.chk_logo', 'admin/branding'], 'twofa' => ['admin.chk_2fa', 'settings/security'], 'cron' => ['admin.chk_cron', null],
         ] as $k => [$label, $link]): ?>
         <li><i class="bi bi-<?= $checks[$k] ? 'check-circle-fill ok' : 'exclamation-circle-fill ko' ?>"></i><span class="flex-grow-1"><?= te($label) ?></span><?php if (!$checks[$k] && $link): ?><a class="small" href="<?= e(url($link)) ?>"><?= te('admin.fix') ?></a><?php endif; ?></li>
@@ -66,7 +69,7 @@
       <div class="card-header d-flex"><?= te('admin.recent_activity') ?><a class="ms-auto small fw-normal" href="<?= e(url('admin/logs', ['tab' => 'audit'])) ?>"><?= te('admin.see_all') ?></a></div>
       <ul class="list-group list-group-flush">
         <?php foreach ($recent as $a): ?>
-        <li class="list-group-item d-flex gap-3 small align-items-center"><span class="m4w-avatar sm" style="background:<?= e(avatar_color((string) $a['email'])) ?>"><?= e(initials((string) ($a['email'] ?: '?'))) ?></span><div class="flex-grow-1 min-w-0"><div class="text-truncate"><b><?= e($a['email'] ?: t('admin.system')) ?></b> · <?= e(audit_label($a['action'])) ?> <span class="text-muted"><?= e(str_limit((string) $a['target'], 40)) ?></span></div></div><span class="text-muted text-nowrap"><?= e(format_datetime((int) $a['created_at'])) ?></span></li>
+        <li class="list-group-item d-flex gap-3 small align-items-center m4w-activity-item"><span class="m4w-avatar sm flex-shrink-0" style="background:<?= e(avatar_color((string) $a['email'])) ?>"><?= e(initials((string) ($a['email'] ?: '?'))) ?></span><div class="flex-grow-1 min-w-0"><div class="text-truncate"><b><?= e(audit_label($a['action'])) ?></b> <span class="text-muted"><?= e(str_limit((string) $a['target'], 60)) ?></span></div><div class="text-truncate text-muted"><?= e($a['email'] ?: t('admin.system')) ?> · <?= e(format_datetime((int) $a['created_at'])) ?></div></div></li>
         <?php endforeach; ?>
       </ul>
     </div>

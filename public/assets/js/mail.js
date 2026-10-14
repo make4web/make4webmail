@@ -31,12 +31,12 @@
       poll(true);
       setInterval(function () { if (!document.hidden) poll(false); }, 30000);
       if (boot.compose && M4W.Compose) M4W.Compose.open({ mode: 'new', to: boot.compose.to, subject: boot.compose.subject, files: boot.compose.files });
-      if ('Notification' in window && S.prefs.notifications && Notification.permission === 'default') {
-        $(document).one('click', function () { try { Notification.requestPermission(); } catch (e) {} });
-      }
     });
     bindUi();
     bindKeyboard();
+    // Folder menus: the open one goes above the following rows of the list.
+    $(document).on('show.bs.dropdown', '.m4w-folder-dd', function () { $(this).addClass('open'); })
+      .on('hidden.bs.dropdown', '.m4w-folder-dd', function () { $(this).removeClass('open'); });
     $(window).on('hashchange', route);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(false); });
   });
@@ -109,7 +109,7 @@
     (function walk(pid, depth) {
       (children[pid] || []).sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (f) { out += folderItem(f, depth); walk(f.id, depth + 1); });
     })(0, 0);
-    $('#m4w-user-folders').html(out || '<li class="px-3 small text-muted" style="padding-left:1.1rem!important">' + esc(t('no_folders')) + '</li>');
+    $('#m4w-user-folders').html(out || '<li class="px-3 small m4w-nav-empty" style="padding-left:1.1rem!important">' + esc(t('no_folders')) + '</li>');
     highlightFolder();
     renderMoveMenus();
   }
@@ -221,6 +221,7 @@
       var icon = S.q ? 'search' : ({ inbox: 'inbox', sent: 'send', drafts: 'file-earmark-text', spam: 'shield-check', trash: 'trash3', archive: 'archive' }[f.role] || 'folder2-open');
       var title = S.q ? t('empty_search') : (f.role === 'inbox' && !S.filter ? t('empty_inbox') : t('empty_folder_title'));
       var hint = S.q ? t('empty_search_hint') : (f.role === 'inbox' && !S.filter ? t('empty_inbox_hint') : '');
+      if (S.q === 'is:starred') { icon = 'star'; title = t('empty_starred'); hint = t('empty_starred_hint'); }
       $scroll.html('<div class="m4w-empty" data-aos="fade-up"><div class="m4w-empty-icon"><i class="bi bi-' + icon + '"></i></div><h3>' + esc(title) + '</h3><p class="small">' + esc(hint) + '</p></div>');
       $('#m4w-pager').html('');
       syncSelectionUi();
@@ -310,21 +311,48 @@
     return (list || []).map(function (a) { return '<span title="' + esc(a.email) + '">' + esc(a.name || a.email) + '</span>'; }).join(', ');
   }
 
+  // Risky attachment: explain before opening.
+  $(document).on('click', '[data-att-warn]', function (e) {
+    if (this.dataset.confirmed) { delete this.dataset.confirmed; return; }
+    e.preventDefault();
+    var link = this, why = $(this).attr('data-att-warn');
+    $('#m4w-att-confirm').remove();
+    var $m = $('<div class="modal fade" id="m4w-att-confirm" tabindex="-1" aria-labelledby="m4w-att-confirm-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">'
+      + '<div class="modal-header"><h2 class="modal-title fs-5" id="m4w-att-confirm-title"><i class="bi bi-exclamation-triangle text-warning me-2"></i>' + esc(t('att_confirm_title')) + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + esc(t('close')) + '"></button></div>'
+      + '<div class="modal-body"><p>' + esc(why) + '</p><p class="small text-muted mb-0">' + esc(t('att_confirm_hint')) + '</p></div>'
+      + '<div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">' + esc(t('cancel')) + '</button><button type="button" class="btn btn-light text-danger" data-att-go>' + esc(t('att_confirm_open')) + '</button></div>'
+      + '</div></div></div>').appendTo(document.body);
+    $m.on('click', '[data-att-go]', function () { bootstrap.Modal.getInstance($m[0]).hide(); link.dataset.confirmed = '1'; link.click(); })
+      .on('hidden.bs.modal', function () { $m.remove(); });
+    bootstrap.Modal.getOrCreateInstance($m[0]).show();
+  });
+
   function attachmentsHtml(msg) {
     var atts = (msg.attachments || []).filter(function (a) { return !a.inline; });
     if (!atts.length) return '';
     var total = 0;
     var html = atts.map(function (a) {
       total += a.size;
+      if (a.removed) {
+        // Removed by the antivirus: still listed, so nobody wonders where it went.
+        return '<div class="m4w-att is-removed" title="' + esc(t('att_removed_title', { signature: a.removed.signature || '?' })) + '"><span class="m4w-att-icon"><i class="bi bi-shield-x"></i></span>'
+          + '<div class="min-w-0 flex-grow-1"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size text-danger">' + esc(t('att_removed')) + (a.removed.signature ? ' · ' + esc(a.removed.signature) : '') + '</div></div></div>';
+      }
+      var why = a.risk ? t('att_why_' + a.why, { kind: a.kind || '' }) : '';
+      if (a.risk === 'block') {
+        return '<div class="m4w-att is-blocked" title="' + esc(why) + '"><span class="m4w-att-icon"><i class="bi bi-shield-exclamation"></i></span>'
+          + '<div class="min-w-0 flex-grow-1"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size text-danger">' + esc(t('att_blocked')) + ' · ' + esc(a.kind) + '</div></div></div>';
+      }
+      var warnAttrs = a.risk === 'warn' ? ' data-att-warn="' + esc(why) + '"' : '';
       var ic = M4W.fileIcon(a.name, a.mime);
       var inlineUrl = M4W.url('api/messages/' + msg.id + '/part/' + encodeURIComponent(a.part), { inline: 1 });
       var dlUrl = M4W.url('api/messages/' + msg.id + '/part/' + encodeURIComponent(a.part));
       var thumb = ic[0] === 'img' ? '<img src="' + esc(inlineUrl) + '" alt="" loading="lazy">' : '<i class="bi bi-' + ic[1] + '"></i>';
       var previewable = /^image\/(png|jpe?g|gif|webp)$/.test(a.mime) || a.mime === 'application/pdf' || a.mime === 'text/plain';
-      return '<div class="m4w-att" title="' + esc(a.name) + '"><a class="m4w-att-icon ' + ic[0] + '" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener">' + thumb + '</a>'
-        + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + esc(M4W.bytes(a.size)) + '</div></a>'
+      return '<div class="m4w-att' + (a.risk === 'warn' ? ' is-warn' : '') + '" title="' + esc(a.name) + '"><a class="m4w-att-icon ' + ic[0] + '" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"' + warnAttrs + '>' + thumb + '</a>'
+        + '<a class="min-w-0 flex-grow-1 text-reset" href="' + esc(previewable ? inlineUrl : dlUrl) + '" target="_blank" rel="noopener"' + warnAttrs + '><div class="m4w-att-name">' + esc(a.name) + '</div><div class="m4w-att-size">' + (a.risk === 'warn' ? '<span class="text-warning-emphasis fw-semibold"><i class="bi bi-exclamation-triangle me-1"></i>' + esc(t('att_warn')) + '</span> · ' : '') + esc(M4W.bytes(a.size)) + '</div></a>'
         + (M4W.FilesPicker ? '<button type="button" class="btn btn-ghost btn-icon btn-sm" data-save-files="' + msg.id + '" data-parts="' + esc(a.part) + '" title="' + esc(t('fs_save_to')) + '" aria-label="' + esc(t('fs_save_to')) + '"><i class="bi bi-folder-plus"></i></button>' : '')
-        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" aria-label="' + esc(t('download')) + '" download><i class="bi bi-download"></i></a></div>';
+        + '<a class="btn btn-ghost btn-icon btn-sm" href="' + esc(dlUrl) + '" title="' + esc(t('download')) + '" aria-label="' + esc(t('download')) + '" download' + warnAttrs + '><i class="bi bi-download"></i></a></div>';
     }).join('');
     var zip = atts.length > 1 ? ' · <a href="' + esc(M4W.url('api/messages/' + msg.id + '/zip')) + '"><i class="bi bi-file-zip"></i> ' + esc(t('download_all')) + '</a>' : '';
     if (atts.length > 1 && M4W.FilesPicker) zip += ' · <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-save-files="' + msg.id + '" data-parts="' + esc(atts.map(function (a) { return a.part; }).join(',')) + '"><i class="bi bi-folder-plus"></i> ' + esc(t('fs_save_all_to')) + '</button>';
@@ -347,8 +375,22 @@
     if (verdict && verdict !== 'ok') {
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-shield-exclamation"></i><span><strong>' + esc(t('auth_' + verdict + '_title')) + '</strong> ' + esc(t('auth_' + verdict + '_text', { domain: (from.email || '').split('@').pop() })) + '</span></div>';
     }
+    if (msg.impersonation) {
+      var im = msg.impersonation;
+      banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-person-exclamation"></i><span><strong>' + esc(t('imp_' + im.kind + '_title')) + '</strong> '
+        + esc(t('imp_' + im.kind + '_text', { address: im.address, colleague: im.colleague || '', domain: im.domain || '' })) + '</span></div>';
+    }
+    if (msg.spam && msg.spam.reasons.length) {
+      banner += '<div class="m4w-msg-banner warn"><i class="bi bi-funnel-fill text-warning"></i><span><strong>' + esc(t('spam_why', { score: msg.spam.score })) + '</strong> ' + esc(msg.spam.reasons.join(' · ')) + '</span></div>';
+    }
+    if (msg.reply_target) {
+      banner += '<div class="m4w-msg-banner warn"><i class="bi bi-reply-fill text-warning"></i><span>' + esc(t('reply_target_' + msg.reply_target)) + '</span></div>';
+    }
+    if (msg.trackers > 0) {
+      banner += '<div class="m4w-msg-banner"><i class="bi bi-eye-slash text-success"></i><span>' + esc(t('trackers_removed', { n: msg.trackers })) + '</span></div>';
+    }
     if (msg.blocked_images > 0) {
-      banner = '<div class="m4w-msg-banner"><i class="bi bi-shield-lock text-primary"></i><span>' + esc(t('images_blocked', { n: msg.blocked_images })) + '</span>'
+      banner += '<div class="m4w-msg-banner"><i class="bi bi-shield-lock text-primary"></i><span>' + esc(t('images_blocked', { n: msg.blocked_images })) + '</span>'
         + '<a href="#" data-show-images="' + msg.id + '" class="fw-semibold">' + esc(t('show_images')) + '</a> · <a href="#" data-always-images class="text-muted">' + esc(t('always_show_images')) + '</a></div>';
     }
     if (msg.unsubscribe) {
@@ -547,9 +589,20 @@
     if ($r.length) $r[0].scrollIntoView({ block: 'nearest' });
   }
 
+  // Webmail mode: tell the user when their provider mailbox is not reachable.
+  function renderRemote(rm) {
+    var $f = $('#m4w-remote-flag');
+    if (!$f.length) $f = $('<div id="m4w-remote-flag"></div>').insertAfter('#m4w-vacation-flag');
+    if (!rm || rm.status === 'ok' || rm.status === 'pending') { $f.empty(); return; }
+    $f.html('<div class="m4w-remote-flag" role="status"><i class="bi bi-plug"></i><span>' + esc(t('wm_flag_' + rm.status)) + '</span></div>');
+  }
+
   // ------------------------------------------------------------- polling
-  function poll(first) {
-    M4W.get('api/poll', { since: S.maxId }, { silent: true, quiet: true }).done(function (r) {
+  function poll(first, force) {
+    var q = { since: S.maxId };
+    if (force) q.force = 1;
+    return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
+      if (r.remote) renderRemote(r.remote);
       var prevInbox = S.byRole.inbox ? S.byRole.inbox.unread : 0;
       setFolders(r.folders);
       if (r.csrf) M4W.csrf(r.csrf);
@@ -698,7 +751,8 @@
       S.offset = 0; loadList();
     });
     $(document).on('click', '[data-page]', function () { S.offset = Math.max(0, S.offset + (+$(this).data('page')) * (S.prefs.page_size || 50)); loadList(); $scroll.scrollTop(0); });
-    $(document).on('click', '[data-action=refresh]', function () { var $i = $(this).find('.bi').addClass('spin'); loadList(true).always(function () { $i.removeClass('spin'); }); poll(false); });
+    // Refresh first pulls from the provider in webmail mode, then reloads the list.
+    $(document).on('click', '[data-action=refresh]', function () { var $i = $(this).find('.bi').addClass('spin'); poll(false, true).always(function () { loadList(true).always(function () { $i.removeClass('spin'); }); }); });
     $(document).on('click', '[data-action=mark-all-read]', function () {
       if (!S.folder) return;
       M4W.post('api/folders/' + S.folder + '/read-all').done(function (r) { setFolders(r.folders); loadList(true); });

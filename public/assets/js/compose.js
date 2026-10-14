@@ -163,6 +163,7 @@
     this.rcpt = {};
     this.$el.find('[data-r]').each(function () { self.rcpt[$(this).data('r')] = new Recipients($(this), function () { self.touch(); }); });
     this.bind();
+    this.bindDrag();
     if (window.matchMedia('(max-width: 991.98px)').matches) this.$el.addClass('mobile');
     this.load(opts);
   }
@@ -301,7 +302,7 @@
   Compose.prototype.upload = function (file) {
     var self = this, max = ((M4W.state.settings || {}).max_attach_mb || 25) * 1048576;
     var d = $.Deferred();
-    if (file.size > max) { M4W.toast(t('file_too_big', { name: file.name, mb: max / 1048576 }), 'danger'); return d.reject().promise(); }
+    if (file.size > max) { M4W.tooBig({ name: file.name, size: file.size, max_mb: max / 1048576 }); return d.reject().promise(); }
     var fd = new FormData(); fd.append('file', file);
     this.state.uploading = (this.state.uploading || 0) + 1;
     M4W.api('POST', 'api/upload', fd, {
@@ -346,9 +347,12 @@
     var self = this, $el = this.$el;
     $el.on('click', '[data-c]', function (e) {
       var c = $(this).data('c');
-      if (c === 'toggle-min') { if ($(e.target).closest('button').length) return; $el.toggleClass('minimized'); return; }
+      if (c === 'toggle-min') {
+        if ($(e.target).closest('button').length || self.dragged) { self.dragged = false; return; }
+        self.setMinimized(!$el.hasClass('minimized')); return;
+      }
       e.stopPropagation();
-      if (c === 'min') $el.toggleClass('minimized').removeClass('maximized'), $('.m4w-compose-backdrop').remove();
+      if (c === 'min') self.setMinimized(!$el.hasClass('minimized'));
       if (c === 'max') self.toggleMax();
       if (c === 'close') self.close();
       if (c === 'cc' || c === 'bcc') { self.showField(c); self.rcpt[c].$input.trigger('focus'); }
@@ -435,12 +439,54 @@
     }).fail(function () { self.state.scheduled_at = 0; });
   };
 
+  // ---- window: drag by the header (desktop), kept inside the viewport
+  Compose.prototype.place = function () {
+    var el = this.$el[0];
+    if (!this.pos || this.$el.hasClass('maximized') || this.$el.hasClass('minimized') || window.innerWidth < 768) {
+      el.style.left = el.style.top = el.style.right = el.style.bottom = '';
+      return;
+    }
+    var w = el.offsetWidth, h = el.offsetHeight;
+    var x = Math.max(8, Math.min(this.pos.x, window.innerWidth - w - 8));
+    var y = Math.max(8, Math.min(this.pos.y, window.innerHeight - h - 8));
+    this.pos = { x: x, y: y };
+    el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto';
+  };
+  Compose.prototype.setMinimized = function (on) {
+    this.$el.toggleClass('minimized', on).removeClass('maximized').toggleClass('floating', !on && !!this.pos);
+    $('.m4w-compose-backdrop').remove();
+    this.$el.find('[data-c=max] .bi').removeClass('bi-arrows-angle-contract').addClass('bi-arrows-angle-expand');
+    this.place();
+  };
+  Compose.prototype.bindDrag = function () {
+    var self = this, $el = this.$el, start = null;
+    $el.find('.m4w-compose-head').on('pointerdown', function (e) {
+      if (e.button !== 0 || $(e.target).closest('button').length || $el.hasClass('maximized') || $el.hasClass('minimized') || window.innerWidth < 768) return;
+      var r = $el[0].getBoundingClientRect();
+      start = { px: e.clientX, py: e.clientY, x: r.left, y: r.top, moved: false };
+      this.setPointerCapture(e.pointerId);
+    }).on('pointermove', function (e) {
+      if (!start) return;
+      var dx = e.clientX - start.px, dy = e.clientY - start.py;
+      if (!start.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      if (!start.moved) { start.moved = true; $el.addClass('dragging floating'); }
+      self.pos = { x: start.x + dx, y: start.y + dy };
+      self.place();
+    }).on('pointerup pointercancel', function () {
+      if (start && start.moved) { self.dragged = true; $el.removeClass('dragging'); }
+      start = null;
+    }).on('dblclick', function (e) { if (!$(e.target).closest('button').length && window.innerWidth >= 768) self.toggleMax(); });
+    $(window).on('resize.m4wcompose', function () { self.place(); });
+  };
+
   Compose.prototype.toggleMax = function () {
     var $el = this.$el, self = this;
-    $el.toggleClass('maximized').removeClass('minimized');
+    if ($el.hasClass('maximized')) { this.setMinimized(false); return; }
+    $el.addClass('maximized').removeClass('minimized floating');
+    this.place();
     $('.m4w-compose-backdrop').remove();
-    if ($el.hasClass('maximized')) $('<div class="m4w-compose-backdrop"></div>').insertBefore($el).on('click', function () { self.toggleMax(); });
-    $el.find('[data-c=max] .bi').toggleClass('bi-arrows-angle-expand bi-arrows-angle-contract');
+    $('<div class="m4w-compose-backdrop"></div>').insertBefore($el).on('click', function () { self.toggleMax(); });
+    $el.find('[data-c=max] .bi').removeClass('bi-arrows-angle-expand').addClass('bi-arrows-angle-contract');
   };
 
   Compose.prototype.close = function () {
@@ -463,6 +509,7 @@
 
   Compose.prototype.destroy = function () {
     clearTimeout(this.saveTimer);
+    $(window).off('resize.m4wcompose');
     if (this.editor) this.editor.destroy();
     $('.m4w-compose-backdrop').remove();
     this.$el.remove();
@@ -511,6 +558,7 @@
           self.destroy();
           M4W.toast(t('sent'), 'success', { action: { label: t('view_message'), fn: function () { var s = M4W.state.byRole.sent; if (s) M4W.go(s.id, r.id); } } });
           if (r.warnings && Object.keys(r.warnings).length) M4W.toast(t('partial_failure', { list: Object.keys(r.warnings).join(', ') }), 'warning', { duration: 10000 });
+          if (r.deferred) M4W.toast(t('send_deferred', { n: r.deferred.count, time: r.deferred.time }), 'warning', { duration: 12000 });
           M4W.reloadList();
         }).fail(function () {
           sending.close();

@@ -68,6 +68,55 @@
       $(window).on('beforeprint', function () { $help.find('details').attr('open', ''); });
     }
 
+    // Webmail mode: test / sync a provider mailbox from the user form.
+    $(document).on('click', '[data-remote-action]', function () {
+      var $b = $(this), $r = $b.closest('.card-body').find('[data-remote-result]');
+      $b.prop('disabled', true);
+      $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');
+      $.ajax({ url: $b.data('remote-action'), method: 'POST', dataType: 'json', headers: { 'X-CSRF-Token': M4W.csrf(), 'X-Requested-With': 'XMLHttpRequest' } })
+        .done(function (res) {
+          var details = [res.imap ? 'IMAP : ' + res.imap : '', res.smtp ? 'SMTP : ' + res.smtp : ''].filter(Boolean).join(' · ');
+          var ok = res.ok && !details;
+          $r.addClass(ok ? 'text-success' : 'text-danger').text((res.message || res.error || '') + (details ? ' — ' + details : ''));
+        })
+        .fail(function (x) { $r.addClass('text-danger').text((x.responseJSON && x.responseJSON.error) || t('error_network')); })
+        .always(function () { $b.prop('disabled', false); });
+    });
+
+    // Collector mode: live gauge of the provider's hourly sending limit.
+    $('[data-col-gauge]').each(function () {
+      var $g = $(this), labels = { low: t('col_level_low'), mid: t('col_level_low'), high: t('col_level_high'), full: t('col_level_full') };
+      setInterval(function () {
+        if (document.hidden) return;
+        M4W.get($g.data('src').replace(M4W.url(''), ''), null, { silent: true, quiet: true }).done(function (r) {
+          var s = r.stats;
+          $g.removeClass('level-low level-mid level-high level-full').addClass('level-' + s.level);
+          $g.find('[data-g=pill]').text(labels[s.level]);
+          $g.find('[data-g=used]').text(s.used);
+          $g.find('[data-g=left]').text(t('col_left', { n: s.left }));
+          $g.find('[data-g=fill]').css('width', s.pct + '%');
+          $g.find('[data-g=meter]').attr('aria-valuenow', s.used);
+          $g.find('[data-g=alert]').toggleClass('d-none', !(s.level === 'full' || s.held));
+          $g.find('[data-g=held]').text(t('col_held', { n: s.held, r: s.held_rcpts }));
+          $g.find('[data-g=next]').text(s.next_time ? t('col_next', { time: s.next_time }) : '');
+        });
+      }, 30000);
+    });
+
+    // Mail server: show only the sections of the chosen operating mode.
+    $(document).on('change', '[data-mail-mode]', function () {
+      var mode = $('[data-mail-mode]:checked').val();
+      $('[data-modes]').each(function () { this.hidden = String($(this).data('modes')).split(' ').indexOf(mode) === -1; });
+    });
+    $(document).on('change', '[data-wm-preset]', function () {
+      var $o = $(this).find(':selected');
+      if ($(this).val() === 'custom') return;
+      [['imap', 'imap'], ['imap-port', 'imap-port'], ['imap-sec', 'imap-sec'], ['smtp', 'smtp'], ['smtp-port', 'smtp-port'], ['smtp-sec', 'smtp-sec']].forEach(function (p) {
+        var v = $o.data(p[1]);
+        if (v !== undefined && v !== '') $('[data-wm="' + p[0] + '"]').val(v);
+      });
+    });
+
     $(document).on('change', '[data-autosubmit]', function () { this.form.submit(); });
     $(document).on('click', '[data-submit-form]', function () { $($(this).data('submit-form')).trigger('submit'); });
     $(document).on('click', '[data-copy]', function () {

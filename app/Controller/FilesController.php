@@ -49,7 +49,7 @@ final class FilesController extends Controller
         try {
             $id = Files::createFolder($this->user(), $this->req->int('parent_id'), $this->req->str('name'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['id' => $id]);
     }
@@ -59,7 +59,7 @@ final class FilesController extends Controller
         try {
             $id = Files::createSpace($this->user(), $this->req->str('name'), $this->req->str('description'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['id' => $id]);
     }
@@ -69,7 +69,7 @@ final class FilesController extends Controller
         try {
             Files::updateSpace($this->user(), (int) $id, $this->req->str('name'), $this->req->str('description'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok();
     }
@@ -90,7 +90,7 @@ final class FilesController extends Controller
             }
             $out = Files::addFromPath($user, $folder, $file['tmp_name'], (string) $file['name'], $this->req->bool('replace'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         } finally {
             @unlink($file['tmp_name']);
         }
@@ -102,7 +102,7 @@ final class FilesController extends Controller
         try {
             $name = Files::rename($this->user(), $this->req->str('type'), $this->req->int('id'), $this->req->str('name'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['name' => $name]);
     }
@@ -112,7 +112,7 @@ final class FilesController extends Controller
         try {
             $n = Files::move($this->user(), $this->req->arr('items'), $this->req->int('target'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['count' => $n]);
     }
@@ -122,9 +122,19 @@ final class FilesController extends Controller
         try {
             $n = Files::copy($this->user(), $this->req->arr('items'), $this->req->int('target'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['count' => $n]);
+    }
+
+    public function compress(): Response
+    {
+        try {
+            $f = Files::compress($this->user(), $this->req->arr('items'), $this->req->int('target'), $this->req->str('name'));
+        } catch (\InvalidArgumentException | \RuntimeException $e) {
+            return $this->failWith($e);
+        }
+        return $this->ok(['file' => $f]);
     }
 
     public function delete(): Response
@@ -153,6 +163,39 @@ final class FilesController extends Controller
         return $this->ok(Files::acl($this->user(), (int) $id));
     }
 
+    public function expiry(string $id): Response
+    {
+        $user = $this->user();
+        $f = Files::requireFile($user, (int) $id, Files::READ);
+        return $this->ok([
+            'file' => Files::fileOut($f), 'can_edit' => Files::canSetExpiry($user, $f),
+            'min' => date('Y-m-d', strtotime('tomorrow')), 'max' => date('Y-m-d', strtotime('today') + Files::maxExpiryDays() * 86400),
+            'default_days' => Files::defaultExpiryDays(),
+        ]);
+    }
+
+    public function saveExpiry(string $id): Response
+    {
+        $at = strtotime($this->req->str('date') . ' 23:59:00');
+        try {
+            $f = Files::setExpiry($this->user(), (int) $id, $at ?: 0);
+        } catch (\InvalidArgumentException $e) {
+            return $this->failWith($e);
+        }
+        return $this->ok(['file' => $f]);
+    }
+
+    public function fileAcl(string $id): Response
+    {
+        return $this->ok(Files::fileAcl($this->user(), (int) $id));
+    }
+
+    public function saveFileAcl(string $id): Response
+    {
+        Files::setFileAcl($this->user(), (int) $id, $this->req->arr('entries'));
+        return $this->ok(Files::fileAcl($this->user(), (int) $id));
+    }
+
     public function principals(): Response
     {
         Session::close();
@@ -169,7 +212,7 @@ final class FilesController extends Controller
         try {
             Files::restoreVersion($this->user(), (int) $id, $this->req->int('version_id'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok();
     }
@@ -209,6 +252,36 @@ final class FilesController extends Controller
             });
         });
         return $r;
+    }
+
+    /** In-app preview of an office document or text file, rendered as a static HTML page. */
+    public function preview(string $id): Response
+    {
+        $user = $this->user();
+        Session::close();
+        $f = Files::requireFile($user, (int) $id, Files::READ);
+        $tmp = null;
+        try {
+            if (!\M4W\Service\DocPreview::supports($f['name'])) {
+                throw new \InvalidArgumentException(t('files.preview_unsupported'));
+            }
+            $tmp = Files::toTempFile($f['blob_id']);
+            $html = \M4W\Service\DocPreview::render($tmp, $f['name']);
+        } catch (\InvalidArgumentException $e) {
+            $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font:14px system-ui,sans-serif;color:#475569;display:flex;align-items:center;justify-content:center;height:90vh;text-align:center}</style></head><body><p>' . e($e->getMessage()) . '</p></body></html>';
+        } finally {
+            if ($tmp) {
+                @unlink($tmp);
+            }
+        }
+        return new Response($html, 200, [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'Cache-Control' => 'private, max-age=0, no-store',
+            // Static page: no script, nothing fetched, only shown framed by the file space.
+            'Content-Security-Policy' => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+            'X-Frame-Options' => 'SAMEORIGIN',
+            'Cross-Origin-Resource-Policy' => 'same-origin',
+        ]);
     }
 
     /** ZIP of a folder (and sub-folders) the user can read. */
@@ -270,7 +343,7 @@ final class FilesController extends Controller
             $mailbox = \M4W\Service\Delegation::mailbox($actor);
             $items = Files::toUploads($actor, $this->req->arr('ids'), (int) $mailbox['id']);
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         foreach ($items as &$it) {
             $it['url'] = url('api/upload/' . $it['token']);
@@ -294,13 +367,16 @@ final class FilesController extends Controller
         try {
             foreach (array_slice($parts, 0, 50) as $partId) {
                 $p = $parsed->findPart((string) $partId);
-                if (!$p || $p->isMultipart()) {
+                if (!$p || $p->isMultipart() || $p->header('X-M4W-Removed') !== null) {
                     continue;
+                }
+                if (\M4W\Mail\FileType::classify($p->filename(), $p->decodedBody())['risk'] === 'block' && (int) \M4W\Core\Settings::get('security.block_executables', 1) === 1) {
+                    throw new \InvalidArgumentException(t('att.blocked_save', ['name' => $p->filename() ?: '—']));
                 }
                 $saved[] = Files::addFromString($user, $folder, $p->decodedBody(), $p->filename() ?: 'piece-jointe', $p->type);
             }
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         if (!$saved) {
             return $this->fail(t('mail.not_found'), 404);

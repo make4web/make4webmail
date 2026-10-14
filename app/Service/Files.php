@@ -21,6 +21,15 @@ use M4W\Storage\Storage;
  *   MANAGE + change access, rename/delete the space itself
  *
  * The owner of a personal tree and administrators (on team spaces) always manage.
+ *
+ * A single file can also be shared on its own (fs_file_acl): the people it is shared
+ * with may read it — view, download, copy, attach to a message — without any access
+ * to its folder. They find it under "Shared with me".
+ *
+ * Every document has an expiry date (one year by default, three at most). Its creator
+ * is reminded one month, one week and two days before; past the date, the document
+ * leaves the file space for an archive only administrators reach, its shares end, and
+ * the creator (or an administrator) receives it by e-mail.
  */
 final class Files
 {
@@ -120,6 +129,189 @@ final class Files
         ]);
         unset(self::$folderCache[$id]);
         return self::folder($id);
+    }
+
+    // ---------------------------------------------------------------- expiry
+
+    public static function defaultExpiryDays(): int
+    {
+        return max(1, min(self::maxExpiryDays(), (int) Settings::get('files.expiry_default_days', 365)));
+    }
+
+    public static function maxExpiryDays(): int
+    {
+        return max(1, (int) Settings::get('files.expiry_max_days', 1095));
+    }
+
+    /** Who may change a document's expiry: its creator, or anyone who can modify its folder. */
+    public static function canSetExpiry(array $user, array $file): bool
+    {
+        return (int) $file['created_by'] === (int) $user['id'] && self::filePermission($user, $file) >= self::READ
+            || self::permission($user, (int) $file['folder_id']) >= self::WRITE;
+    }
+
+    /** New expiry date (timestamp), between tomorrow and the maximum period from today. */
+    public static function setExpiry(array $user, int $fileId, int $at): array
+    {
+        $f = self::requireFile($user, $fileId, self::READ);
+        if (!self::canSetExpiry($user, $f)) {
+            throw new \M4W\Core\HttpException(403, t('files.forbidden'));
+        }
+        $min = strtotime('tomorrow');
+        $max = strtotime('today') + self::maxExpiryDays() * 86400 + 86399;
+        if ($at < $min || $at > $max) {
+            throw new \InvalidArgumentException(t('files.expiry_range', ['max' => format_datetime($max, false)]));
+        }
+        $at = strtotime(date('Y-m-d 23:59:00', $at)) ?: $at;
+        DB::update('fs_files', ['expires_at' => $at, 'expiry_stage' => 0], 'id = :id', ['id' => $fileId]);
+        Audit::log('files.expiry_changed', $f['name'], ['until' => date('Y-m-d', $at)], (int) $user['id']);
+        return self::fileOut(self::file($fileId));
+    }
+
+    /** Hidden folder holding expired documents (no one has rights on it; administrators use dedicated screens). */
+    public static function archiveRoot(): array
+    {
+        $row = DB::one("SELECT * FROM fs_folders WHERE kind = 'archive' AND parent_id IS NULL ORDER BY id LIMIT 1");
+        if ($row) {
+            return $row;
+        }
+        $id = DB::insert('fs_folders', ['parent_id' => null, 'kind' => 'archive', 'owner_id' => null, 'name' => 'archive', 'created_at' => time(), 'updated_at' => time()]);
+        return self::folder($id);
+    }
+
+    /** Scheduler: reminders before expiry, archiving after. Returns [reminders, archived]. */
+    public static function processExpiry(?int $now = null): array
+    {
+        $now ??= time();
+        $archive = (int) self::archiveRoot()['id'];
+        $sent = 0;
+        // Thresholds in days with the stage they set: the most urgent reminder due is the one sent.
+        $stages = [3 => 2, 2 => 7, 1 => 30];
+        foreach (DB::all('SELECT * FROM fs_files WHERE deleted_at = 0 AND archived_at = 0 AND folder_id <> :a AND expires_at > :n AND expires_at <= :lim AND expiry_stage < 3',
+            ['a' => $archive, 'n' => $now, 'lim' => $now + 30 * 86400]) as $f) {
+            if (self::isDeleted((int) $f['folder_id'])) {
+                continue;
+            }
+            $left = (int) $f['expires_at'] - $now;
+            foreach ($stages as $stage => $days) {
+                if ($left <= $days * 86400) {
+                    if ((int) $f['expiry_stage'] < $stage) {
+                        DB::update('fs_files', ['expiry_stage' => $stage], 'id = :id', ['id' => $f['id']]);
+                        self::expiryMail($f, 'reminder', $left);
+                        $sent++;
+                    }
+                    break;
+                }
+            }
+        }
+        $archived = 0;
+        foreach (DB::all('SELECT * FROM fs_files WHERE deleted_at = 0 AND archived_at = 0 AND folder_id <> :a AND expires_at > 0 AND expires_at <= :n LIMIT 500',
+            ['a' => $archive, 'n' => $now]) as $f) {
+            if (self::isDeleted((int) $f['folder_id'])) {
+                continue; // in the trash: the trash rules apply
+            }
+            DB::transaction(function () use ($f, $archive, $now) {
+                DB::update('fs_files', ['archived_at' => $now, 'archived_from' => (int) $f['folder_id'], 'folder_id' => $archive], 'id = :id', ['id' => $f['id']]);
+                DB::delete('fs_file_acl', 'file_id = :f', ['f' => $f['id']]);
+            });
+            self::touch((int) $f['folder_id']);
+            self::expiryMail($f, 'archived', 0);
+            Audit::log('files.archived', $f['name'], ['folder' => (int) $f['folder_id']], null);
+            $archived++;
+        }
+        self::resetCache();
+        return [$sent, $archived];
+    }
+
+    /** Archived documents (administration). */
+    public static function archived(): array
+    {
+        $rows = DB::all('SELECT f.*, u.email AS creator_email FROM fs_files f LEFT JOIN users u ON u.id = f.created_by WHERE f.archived_at > 0 AND f.deleted_at = 0 ORDER BY f.archived_at DESC LIMIT 500');
+        foreach ($rows as &$r) {
+            $from = (int) ($r['archived_from'] ?? 0);
+            $r['origin'] = $from && self::folder($from) ? self::originName($from) : '—';
+        }
+        return $rows;
+    }
+
+    private static function originName(int $folderId): string
+    {
+        $names = [];
+        foreach (self::chain($folderId) as $f) {
+            $names[] = $f['kind'] === 'personal' ? t('files.my_files') . ' (' . self::userName((int) $f['owner_id']) . ')' : $f['name'];
+        }
+        return implode(' / ', $names);
+    }
+
+    /** Administration: put an archived document back where it was (or in its creator's files), with a new period. */
+    public static function restoreArchived(int $fileId, int $by): array
+    {
+        $f = DB::one('SELECT * FROM fs_files WHERE id = :id AND archived_at > 0', ['id' => $fileId]);
+        if (!$f) {
+            throw new \M4W\Core\HttpException(404, t('files.not_found'));
+        }
+        $target = (int) ($f['archived_from'] ?? 0);
+        if (!$target || !self::folder($target) || self::isDeleted($target)) {
+            $creator = DB::value("SELECT id FROM users WHERE id = :u AND status = 'active'", ['u' => (int) $f['created_by']]);
+            $target = (int) self::personalRoot((int) ($creator ?: $by))['id'];
+        }
+        DB::update('fs_files', [
+            'folder_id' => $target, 'name' => self::freeName($target, $f['name'], 'file'), 'archived_at' => 0, 'archived_from' => null,
+            'expires_at' => time() + self::defaultExpiryDays() * 86400, 'expiry_stage' => 0,
+        ], 'id = :id', ['id' => $fileId]);
+        self::touch($target);
+        self::resetCache();
+        Audit::log('files.unarchived', $f['name'], ['folder' => $target], $by);
+        return self::fileOut(self::file($fileId));
+    }
+
+    /** Reminder or archiving notice, delivered to the creator's inbox (an administrator's if the creator is gone). */
+    private static function expiryMail(array $f, string $kind, int $left): void
+    {
+        try {
+            $to = DB::one("SELECT * FROM users WHERE id = :u AND status = 'active'", ['u' => (int) $f['created_by']]);
+            $orphan = !$to;
+            $to ??= DB::one("SELECT * FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1");
+            if (!$to) {
+                return;
+            }
+            $to = Users::find((int) $to['id']);
+            $domain = \M4W\Mail\Address::domain($to['email']) ?: 'localhost';
+            $where = self::originName($kind === 'archived' ? (int) $f['folder_id'] : (int) $f['folder_id']);
+            $b = new \M4W\Mail\MimeBuilder();
+            $b->from = ['email' => 'no-reply@' . $domain, 'name' => (string) Settings::get('brand.name', 'Make4WebMail')];
+            $b->to = [['email' => $to['email'], 'name' => $to['name']]];
+            $b->messageId = \M4W\Mail\MimeBuilder::newMessageId($domain);
+            $b->extraHeaders['Auto-Submitted'] = 'auto-generated';
+            $b->extraHeaders['X-M4W-Files'] = 'expiry-' . $kind;
+            $box = 'font-family:Arial,sans-serif;font-size:14px;color:#1f2937';
+            $intro = $orphan ? '<p style="color:#64748b">' . e(t('files.expiry_orphan', ['name' => self::userName((int) $f['created_by'])])) . '</p>' : '';
+            if ($kind === 'reminder') {
+                $days = max(1, (int) ceil($left / 86400));
+                $b->subject = t('files.expiry_reminder_subject', ['name' => $f['name'], 'days' => $days]);
+                $link = public_url('files#e/' . (int) $f['id']);
+                $b->html = '<div style="' . $box . '">' . $intro
+                    . '<p>' . e(t('files.expiry_reminder_body', ['name' => $f['name'], 'date' => format_datetime((int) $f['expires_at'], false), 'days' => $days])) . '</p>'
+                    . '<p style="color:#64748b">' . e($where) . '</p>'
+                    . '<p><a href="' . e($link) . '" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">' . e(t('files.expiry_extend')) . '</a></p>'
+                    . '<p style="color:#64748b">' . e(t('files.expiry_reminder_footer')) . '</p></div>';
+            } else {
+                $b->subject = t('files.expiry_archived_subject', ['name' => $f['name']]);
+                $max = max(1, (int) Settings::get('security.max_attachment_mb', 25)) * 1048576;
+                $attached = (int) $f['size'] <= $max;
+                $b->html = '<div style="' . $box . '">' . $intro
+                    . '<p>' . e(t('files.expiry_archived_body', ['name' => $f['name'], 'date' => format_datetime((int) $f['expires_at'], false)])) . '</p>'
+                    . '<p style="color:#64748b">' . e($where) . '</p>'
+                    . '<p>' . e(t($attached ? 'files.expiry_archived_attached' : 'files.expiry_archived_too_big')) . '</p></div>';
+                if ($attached) {
+                    $b->attachments[] = ['name' => $f['name'], 'mime' => $f['mime'] ?: 'application/octet-stream', 'content' => self::contents($f['blob_id'])];
+                }
+            }
+            $inbox = Folders::byRole((int) $to['id'], 'inbox');
+            Mailbox::store((int) $to['id'], (int) $inbox['id'], $b->build());
+        } catch (\Throwable $e) {
+            error_log('[m4w] files expiry mail: ' . $e->getMessage());
+        }
     }
 
     /** Principals a user matches in access entries. */
@@ -249,6 +441,7 @@ final class Files
             'personal' => (int) $personal['id'],
             'spaces' => $spaces,
             'shared' => self::sharedWithMe($user),
+            'shared_files' => self::sharedFilesWithMe($user),
             'can_create_space' => self::canCreateSpaces($user),
             'usage' => self::usage(),
             'trash' => count(self::trash($user)),
@@ -319,8 +512,9 @@ final class Files
     {
         return [
             'id' => (int) $f['id'], 'folder_id' => (int) $f['folder_id'], 'name' => $f['name'], 'mime' => $f['mime'],
+            'shared' => (bool) DB::value('SELECT 1 FROM fs_file_acl WHERE file_id = :f LIMIT 1', ['f' => $f['id']]),
             'size' => (int) $f['size'], 'version' => (int) $f['version'], 'updated_at' => (int) $f['updated_at'],
-            'created_at' => (int) $f['created_at'],
+            'created_at' => (int) $f['created_at'], 'expires_at' => (int) ($f['expires_at'] ?? 0),
             'updated_by' => $f['updated_by'] ? self::userName((int) $f['updated_by']) : '',
         ];
     }
@@ -397,11 +591,118 @@ final class Files
     public static function requireFile(array $user, int $id, int $level): array
     {
         $f = self::file($id);
-        if (!$f || self::permission($user, (int) $f['folder_id']) < $level) {
-            $exists = $f && self::permission($user, (int) $f['folder_id']) >= self::READ;
-            throw new \M4W\Core\HttpException($exists ? 403 : 404, t($exists ? 'files.forbidden' : 'files.not_found'));
+        $have = $f ? self::filePermission($user, $f) : self::NONE;
+        if ($have < $level) {
+            throw new \M4W\Core\HttpException($have >= self::READ ? 403 : 404, t($have >= self::READ ? 'files.forbidden' : 'files.not_found'));
         }
         return $f;
+    }
+
+    /** Effective level on a file: its folder's, or read access when the file itself is shared. */
+    public static function filePermission(array $user, array $file): int
+    {
+        $level = self::permission($user, (int) $file['folder_id']);
+        if ($level >= self::READ || (int) $file['deleted_at'] > 0 || self::isDeleted((int) $file['folder_id'])) {
+            return $level;
+        }
+        [$where, $params] = self::principalWhere($user);
+        $params['f'] = (int) $file['id'];
+        $grant = (int) (DB::value("SELECT MAX(level) FROM fs_file_acl WHERE file_id = :f AND ($where)", $params) ?? 0);
+        return min($grant, self::READ);
+    }
+
+    /** SQL condition matching the user, their department or everyone. @return array{string, array} */
+    private static function principalWhere(array $user, string $alias = ''): array
+    {
+        $or = [];
+        $params = [];
+        foreach (self::principals($user) as $i => [$type, $value]) {
+            $or[] = "({$alias}principal_type = :pt$i AND {$alias}principal = :pv$i)";
+            $params["pt$i"] = $type;
+            $params["pv$i"] = $value;
+        }
+        return [implode(' OR ', $or), $params];
+    }
+
+    /** Files shared one by one with the user, that their folder rights do not already show. */
+    public static function sharedFilesWithMe(array $user): array
+    {
+        [$where, $params] = self::principalWhere($user, 'a.');
+        $rows = DB::all("SELECT DISTINCT f.* FROM fs_file_acl a JOIN fs_files f ON f.id = a.file_id WHERE f.deleted_at = 0 AND ($where) ORDER BY f.name", $params);
+        $out = [];
+        foreach ($rows as $f) {
+            if (self::isDeleted((int) $f['folder_id']) || self::permission($user, (int) $f['folder_id']) >= self::READ) {
+                continue;
+            }
+            $o = self::fileOut($f);
+            $root = self::chain((int) $f['folder_id'])[0] ?? null;
+            $o['owner'] = $root && $root['kind'] === 'personal' ? self::userName((int) $root['owner_id']) : ($root['name'] ?? '');
+            $o['level'] = 'read';
+            $o['shared_file'] = true;
+            $out[] = $o;
+        }
+        return $out;
+    }
+
+    /** People a file is shared with (managers of its folder only). */
+    public static function fileAcl(array $user, int $fileId): array
+    {
+        $f = self::requireFile($user, $fileId, self::READ);
+        self::require($user, (int) $f['folder_id'], self::MANAGE);
+        $entries = [];
+        foreach (DB::all('SELECT * FROM fs_file_acl WHERE file_id = :f ORDER BY principal_type, principal', ['f' => $fileId]) as $a) {
+            $entries[] = self::aclOut($a);
+        }
+        // Who already sees it through its folder, shown read-only.
+        $inherited = [];
+        foreach (self::chain((int) $f['folder_id']) as $anc) {
+            foreach (DB::all('SELECT * FROM fs_acl WHERE folder_id = :f', ['f' => $anc['id']]) as $a) {
+                $o = self::aclOut($a);
+                $o['from'] = $anc['kind'] === 'personal' ? t('files.my_files') : $anc['name'];
+                $inherited[] = $o;
+            }
+        }
+        $root = self::chain((int) $f['folder_id'])[0];
+        return [
+            'file' => self::fileOut($f), 'entries' => $entries, 'inherited' => $inherited,
+            'owner' => $root['kind'] === 'personal' ? self::userName((int) $root['owner_id']) : '',
+        ];
+    }
+
+    /** Replace the people a file is shared with (read access). */
+    public static function setFileAcl(array $user, int $fileId, array $entries): void
+    {
+        $f = self::requireFile($user, $fileId, self::READ);
+        self::require($user, (int) $f['folder_id'], self::MANAGE);
+        $clean = [];
+        foreach (array_slice($entries, 0, 500) as $e) {
+            if (!is_array($e)) {
+                continue;
+            }
+            $type = (string) ($e['type'] ?? '');
+            $principal = trim((string) ($e['principal'] ?? ''));
+            if ($type === 'user' && DB::value('SELECT 1 FROM users WHERE id = :id', ['id' => (int) $principal])) {
+                $principal = (string) (int) $principal;
+            } elseif ($type === 'department' && $principal !== '') {
+                $principal = mb_substr(mb_strtolower($principal), 0, 190);
+            } elseif ($type === 'all') {
+                $principal = '*';
+            } else {
+                continue;
+            }
+            $clean[$type . ':' . $principal] = ['type' => $type, 'principal' => $principal];
+        }
+        DB::transaction(function () use ($fileId, $clean, $user) {
+            DB::delete('fs_file_acl', 'file_id = :f', ['f' => $fileId]);
+            foreach ($clean as $c) {
+                DB::insert('fs_file_acl', [
+                    'file_id' => $fileId, 'principal_type' => $c['type'], 'principal' => $c['principal'], 'level' => self::READ,
+                    'created_by' => (int) $user['id'], 'created_at' => time(),
+                ]);
+            }
+        });
+        self::resetCache();
+        Audit::log('files.file_shared', $f['name'], ['entries' => count($clean)], (int) $user['id']);
     }
 
     public static function maxFileBytes(): int
@@ -472,6 +773,34 @@ final class Files
     }
 
     /**
+     * New content for an existing document (online editing): the previous content
+     * becomes a version, as with an upload of the same name. Needs the right to modify.
+     */
+    public static function putContent(array $user, int $fileId, string $path): array
+    {
+        $f = self::requireFile($user, $fileId, self::WRITE);
+        $size = (int) filesize($path);
+        if ($size > self::maxFileBytes()) {
+            throw new \InvalidArgumentException(t('files.too_big', ['mb' => (int) Settings::get('files.max_file_mb', 200)]));
+        }
+        if (hash_file('sha256', $path) === $f['sha256']) {
+            return self::fileOut($f); // unchanged: no new version
+        }
+        [$blob, $size, $sha] = self::storeBlob($path);
+        DB::transaction(function () use ($f, $user, $blob, $size, $sha) {
+            self::archiveVersion($f);
+            DB::update('fs_files', [
+                'blob_id' => $blob, 'size' => $size, 'sha256' => $sha, 'version' => (int) $f['version'] + 1,
+                'updated_by' => (int) $user['id'], 'updated_at' => time(),
+            ], 'id = :id', ['id' => $f['id']]);
+        });
+        self::pruneVersions((int) $f['id']);
+        self::touch((int) $f['folder_id']);
+        Audit::log('files.edited', $f['name'], ['version' => (int) $f['version'] + 1], (int) $user['id']);
+        return self::fileOut(self::file($fileId));
+    }
+
+    /**
      * Add a file from a local path. With $replace, a file of the same name becomes a
      * new version of the existing one instead of a renamed copy.
      */
@@ -479,6 +808,11 @@ final class Files
     {
         self::require($user, $folderId, self::WRITE);
         $name = self::cleanName($name);
+        $av = Antivirus::scanFile($path);
+        if ($av['status'] === 'infected') {
+            Audit::log('files.virus_refused', $name, ['signature' => $av['signature']], (int) $user['id']);
+            throw new \InvalidArgumentException(t('av.upload_infected', ['name' => $name, 'signature' => $av['signature']]));
+        }
         $size = (int) filesize($path);
         if ($size > self::maxFileBytes()) {
             throw new \InvalidArgumentException(t('files.too_big', ['mb' => (int) Settings::get('files.max_file_mb', 200)]));
@@ -502,7 +836,7 @@ final class Files
             $id = DB::insert('fs_files', [
                 'folder_id' => $folderId, 'name' => self::freeName($folderId, $name, 'file'), 'mime' => $mime, 'size' => $size,
                 'blob_id' => $blob, 'sha256' => $sha, 'version' => 1, 'created_by' => (int) $user['id'], 'updated_by' => (int) $user['id'],
-                'created_at' => $now, 'updated_at' => $now,
+                'created_at' => $now, 'updated_at' => $now, 'expires_at' => $now + self::defaultExpiryDays() * 86400,
             ]);
             Audit::log('files.uploaded', $name, ['folder' => $folderId], (int) $user['id']);
         }
@@ -691,6 +1025,91 @@ final class Files
             Audit::log('files.moved', (string) $n, ['target' => $target], (int) $user['id']);
         }
         return $n;
+    }
+
+    /**
+     * "Send to compressed folder": a ZIP of the selected files and folders, created in
+     * $target (usually the folder they are in). Sub-folders the user cannot read are left out.
+     */
+    public static function compress(array $user, array $items, int $target, string $name = ''): array
+    {
+        self::require($user, $target, self::WRITE);
+        if (!class_exists(\ZipArchive::class)) {
+            throw new \RuntimeException('ZIP extension missing');
+        }
+        $items = self::normalizeItems($items);
+        if (!$items) {
+            throw new \InvalidArgumentException(t('files.nothing_selected'));
+        }
+        $max = self::maxFileBytes();
+        $tmp = (string) tempnam(storage_path('tmp'), 'czip');
+        $temps = [];
+        $total = 0;
+        $zip = new \ZipArchive();
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
+        $used = [];
+        $entry = static function (string $path) use (&$used): string {
+            $base = $path;
+            for ($i = 2; isset($used[mb_strtolower($path)]); $i++) {
+                $dot = strrpos($base, '.');
+                $path = $dot > 0 && !str_ends_with($base, '/') ? substr($base, 0, $dot) . " ($i)" . substr($base, $dot) : rtrim($base, '/') . " ($i)";
+            }
+            $used[mb_strtolower($path)] = true;
+            return $path;
+        };
+        $addFile = function (array $f, string $prefix) use ($zip, &$temps, &$total, $max, $entry) {
+            $total += (int) $f['size'];
+            if ($total > $max) {
+                throw new \InvalidArgumentException(t('files.too_big', ['mb' => (int) ($max / 1048576)]));
+            }
+            $temps[] = $p = self::toTempFile($f['blob_id']);
+            $zip->addFile($p, $entry($prefix . $f['name']));
+        };
+        $walk = function (int $folderId, string $prefix, int $depth) use (&$walk, $zip, $addFile, $user, $entry) {
+            if ($depth > 30) {
+                return;
+            }
+            $zip->addEmptyDir($entry(rtrim($prefix, '/')));
+            foreach (DB::all('SELECT * FROM fs_files WHERE folder_id = :f AND deleted_at = 0 ORDER BY name', ['f' => $folderId]) as $f) {
+                $addFile($f, $prefix);
+            }
+            foreach (DB::all('SELECT * FROM fs_folders WHERE parent_id = :f AND deleted_at = 0 ORDER BY name', ['f' => $folderId]) as $sub) {
+                if (self::permission($user, (int) $sub['id']) >= self::READ) {
+                    $walk((int) $sub['id'], $prefix . $sub['name'] . '/', $depth + 1);
+                }
+            }
+        };
+        $first = '';
+        try {
+            foreach ($items as $it) {
+                if ($it['type'] === 'file') {
+                    $f = self::requireFile($user, $it['id'], self::READ);
+                    $first = $first ?: $f['name'];
+                    $addFile($f, '');
+                } else {
+                    $f = self::require($user, $it['id'], self::READ);
+                    if ($f['kind'] !== 'folder') {
+                        continue; // never a whole personal tree or team space by mistake
+                    }
+                    $first = $first ?: $f['name'] . '/';
+                    $walk((int) $f['id'], $f['name'] . '/', 0);
+                }
+            }
+            $zip->close();
+            if ($name === '') {
+                $name = count($items) === 1 && $first !== '' ? preg_replace('/\.[^.\/]+$/', '', rtrim($first, '/')) . '.zip' : t('files.archive_name') . '.zip';
+            } elseif (!str_ends_with(mb_strtolower($name), '.zip')) {
+                $name .= '.zip';
+            }
+            $out = self::addFromPath($user, $target, $tmp, $name, false, 'application/zip');
+        } finally {
+            foreach ($temps as $t) {
+                @unlink($t);
+            }
+            @unlink($tmp);
+        }
+        Audit::log('files.compressed', $out['name'], ['items' => count($items)], (int) $user['id']);
+        return $out;
     }
 
     public static function copy(array $user, array $items, int $target): int
@@ -883,6 +1302,7 @@ final class Files
             self::deleteBlob($v['blob_id']);
         }
         DB::delete('fs_versions', 'file_id = :f', ['f' => $id]);
+        DB::delete('fs_file_acl', 'file_id = :f', ['f' => $id]);
         self::deleteBlob($f['blob_id']);
         DB::delete('fs_files', 'id = :id', ['id' => $id]);
     }
@@ -927,6 +1347,7 @@ final class Files
             self::destroyFolder((int) $f['id']);
         }
         DB::delete('fs_acl', "principal_type = 'user' AND principal = :u", ['u' => (string) $userId]);
+        DB::delete('fs_file_acl', "principal_type = 'user' AND principal = :u", ['u' => (string) $userId]);
         self::resetCache();
     }
 
@@ -1057,7 +1478,7 @@ final class Files
         foreach (array_slice(array_unique(array_map('intval', $fileIds)), 0, 50) as $id) {
             $f = self::requireFile($user, $id, self::READ);
             if ((int) $f['size'] > $max) {
-                throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
+                throw new TooBigForMail($f['name'], (int) $f['id'], (int) $f['size']);
             }
             $token = bin2hex(random_bytes(16));
             $rel = 'tmp/up-' . $uploadOwner . '-' . $token;

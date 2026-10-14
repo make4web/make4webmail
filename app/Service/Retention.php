@@ -19,7 +19,7 @@ use M4W\Storage\Storage;
  */
 final class Retention
 {
-    public const REASONS = ['deleted', 'emptied', 'auto_purge', 'rule', 'account_deleted'];
+    public const REASONS = ['deleted', 'emptied', 'auto_purge', 'rule', 'account_deleted', 'spam', 'quarantine'];
 
     public static function enabled(): bool
     {
@@ -51,9 +51,10 @@ final class Retention
     }
 
     /** Message refused by a "delete" rule at delivery: never stored, but retained. */
-    public static function keepIncoming(array $user, string $raw, string $reason = 'rule'): ?int
+    public static function keepIncoming(array $user, string $raw, string $reason = 'rule', bool $force = false): ?int
     {
-        if (!self::enabled()) {
+        // The quarantine is kept whatever the retention setting: it is the only copy.
+        if (!$force && !self::enabled()) {
             return null;
         }
         $p = MimeParser::parse($raw);
@@ -210,7 +211,8 @@ final class Retention
         if ($raw === '') {
             throw new \RuntimeException(t('ret.missing'));
         }
-        $newId = Mailbox::store($targetUserId, $folderId, $raw, ['read' => true]);
+        // Released from quarantine: the user has never seen it.
+        $newId = Mailbox::store($targetUserId, $folderId, $raw, ['read' => $row['reason'] !== 'quarantine']);
         DB::update('deleted_messages', ['restored_at' => time(), 'restored_by' => (int) $admin['id'], 'restored_to' => $target['email']], 'id = :id', ['id' => $id]);
         Audit::log('retention.restored', $target['email'], ['id' => $id, 'subject' => self::masked($row) ? '' : mb_substr($row['subject'], 0, 120), 'owner' => $row['user_email']], (int) $admin['id']);
         return $newId;
@@ -232,11 +234,17 @@ final class Retention
     /** Drop copies older than the retention period (cron). 0 days = keep forever. */
     public static function expire(): int
     {
+        $n = 0;
+        // Filtered spam and quarantine have their own, shorter, period.
+        $spamDays = max(1, (int) Settings::get('spam.keep_days', 30));
+        foreach (DB::all("SELECT id FROM deleted_messages WHERE reason IN ('spam', 'quarantine') AND deleted_at < :t LIMIT 5000", ['t' => time() - $spamDays * 86400]) as $r) {
+            self::destroy((int) $r['id']);
+            $n++;
+        }
         $days = (int) Settings::get('retention.days', 365);
         if ($days <= 0) {
-            return 0;
+            return $n;
         }
-        $n = 0;
         foreach (DB::all('SELECT id FROM deleted_messages WHERE deleted_at < :t LIMIT 5000', ['t' => time() - $days * 86400]) as $r) {
             self::destroy((int) $r['id']);
             $n++;

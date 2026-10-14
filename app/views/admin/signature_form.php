@@ -25,8 +25,11 @@
         <select class="form-select form-select-sm w-auto" id="sig-preview-user"><?php foreach ($users as $u): ?><option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === (int) $currentUser['id'] ? 'selected' : '' ?>><?= e($u['display_name'] ?: $u['email']) ?></option><?php endforeach; ?></select></div>
       <div class="m4w-preview-box" id="sig-preview" style="min-height:240px"></div>
       <div class="card mt-3"><div class="card-body small">
-        <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="is_default" value="1" id="s-def" <?= $tpl['is_default'] ? 'checked' : '' ?>><label class="form-check-label" for="s-def"><?= te('admin.sig_is_default') ?></label></div>
-        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="apply_on_reply" value="1" id="s-rep" <?= $tpl['apply_on_reply'] ? 'checked' : '' ?>><label class="form-check-label" for="s-rep"><?= te('admin.sig_on_reply') ?></label></div>
+        <?php if ($tpl['is_default']): ?>
+        <div class="d-flex gap-2"><i class="bi bi-check2-circle text-success"></i><span><?= te('admin.sig_active_desc') ?></span></div>
+        <?php else: ?>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_default" value="1" id="s-def"><label class="form-check-label" for="s-def"><?= te('admin.sig_make_active') ?></label></div>
+        <?php endif; ?>
         <hr><div class="text-muted"><i class="bi bi-shield-check"></i> <?= te('admin.sig_security') ?></div>
       </div></div>
     </div>

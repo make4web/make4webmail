@@ -23,6 +23,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <a href="#compose" class="m4w-help-card"><i class="bi bi-pencil-square"></i><span>Écrire un message</span></a>
     <a href="#vacation" class="m4w-help-card"><i class="bi bi-airplane"></i><span>Prévenir de mon absence</span></a>
     <a href="#files" class="m4w-help-card"><i class="bi bi-folder2-open"></i><span>Partager des fichiers</span></a>
+    <a href="#mobile" class="m4w-help-card"><i class="bi bi-phone"></i><span>Installer sur mon téléphone</span></a>
     <a href="#security" class="m4w-help-card"><i class="bi bi-shield-lock"></i><span>Sécuriser mon compte</span></a>
     <?php if ($isAdmin): ?><a href="#a-users" class="m4w-help-card admin"><i class="bi bi-person-gear"></i><span>Gérer les utilisateurs</span></a><?php endif; ?>
   </nav>
@@ -56,7 +57,13 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <ul>
       <li><strong>Images bloquées</strong> : <?= $cfg['block_images'] ? 'par sécurité, les images distantes (souvent des traceurs publicitaires) ne sont pas chargées. Cliquez sur « Afficher les images » si vous faites confiance à l\'expéditeur.' : 'les images distantes sont affichées automatiquement.' ?></li>
       <li><strong>Pièces jointes</strong> : cliquez pour les prévisualiser (images, PDF, texte) ou sur <?= $ui('download', '') ?> pour les télécharger. Avec plusieurs pièces, « Tout télécharger » crée une archive ZIP. <?= $ui('folder-plus', '') ?> les enregistre dans vos <a href="#files">Fichiers</a>.</li>
+      <li><strong>Pièce jointe « Retirée par l'antivirus »</strong> : le fichier contenait un virus. Il a été supprimé avant d'arriver dans votre boîte ; seul son nom reste affiché pour que vous sachiez qu'il existait. Si vous l'attendiez, demandez à l'expéditeur de vérifier son ordinateur.</li>
+      <li><strong>« Programme bloqué »</strong> : le fichier est un programme (même renommé en .pdf ou sans extension). Il ne peut pas être ouvert ni téléchargé depuis la messagerie.</li>
+      <li><strong>« À vérifier »</strong> : macros, archive protégée, page web, nom qui ne correspond pas au contenu… Une confirmation est demandée avant l'ouverture. Dans le doute, appelez l'expéditeur.</li>
       <li><strong>Lettres d'information</strong> : un bandeau propose de vous désabonner en un clic quand l'expéditeur le permet.</li>
+      <li><strong>Liens</strong> : survolez un lien pour voir sa vraie adresse. Au clic, la messagerie le vérifie : un site signalé comme dangereux est bloqué, et un lien trompeur (le texte affiche une banque mais le lien mène ailleurs, adresse IP, lien raccourci, nom qui imite un autre site) affiche sa vraie destination avant de l'ouvrir.</li>
+      <li><strong>Bandeau rouge « possible usurpation d'un collègue »</strong> : le nom affiché est celui d'un collègue, mais l'adresse vient de l'extérieur. C'est l'arnaque classique au faux dirigeant : ne faites aucun virement et ne transmettez aucune information sans vérifier par téléphone.</li>
+      <li><strong>Bandeau « Cette adresse n'accepte pas de réponse »</strong> : l'expéditeur est une adresse « no-reply » ou jetable ; votre réponse ne serait lue par personne. Utilisez plutôt le site ou le contact indiqué dans le message.</li>
       <li><strong>Bandeau rouge « Attention, usurpation probable »</strong> : le message prétend venir de votre organisation ou d'un domaine connu, mais n'a pas été envoyé par ses serveurs. Ne répondez pas, ne cliquez sur aucun lien et prévenez votre administrateur.</li>
     </ul>
     <h3>Répondre, transférer, imprimer</h3>
@@ -97,7 +104,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <section id="compose" class="m4w-help-section">
     <h2><i class="bi bi-pencil-square"></i>Rédiger et envoyer</h2>
     <ol class="m4w-help-steps">
-      <li>Cliquez sur <?= $ui('pencil-square', 'Nouveau message') ?> (ou <?= $kbd('C') ?>). La fenêtre de rédaction s'ouvre en bas à droite ; <?= $ui('arrows-angle-expand', '') ?> l'agrandit, <?= $ui('dash-lg', '') ?> la réduit pour consulter un autre message.</li>
+      <li>Cliquez sur <?= $ui('pencil-square', 'Nouveau message') ?> (ou <?= $kbd('C') ?>). La fenêtre de rédaction s'ouvre en bas à droite ; <?= $ui('arrows-angle-expand', '') ?> l'agrandit, <?= $ui('dash-lg', '') ?> la réduit pour consulter un autre message. Sur ordinateur, déplacez-la où vous voulez en la tirant par sa barre de titre ; un double-clic sur cette barre la passe en plein écran.</li>
       <li>Saisissez les destinataires : les suggestions viennent de vos contacts et de l'annuaire de l'entreprise. Validez avec <?= $kbd('Entrée') ?> ou une virgule. Les liens <strong>Cc</strong> et <strong>Cci</strong> affichent les champs copie et copie cachée.</li>
       <li>Écrivez votre message. <?= $ui('type', 'Aa') ?> affiche la barre de mise en forme : gras, couleurs, listes, alignement, liens, tableaux, police et taille.</li>
       <li>Cliquez sur <?= $ui('send', 'Envoyer') ?> ou appuyez sur <?= $kbd('Ctrl', 'Entrée') ?>.</li>
@@ -149,7 +156,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <li>Réglez l'intervalle : une même personne ne reçoit qu'une réponse par intervalle (par exemple une fois par jour).</li>
       <li>Option : ne répondre qu'aux personnes de l'organisation, ou qu'à vos contacts.</li>
     </ol>
-    <p>Pendant votre absence, un rappel s'affiche en haut de la liste des dossiers. Par sécurité, il n'est jamais répondu aux listes de diffusion, aux messages automatiques ni aux messages signalés comme indésirables.</p>
+    <p>Pendant votre absence, un rappel s'affiche en haut de la liste des dossiers. Par sécurité, il n'est jamais répondu aux listes de diffusion, aux messages automatiques, aux messages signalés comme indésirables, aux adresses « ne-pas-répondre » ni aux adresses jetables (yopmail, mailinator…).</p>
   </section>
 
   <section id="forwarding" class="m4w-help-section">
@@ -164,8 +171,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Votre signature est générée à partir d'un modèle commun à l'entreprise et de vos informations (nom, fonction, service, téléphones). Elle est ajoutée <strong>à l'envoi</strong> ; elle n'apparaît donc pas dans le texte que vous rédigez, seulement dans l'encadré d'aperçu.</p>
     <ul>
       <li>Pour corriger une information (fonction, téléphone…), demandez à votre administrateur : elle est gérée dans votre fiche utilisateur.</li>
-      <?php if ($cfg['user_sig']): ?><li>Dans <?= $go('settings/signature', 'Paramètres → Signature') ?>, vous pouvez ajouter un complément personnel (message de fin, mention…).</li><?php endif; ?>
-      <li>Certaines entreprises n'ajoutent pas la signature complète dans les réponses : c'est un choix du modèle.</li>
+      <li>La signature est fixée par l'administration : il n'est pas possible d'en choisir une autre ni d'y ajouter un texte personnel. <?= $go('settings/signature', 'Paramètres → Signature') ?> vous en montre l'aperçu.</li>
     </ul>
   </section>
 
@@ -183,7 +189,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>L'application <?= $go('files', 'Fichiers') ?> (menu <?= $ui('grid-3x3-gap', '') ?> ou colonne de gauche de la messagerie) stocke et partage des documents au sein de l'organisation.</p>
     <dl class="m4w-help-dl">
       <dt><i class="bi bi-person-workspace"></i>Mes fichiers</dt><dd>Votre espace privé. Personne d'autre n'y a accès, pas même les administrateurs, sauf les dossiers que vous partagez.</dd>
-      <dt><i class="bi bi-people"></i>Partagés avec moi</dt><dd>Les dossiers que vos collègues ont partagés avec vous.</dd>
+      <dt><i class="bi bi-people"></i>Partagés avec moi</dt><dd>Les dossiers et les fichiers que vos collègues ont partagés avec vous.</dd>
       <dt><i class="bi bi-collection"></i>Espaces d'équipe</dt><dd>Des espaces communs (par exemple « Direction financière ») créés par <?= $cfg['user_spaces'] ? 'les utilisateurs ou les administrateurs' : 'les administrateurs' ?>.</dd>
       <dt><i class="bi bi-trash3"></i>Corbeille</dt><dd>Les éléments supprimés, restaurables pendant <?= $days((int) $cfg['files_trash']) ?>.</dd>
     </dl>
@@ -211,9 +217,43 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
         <tr><td><span class="badge badge-soft-warning">Gestion</span></td><td>en plus : modifier les accès du dossier</td></tr>
       </tbody>
     </table>
+    <h3>Aperçu, modification en ligne et compression</h3>
+    <ul>
+      <li><strong>Aperçu</strong> : cliquez sur un fichier pour l'afficher sans le télécharger. Images, PDF, audio et vidéo, mais aussi documents Word (.docx), Excel (.xlsx), PowerPoint (.pptx), OpenDocument texte (.odt), CSV et fichiers texte.<?= M4W\Service\Office::enabled() ? ' Les anciens formats (.doc, .xls, .ppt) s\'affichent aussi, en lecture seule.' : '' ?></li>
+      <?php if (M4W\Service\Office::enabled()): ?><li><strong>Modifier en ligne</strong> (menu <?= $ui('three-dots', '') ?> ou bouton <?= $ui('pencil-square', 'Modifier') ?> de l'aperçu) : le document s'ouvre dans un nouvel onglet. Si un collègue l'ouvre en même temps, vous le modifiez ensemble et voyez ses changements en direct. Chaque enregistrement crée une version, consultable et restaurable.</li><?php endif; ?>
+      <li>Les fichiers texte (.txt, .md, .csv…) se modifient aussi avec l'éditeur intégré ; <?= $kbd('Ctrl', 'S') ?> enregistre. Si quelqu'un a enregistré entre-temps, rien n'est écrasé : vous êtes prévenu.</li>
+      <li><?= $ui('file-earmark-zip', 'Compresser (ZIP)') ?> crée, dans le dossier ouvert, une archive des fichiers et dossiers sélectionnés.</li>
+    </ul>
+    <h3>Date de péremption</h3>
+    <p>Chaque document a une date de péremption : <strong><?= (int) M4W\Service\Files::defaultExpiryDays() ?> jours</strong> après son dépôt par défaut, <?= (int) round(M4W\Service\Files::maxExpiryDays() / 365) ?> ans au plus. Un badge signale ceux qui expirent dans le mois. Vous êtes prévenu par e-mail <strong>un mois, une semaine et deux jours</strong> avant ; le lien du message ouvre directement la date à modifier (menu <?= $ui('three-dots', '') ?> → <?= $ui('hourglass-split', 'Date de péremption') ?>). Sans action, le document est archivé : il disparaît de l'espace Fichiers, n'est plus partagé, et vous est envoyé par e-mail. Un administrateur peut le restaurer.</p>
+    <h3>Envoyer un fichier à l'extérieur</h3>
+    <p>Les liens de l'espace Fichiers ne s'ouvrent que pour les utilisateurs de la messagerie : ils ne rendent jamais un document public. Pour envoyer un document à l'extérieur, utilisez « Envoyer par e-mail ». S'il dépasse la taille maximale d'un e-mail, <?= $b ?> vous propose des services de transfert (SwissTransfer, WeTransfer…) : déposez-y le fichier et collez le lien dans votre message.</p>
+    <h3>Partager un seul fichier</h3>
+    <p>Pour partager un fichier sans donner accès au reste du dossier, ouvrez son menu <?= $ui('three-dots', '') ?> → <?= $ui('person-plus', 'Partager ce fichier') ?>, ajoutez les personnes, un service ou « Tout le monde », puis enregistrez. Ils peuvent le consulter, le télécharger, le copier dans leurs fichiers et le joindre à un message, mais ni le modifier, ni le renommer, ni le supprimer. Ils le retrouvent dans « Partagés avec moi ». L'icône <?= $ui('people', '') ?> à côté du nom signale un fichier partagé. Si le dossier part à la corbeille, le fichier n'est plus visible.</p>
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>
     <h3>Avec la messagerie</h3>
     <p>En rédaction, <?= $ui('folder2-open', '') ?> joint un fichier de l'espace. Dans un message reçu, <?= $ui('folder-plus', '') ?> enregistre une pièce jointe dans le dossier de votre choix.</p>
+  </section>
+
+  <section id="mobile" class="m4w-help-section">
+    <h2><i class="bi bi-phone"></i>Sur téléphone et notifications</h2>
+    <p><?= $b ?> s'installe comme une application sur votre téléphone, votre tablette ou votre ordinateur : une icône sur l'écran d'accueil, un affichage plein écran, sans passer par une boutique d'applications. Vous vous connectez avec les mêmes identifiants que sur ordinateur ; il n'y a rien d'autre à configurer.</p>
+    <h3>Installer l'application</h3>
+    <ul>
+      <li><strong>iPhone et iPad</strong> (Safari) : ouvrez <?= $b ?>, touchez <?= $ui('box-arrow-up', 'Partager') ?>, puis « Sur l'écran d'accueil ». Ouvrez ensuite l'application depuis sa nouvelle icône.</li>
+      <li><strong>Android</strong> (Chrome, Edge, Samsung Internet) : menu <?= $ui('three-dots-vertical', '⋮') ?> → « Installer l'application » ou « Ajouter à l'écran d'accueil ».</li>
+      <li><strong>Ordinateur</strong> (Chrome, Edge) : cliquez sur l'icône d'installation à droite de la barre d'adresse.</li>
+    </ul>
+    <?php if ($cfg['push']): ?>
+    <h3>Recevoir les notifications</h3>
+    <ol class="m4w-help-steps">
+      <li>Dans <?= $go('settings#mobile', 'Paramètres → Profil & préférences') ?>, rubrique « Notifications sur cet appareil », touchez <?= $ui('bell', 'Activer les notifications') ?> et acceptez la demande du navigateur. Un bandeau dans la messagerie vous le propose aussi.</li>
+      <li>« Envoyer un test » vérifie que l'appareil reçoit bien les alertes.</li>
+      <li>Répétez l'opération sur chaque appareil : la liste « Appareils enregistrés » les montre tous, et vous pouvez en retirer un (téléphone perdu ou remplacé).</li>
+    </ol>
+    <p>Une notification est envoyée pour chaque nouveau message non lu qui arrive dans votre boîte de réception ; toucher la notification ouvre le message. Les messages rangés par une règle dans un autre dossier ne déclenchent pas d'alerte.</p>
+    <div class="m4w-help-note info"><i class="bi bi-info-circle"></i><div>Sur iPhone et iPad, les notifications ne fonctionnent qu'une fois l'application installée sur l'écran d'accueil (iOS 16.4 ou plus récent). Si la demande d'autorisation a été refusée, réactivez-la dans les réglages du navigateur pour ce site.</div></div>
+    <?php endif; ?>
   </section>
 
   <section id="security" class="m4w-help-section">
@@ -246,6 +286,17 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <strong>Pour qu'un message reste privé</strong>, faites commencer son objet par <code>[Perso]</code>, <code>[Privé]</code> ou <code>[Personnel]</code>, ou rangez-le dans un dossier nommé « Perso », « Personnel » ou « Privé ». Ces éléments sont invisibles pour les délégués et les administrateurs, y compris s'ils ont été supprimés.
     </div></div>
     <?php endif; ?>
+  </section>
+
+  <section id="shared" class="m4w-help-section">
+    <h2><i class="bi bi-inboxes"></i>Mes autres boîtes e-mail</h2>
+    <p>Une boîte partagée (contact@, support@, compta@…) ou une autre adresse qui vous revient peut être rattachée à votre compte : vous passez de l'une à l'autre sans vous reconnecter.</p>
+    <ol class="m4w-help-steps">
+      <li>Dans <?= $go('settings/mailboxes', 'Paramètres → Mes autres boîtes') ?>, saisissez l'adresse de la boîte et <strong>son mot de passe</strong> (et son code de double authentification si elle en a une) : c'est la preuve que vous y avez droit. Un administrateur peut aussi vous y donner accès directement ; il n'a pas besoin du mot de passe.</li>
+      <li>Ouvrez le menu de votre avatar, en haut à droite : la rubrique <strong>Mes autres boîtes e-mail</strong> liste vos boîtes avec leurs messages non lus. Cliquez sur une boîte pour y travailler.</li>
+      <li>Une pastille <span class="m4w-help-ui"><i class="bi bi-inboxes" aria-hidden="true"></i>Boîte contact@…</span> rappelle la boîte ouverte ; « Ma boîte » vous ramène à la vôtre.</li>
+    </ol>
+    <p>Dans une autre boîte, vous lisez, classez, répondez et envoyez <strong>au nom de cette boîte</strong>, avec sa signature, et gérez ses règles et sa réponse automatique. Ce n'est pas une délégation : pas de motif, pas de journal d'accès, pas de notification. Si vous avez activé les notifications, un nouveau message dans une de vos boîtes vous est aussi signalé ; le toucher ouvre la bonne boîte.</p>
   </section>
 
   <section id="delegated" class="m4w-help-section">
@@ -291,6 +342,9 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <details><summary>Ma boîte est presque pleine.</summary><p>L'espace utilisé s'affiche en bas de la liste des dossiers. Videz la corbeille et supprimez les messages volumineux : la recherche <code>larger:5M</code> les retrouve. Vous pouvez aussi enregistrer les pièces jointes importantes dans vos <a href="#files">Fichiers</a> avant de supprimer le message.</p></details>
     <details><summary>Ma signature n'apparaît pas pendant que j'écris.</summary><p>C'est normal : elle est ajoutée au moment de l'envoi. Vérifiez-la dans l'encadré « Signature ajoutée à l'envoi » ou dans un message envoyé.</p></details>
     <details><summary>Comment consulter un autre compte de messagerie (Gmail, ancien fournisseur) ?</summary><p><?= $cfg['fetch'] ? 'Dans ' . $go('settings/accounts', 'Paramètres → Autres comptes') . ', ajoutez le compte IMAP : ses messages seront récupérés régulièrement dans votre boîte, avec vos règles si vous le souhaitez.' : 'Cette fonction n\'est pas activée par votre organisation.' ?></p></details>
+    <?php if (M4W\Service\RemoteMailbox::active()): ?>
+    <details><summary>Un encadré rouge dit que ma boîte n'est pas reliée, ou que la connexion échoue.</summary><p>Votre boîte aux lettres est hébergée chez le fournisseur de votre organisation, et Make4WebMail s'y connecte avec des identifiants saisis par l'administrateur. Si vous avez changé le mot de passe de votre boîte chez le fournisseur, ou si elle n'a pas encore été reliée, vous ne recevez ni n'envoyez plus de messages : prévenez votre administrateur. Votre mot de passe du webmail, lui, ne change pas.</p></details>
+    <?php endif; ?>
     <details><summary>J'ai perdu mon téléphone avec la double authentification.</summary><p>Connectez-vous avec un code de secours, puis réactivez la double authentification sur votre nouveau téléphone. Sans code de secours, demandez à votre administrateur de la réinitialiser.</p></details>
   </section>
 
@@ -352,14 +406,13 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     </table>
     <p><strong>Sections conditionnelles</strong> : <code>{{#mobile}}Mob. {{mobile}}{{/mobile}}</code> n'affiche la ligne que si le mobile est renseigné. <code>{{^mobile}}…{{/mobile}}</code> fait l'inverse.</p>
     <ul>
-      <li>Un modèle est marqué <strong>par défaut</strong>. Les autres peuvent être attribués à un service entier ou à un utilisateur (fiche utilisateur).</li>
-      <li>L'option « Ajouter aux réponses » permet d'utiliser une signature allégée dans les échanges.</li>
+      <li>Un seul modèle est <strong>actif</strong> : il s'applique à tous les utilisateurs, à tous les messages, réponses et transferts compris. Les utilisateurs ne peuvent ni le modifier, ni en choisir un autre. Les autres modèles sont des brouillons ; « Appliquer à tous » en fait le modèle actif.</li>
     </ul>
   </section>
 
   <section id="a-branding" class="m4w-help-section admin">
     <h2><i class="bi bi-palette"></i>Personnalisation</h2>
-    <p>Dans <?= $go('admin/branding', 'Personnalisation') ?>, avec aperçu en direct : nom et accroche, logo clair et logo pour le thème sombre, favicon, image de la page de connexion, couleurs principale et secondaire, style du menu latéral (clair, sombre, couleur de marque), arrondi des angles, police, message d'accueil de la page de connexion, et CSS personnalisé pour les besoins avancés.</p>
+    <p>Dans <?= $go('admin/branding', 'Personnalisation') ?>, avec aperçu en direct : nom et accroche, logo clair et logo pour le thème sombre, favicon, image de la page de connexion, image de fond du volet de lecture (affichée quand aucun message n'est ouvert : remplir, centrer ou motif répété), nom de l'entreprise à côté du logo, couleurs principale et secondaire, style du menu latéral (clair, sombre, couleur de marque), arrondi des angles, police, message d'accueil de la page de connexion, et CSS personnalisé pour les besoins avancés.</p>
     <div class="m4w-help-note tip"><i class="bi bi-lightbulb"></i><div>Fournissez un logo en PNG ou SVG sur fond transparent, et une variante claire pour le thème sombre. La couleur du texte posé sur vos couleurs (boutons, menu) s'adapte automatiquement pour rester lisible.</div></div>
   </section>
 
@@ -382,6 +435,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li>La messagerie bascule sur sa boîte. Le bandeau orange rappelle dans quelle boîte vous êtes ; « Quitter » vous ramène à la vôtre.</li>
     </ol>
     <p>Dans la boîte ouverte, vous pouvez lire, classer, répondre, envoyer (le destinataire voit l'adresse de la boîte et votre nom comme expéditeur réel), et régler sa <strong>réponse d'absence</strong>, son <strong>transfert</strong> et ses <strong>règles</strong>. Son mot de passe, sa double authentification et ses fichiers restent hors de portée.</p>
+    <h3>Boîtes partagées, sans délégation</h3>
+    <p>Pour une boîte que plusieurs personnes utilisent au quotidien (contact@, support@, compta@…), la délégation n'est pas le bon outil. Créez la boîte comme un utilisateur, puis, dans sa fiche, carte « Boîte partagée », cochez les personnes qui y travaillent : elles la retrouvent dans « Mes autres boîtes e-mail », sans motif, sans journal d'accès et sans notification. Vous pouvez aussi rattacher n'importe quelle boîte à votre propre compte depuis <?= $go('settings/mailboxes', 'Paramètres → Mes autres boîtes') ?>, sans son mot de passe. Les utilisateurs, eux, doivent prouver qu'ils y ont droit avec le mot de passe de la boîte (et son code de double authentification) ; un mauvais mot de passe compte comme un échec de connexion. Les ajouts et changements d'accès sont inscrits dans les journaux d'administration.</p>
     <h3>Désigner des délégués</h3>
     <p>Dans la fiche d'un utilisateur, carte « Délégation de la boîte », cochez les collègues qui pourront ouvrir sa boîte (assistant, remplaçant). Ils la retrouvent dans le menu de leur avatar. Décocher retire l'accès immédiatement, même si la boîte est ouverte.</p>
     <h3>Encadrement</h3>
@@ -410,9 +465,45 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
 
   <section id="a-mail" class="m4w-help-section admin">
     <h2><i class="bi bi-hdd-network"></i>Serveur de messagerie</h2>
-    <h3>Envoi</h3>
-    <p>Dans <?= $go('admin/mail', 'Serveur de messagerie') ?>, renseignez de préférence le <strong>relais SMTP</strong> de votre hébergeur ou fournisseur (serveur, port 587 en STARTTLS ou 465 en SSL, identifiant, mot de passe). Sans relais, la messagerie remet elle-même les messages aux serveurs des destinataires, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Le bouton « Envoyer un test » valide la configuration.</p>
-    <h3>Authentification du domaine (indispensable)</h3>
+    <h3>Choisir le mode de fonctionnement</h3>
+    <p>Le premier bloc de <?= $go('admin/mail', 'Serveur de messagerie') ?> fixe la façon dont Make4WebMail reçoit et envoie le courrier. Le mode actuel est : <strong><?= e(t('wm.mode_' . M4W\Service\RemoteMailbox::mode())) ?></strong>.</p>
+    <table class="table table-sm m4w-help-table">
+      <thead><tr><th>Mode</th><th>Les boîtes sont…</th><th>Réception</th><th>Envoi</th><th>Prérequis</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Serveur autonome</strong></td><td>dans Make4WebMail</td><td>MX vers ce serveur, port 25</td><td>directement aux destinataires</td><td>port 25 entrant et sortant, DNS inverse, SPF/DKIM/DMARC, IP propre</td></tr>
+        <tr><td><strong>Serveur + relais</strong></td><td>dans Make4WebMail</td><td>MX vers ce serveur, port 25</td><td>via un service d'envoi</td><td>un relais qui accepte tout le domaine (Brevo, Mailjet, Amazon SES, Scaleway TEM…)</td></tr>
+        <tr><td><strong>Webmail</strong></td><td>chez votre fournisseur</td><td>relève IMAP de chaque boîte</td><td>SMTP du fournisseur, boîte par boîte</td><td>le mot de passe de chaque boîte, saisi dans la fiche de l'utilisateur</td></tr>
+        <tr><td><strong>Boîte collectrice</strong></td><td>dans Make4WebMail</td><td>une seule boîte chez le fournisseur reçoit toutes les adresses par redirection</td><td>SMTP de cette boîte, au nom de chaque utilisateur</td><td>une boîte et son mot de passe, une redirection par adresse ; limite d'envoi partagée (OVH : 200 par heure)</td></tr>
+      </tbody>
+    </table>
+    <h3>Mode webmail (boîtes chez OVH, Infomaniak, Gandi…)</h3>
+    <ol class="m4w-help-steps">
+      <li>Choisissez « Webmail sur boîtes existantes » et votre fournisseur : les serveurs IMAP et SMTP se remplissent tout seuls. Réglez la fréquence de relève et ce que deviennent les messages relevés chez le fournisseur (conservés comme sauvegarde, ou supprimés pour libérer de l'espace). Les mots de passe des boîtes restant inconnus des utilisateurs, ceux-ci consultent leur courrier sur téléphone avec l'application <?= $b ?> et ses notifications (voir <a href="#mobile">Sur téléphone</a>), et non avec une application de messagerie IMAP.</li>
+      <li>Dans la fiche de chaque utilisateur, bloc « Boîte chez le fournisseur », saisissez le <strong>mot de passe de sa boîte</strong>. Il est distinct de son mot de passe du webmail, conservé chiffré et jamais réaffiché. « Tester la connexion » vérifie IMAP et SMTP. Pour relier un lot de comptes, ajoutez ce mot de passe en 8ᵉ colonne de l'import CSV.</li>
+      <li>La pastille de chaque utilisateur dans la liste indique l'état : <span class="badge badge-soft-success">Reliée</span> <span class="badge badge-soft-warning">En attente</span> <span class="badge badge-soft-danger">Erreur</span> <span class="badge badge-soft-secondary">Non reliée</span>. Une boîte en erreur a généralement un mot de passe changé chez le fournisseur : mettez-le à jour.</li>
+    </ol>
+    <p>Comme le serveur détient les identifiants de chaque boîte, tout fonctionne même quand l'utilisateur n'est pas connecté : la tâche planifiée relève les boîtes, applique les <strong>règles</strong>, envoie les <strong>réponses d'absence</strong> et les <strong>transferts</strong>. Un délégué ou un administrateur envoie avec la boîte de la personne. Les messages entre collègues passent aussi par le fournisseur, pour que chacun les retrouve aussi sur son téléphone.</p>
+    <div class="m4w-help-note info"><i class="bi bi-info-circle"></i><div>Les fournisseurs n'envoient qu'au nom de la boîte connectée. Un message transféré part donc depuis la boîte de l'utilisateur, avec le nom de l'auteur d'origine (« Client (via Julie) ») et son adresse en réponse. Les limites d'envoi du fournisseur s'appliquent à chaque boîte.</div></div>
+    <h3 id="a-collector">Mode boîte collectrice (une seule boîte chez le fournisseur)</h3>
+    <p>Utile quand le fournisseur facture ou limite les boîtes : une seule boîte, par exemple <code>mail@votre-domaine</code>, reçoit le courrier de tout le monde, et Make4WebMail le distribue.</p>
+    <ol class="m4w-help-steps">
+      <li>Créez la boîte collectrice chez le fournisseur. Dans <?= $go('admin/mail', 'Serveur de messagerie') ?>, choisissez « Boîte collectrice », votre fournisseur, puis saisissez l'adresse et le mot de passe de cette boîte. « Tester la connexion » vérifie IMAP et SMTP.</li>
+      <li>Chez le fournisseur, créez une <strong>redirection</strong> de chaque adresse utilisée (utilisateurs et alias) vers la boîte collectrice, sans conserver de copie. La carte « Redirections à créer » donne la liste complète, à copier. Supprimez les vraies boîtes qui portent ces adresses : une boîte existante garderait le courrier pour elle.</li>
+      <li>Préférez des redirections adresse par adresse à un « catch-all » : le catch-all reçoit aussi le spam envoyé à des adresses inventées.</li>
+    </ol>
+    <p><strong>Distribution.</strong> Make4WebMail retrouve le destinataire grâce aux traces laissées par le fournisseur (en-têtes <code>X-Original-To</code>, <code>Delivered-To</code>, lignes <code>Received … for</code>), sinon d'après les champs À et Cc. Un message reçu en plusieurs exemplaires n'est distribué qu'une fois à chacun. Un avis de non-remise revient à la personne qui avait envoyé le message. Ce qui ne peut pas être attribué (liste de diffusion, copie cachée sans trace) arrive dans la boîte choisie comme « Messages sans destinataire identifié », marqué non attribué : rien n'est perdu. Règles, absences, transferts, délégation et notifications fonctionnent comme dans les autres modes.</p>
+    <p><strong>Envoi.</strong> Tout part par la boîte collectrice, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues sont distribués directement, sans passer par le fournisseur.</p>
+    <h3>Limite d'envoi du fournisseur</h3>
+    <p>Le fournisseur plafonne les envois de la boîte collectrice (OVH : <strong>200 par heure</strong>), et ce plafond est partagé par tous les utilisateurs, réponses automatiques et transferts compris. Chaque destinataire externe compte pour un. Make4WebMail tient le compte sur une heure glissante :</p>
+    <ul>
+      <li>la jauge <span class="m4w-help-ui"><i class="bi bi-speedometer2" aria-hidden="true"></i>Envois par la boîte collectrice</span> (tableau de bord et Serveur de messagerie) montre les envois de la dernière heure, leur répartition par tranche de 5 minutes et les plus gros expéditeurs ;</li>
+      <li>dès 80 % de la limite, une pastille orange apparaît en haut de chaque écran des administrateurs ; elle passe au rouge, « Envois bloqués », quand la limite est atteinte, avec l'heure de reprise ;</li>
+      <li>au-delà de la limite, rien n'est refusé : les messages attendent dans la file et partent seuls dès que la fenêtre le permet, dans l'ordre d'arrivée. L'expéditeur est prévenu (« votre message partira vers 15 h 42 ») ;</li>
+      <li>si le fournisseur refuse lui-même un envoi pour dépassement, les envois sont suspendus un quart d'heure et son message est affiché dans la jauge.</li>
+    </ul>
+    <h3>Envoi en mode serveur ou relais</h3>
+    <p>En mode relais, renseignez le serveur, le port (587 en STARTTLS ou 465 en SSL), l'identifiant et le mot de passe du service d'envoi. En mode autonome, la messagerie remet elle-même les messages aux serveurs des destinataires. Le bouton « Envoyer un test » valide la configuration, quel que soit le mode.</p>
+    <h3>Authentification du domaine (modes serveur et relais)</h3>
     <ol class="m4w-help-steps">
       <li>Choisissez un sélecteur (par exemple <code>m4w</code>), générez la clé <strong>DKIM</strong> et publiez l'enregistrement TXT proposé (<code>sélecteur._domainkey.votre-domaine</code>).</li>
       <li>Publiez un enregistrement <strong>SPF</strong> autorisant votre serveur ou votre relais, par exemple <code>v=spf1 mx include:relais.exemple -all</code>.</li>
@@ -420,7 +511,18 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     </ol>
     <p>La carte « Enregistrements DNS » de la page récapitule les valeurs à publier (MX, SPF, DKIM, DMARC).</p>
     <h3>Réception</h3>
-    <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes <code>X-Spam-Flag</code> / <code>X-Spam-Status</code> posés par un antispam en amont (SpamAssassin, Rspamd) classent le message en indésirable si l'option est active.</p>
+    <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes posés par un antispam en amont (SpamAssassin, Rspamd, OVH) s'ajoutent au score du <a href="#a-spam">filtre antispam</a>.</p>
+  </section>
+
+  <section id="a-spam" class="m4w-help-section admin">
+    <h2><i class="bi bi-funnel"></i>Filtre antispam</h2>
+    <p>Dans <?= $go('admin/spam', 'Antispam') ?>, chaque message reçu obtient un score : authentification (SPF, DKIM, DMARC), avis du filtre de l'hébergeur, en-têtes anormaux, vocabulaire, liens trompeurs, demandes d'identifiants, pièces jointes dangereuses, listes noires DNS. Un correspondant à qui l'utilisateur a déjà écrit gagne un peu de confiance. Trois seuils décident :</p>
+    <ul>
+      <li><strong>Suspect</strong> : le message va dans les <em>Indésirables</em> de l'utilisateur, qui voit pourquoi en l'ouvrant. Il n'est pas transféré, ne déclenche ni règle ni réponse automatique.</li>
+      <li><strong>Quarantaine</strong> : le message est retenu, l'utilisateur ne le voit pas. Le bouton « Quarantaine » ouvre la liste ; « Restaurer » le libère, non lu, dans la boîte de réception.</li>
+      <li><strong>Supprimé</strong> : le message n'est jamais distribué ; une copie reste consultable dans les <?= $go('admin/deleted', 'Messages supprimés') ?> pendant la durée de conservation.</li>
+    </ul>
+    <p>Les <strong>expéditeurs autorisés</strong> passent toujours (sauf usurpation), les <strong>bloqués</strong> sont toujours supprimés. Pour régler les seuils, collez la source d'un message dans « Tester un message » : le détail du score s'affiche.</p>
   </section>
 
   <section id="a-security" class="m4w-help-section admin">
@@ -430,6 +532,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Mots de passe</strong> : longueur minimale et nombre de familles de caractères exigées.</li>
       <li><strong>Protection de la connexion</strong> : tentatives avant blocage et durée du blocage, durée d'inactivité et durée maximale d'une session, double authentification obligatoire pour les administrateurs, restriction de l'administration à certaines adresses IP (attention à ne pas vous exclure : votre adresse actuelle est affichée).</li>
       <li><strong>Délégation des boîtes</strong> : voir <a href="#a-delegation">ci-dessus</a>.</li>
+      <li><strong>Liens et hameçonnage</strong> : vérification des liens au clic, clé Google Safe Browsing (ou Web Risk pour un usage commercial), flux public URLhaus mis à jour chaque jour, domaines bloqués.</li>
       <li><strong>Messagerie</strong> : blocage des images distantes, transfert externe autorisé ou limité à une liste de domaines, taille maximale des pièces jointes.</li>
       <li><strong>Fonctions</strong> : complément de signature par l'utilisateur, comptes externes, délai d'annulation d'envoi, langue par défaut.</li>
     </ul>

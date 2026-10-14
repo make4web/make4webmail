@@ -13,8 +13,10 @@ use M4W\Core\Session;
 use M4W\Core\Settings;
 use M4W\Core\Totp;
 use M4W\Mail\HtmlSanitizer;
+use M4W\Service\SharedMailboxes;
 use M4W\Service\Fetcher;
 use M4W\Service\Folders;
+use M4W\Service\Mailbox;
 use M4W\Service\Forwarding;
 use M4W\Service\RuleEngine;
 use M4W\Service\Signatures;
@@ -107,6 +109,10 @@ final class SettingsController extends Controller
             $data = RuleEngine::normalize($uid, $in);
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
+        }
+        // A delegate cannot send the owner's mail elsewhere (personal mail included).
+        if (Mailbox::$privacy && str_contains((string) $data['actions'], '"redirect"')) {
+            return $this->fail(t('deleg.no_redirect'));
         }
         $id = (int) ($in['id'] ?? 0);
         $data['updated_at'] = time();
@@ -211,6 +217,9 @@ final class SettingsController extends Controller
     public function saveForwarding(): Response
     {
         $r = $this->req;
+        if (Mailbox::$privacy) {
+            return $this->back('/settings/forwarding', 'danger', t('deleg.no_redirect'));
+        }
         try {
             Forwarding::save($this->uid(), $r->bool('enabled'), preg_split('/[\s,;]+/', $r->str('addresses')) ?: [], $r->str('keep_copy', '1') === '1');
         } catch (\InvalidArgumentException $e) {
@@ -228,18 +237,7 @@ final class SettingsController extends Controller
         return $this->page('signature', [
             'preview' => Signatures::render($u)['html'],
             'template' => Signatures::forUser($u),
-            'allowPersonal' => (bool) (int) Settings::get('features.user_signature', 0),
         ]);
-    }
-
-    public function saveSignature(): Response
-    {
-        if (!(int) Settings::get('features.user_signature', 0)) {
-            return $this->back('/settings/signature', 'danger', t('error.forbidden'));
-        }
-        $html = (new HtmlSanitizer(false))->sanitize(mb_substr($this->req->raw('personal_signature'), 0, 20000));
-        Users::update($this->uid(), ['personal_signature' => $html]);
-        return $this->back('/settings/signature', 'success', t('settings.saved'));
     }
 
     // ---- Security ----------------------------------------------------------
@@ -340,6 +338,37 @@ final class SettingsController extends Controller
         }
         Audit::log('sessions.revoked');
         return $this->back('/settings/security', 'success', t('sessions.revoked'));
+    }
+
+    // ---- My other mailboxes ------------------------------------------------
+
+    public function mailboxes(): Response
+    {
+        return $this->page('mailboxes', ['boxes' => SharedMailboxes::of((int) $this->actor()['id'])]);
+    }
+
+    public function addMailbox(): Response
+    {
+        try {
+            $box = SharedMailboxes::add($this->actor(), $this->req->str('email'), $this->req->raw('password'), $this->req->str('code'), $this->req);
+        } catch (\InvalidArgumentException $e) {
+            return $this->back('/settings/mailboxes', 'danger', $e->getMessage());
+        }
+        return $this->back('/settings/mailboxes', 'success', t('shared.added', ['email' => $box['email']]));
+    }
+
+    public function removeMailbox(): Response
+    {
+        SharedMailboxes::remove((int) $this->actor()['id'], $this->req->int('id'));
+        return $this->back('/settings/mailboxes', 'success', t('shared.removed'));
+    }
+
+    /** Switch to one of my other mailboxes (0 = mine) and land on its inbox. */
+    public function switchMailbox(): Response
+    {
+        $box = SharedMailboxes::open($this->actor(), $this->req->int('id'));
+        $to = $this->req->str('to');
+        return Response::redirect(AuthController::safePath($to) ?? '/mail');
     }
 
     // ---- External accounts -------------------------------------------------

@@ -127,7 +127,7 @@ final class Composer
             $b->attachments[] = ['name' => (preg_replace('/[^\w\s.-]/u', '', $ref['subject']) ?: 'message') . '.eml', 'mime' => 'message/rfc822', 'content' => $raw];
         }
         if ($total > $maxBytes) {
-            throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
+            throw new TooBigForMail('', 0, $total);
         }
         return ['builder' => $b, 'recipients' => $b->envelopeRecipients()];
     }
@@ -194,7 +194,7 @@ final class Composer
         }, $html) ?? $html;
     }
 
-    /** @return array{id:int,warnings:array} */
+    /** @return array{id:int,warnings:array,deferred:?array} */
     public static function send(array $user, array $in): array
     {
         if (Users::overQuota($user)) {
@@ -232,7 +232,9 @@ final class Composer
         Contacts::touchRecipients($uid, array_merge($b->to, $b->cc, $b->bcc));
         self::cleanupUploads($uid, (array) ($in['attachments'] ?? []));
         Audit::log('mail.sent', $b->subject, ['rcpt' => count($rcpts)], $uid);
-        return ['id' => $id, 'warnings' => $res['failed']];
+        // Collector mode: over the provider's hourly limit, the message waits in the queue.
+        $deferred = $res['deferred'] ? ['count' => count($res['deferred']), 'at' => $res['retry_at'], 'time' => date('H:i', $res['retry_at'])] : null;
+        return ['id' => $id, 'warnings' => $res['failed'], 'deferred' => $deferred];
     }
 
     public static function saveDraft(array $user, array $in): int
@@ -340,7 +342,7 @@ final class Composer
         }
         $max = max(1, (int) Settings::get('security.max_attachment_mb', 25)) * 1024 * 1024;
         if ((int) $file['size'] > $max) {
-            throw new \InvalidArgumentException(t('compose.too_big', ['mb' => (int) Settings::get('security.max_attachment_mb', 25)]));
+            throw new TooBigForMail((string) ($file['name'] ?? ''), 0, (int) $file['size']);
         }
         $token = bin2hex(random_bytes(16));
         $rel = 'tmp/up-' . $userId . '-' . $token;

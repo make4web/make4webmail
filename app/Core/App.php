@@ -85,7 +85,19 @@ final class App
         I18n::setLanguage($user['language'] ?? (Session::get('lang') ?: I18n::detect($req->header('Accept-Language'))));
         View::share('currentUser', $user);
         View::share('delegation', $user ? \M4W\Service\Delegation::banner($user) : null);
+        View::share('sharedBox', $user ? \M4W\Service\SharedMailboxes::banner($user) : null);
         View::share('req', $req);
+        // Remember the public address for links in scheduled messages; only from administrators,
+        // so a forged Host header from anyone else can never end up in an e-mail.
+        if ($user && $user['role'] === 'admin' && $req->method === 'GET' && !$req->isAjax()) {
+            $host = (string) ($req->server['HTTP_HOST'] ?? '');
+            if (preg_match('/^[a-z0-9.-]+(:\d+)?$/i', $host)) {
+                $pub = ($req->isSecure() ? 'https' : 'http') . '://' . strtolower($host) . Request::basePath();
+                if ($pub !== Settings::get('system.public_url', '')) {
+                    Settings::set('system.public_url', $pub);
+                }
+            }
+        }
 
         $match = $router->match($req);
         if ($match === null) {
@@ -208,6 +220,7 @@ final class App
         $r->post('/api/messages/action', [Controller\MailController::class, 'action']);
         $r->get('/api/messages/{id}', [Controller\MailController::class, 'show']);
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
+        $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
         $r->get('/api/messages/{id}/source', [Controller\MailController::class, 'source']);
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);
@@ -233,6 +246,13 @@ final class App
         $r->post('/contacts/import', [Controller\ContactsController::class, 'import']);
         $r->get('/contacts/export', [Controller\ContactsController::class, 'export']);
 
+        // Push notifications
+        $r->get('/api/push/key', [Controller\PushController::class, 'key']);
+        $r->post('/api/push/subscribe', [Controller\PushController::class, 'subscribe']);
+        $r->post('/api/push/renew', [Controller\PushController::class, 'renew']);
+        $r->post('/api/push/unsubscribe', [Controller\PushController::class, 'unsubscribe']);
+        $r->post('/api/push/test', [Controller\PushController::class, 'test']);
+
         // User guide
         $r->get('/help', [Controller\HelpController::class, 'index']);
 
@@ -243,6 +263,17 @@ final class App
         // Shared file space
         $r->get('/files', [Controller\FilesController::class, 'index']);
         $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
+        $r->get('/api/messages/{id}/img/{asset}', [Controller\MailController::class, 'image']);
+        $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
+        $r->get('/api/files/file/{id}/text', [Controller\OfficeController::class, 'text']);
+        $r->post('/api/files/file/{id}/text', [Controller\OfficeController::class, 'saveText']);
+        // WOPI host, called by the office server: authenticated by access token, no session, no CSRF.
+        $wopi = ['auth' => 'public', 'nocsrf' => true];
+        $r->get('/wopi/files/{id}', [Controller\OfficeController::class, 'checkFileInfo'], $wopi);
+        $r->post('/wopi/files/{id}', [Controller\OfficeController::class, 'fileOperation'], $wopi);
+        $r->get('/wopi/files/{id}/contents', [Controller\OfficeController::class, 'getFile'], $wopi);
+        $r->post('/wopi/files/{id}/contents', [Controller\OfficeController::class, 'putFile'], $wopi);
+        $r->get('/files/file/{id}/preview', [Controller\FilesController::class, 'preview']);
         $r->get('/files/folder/{id}/zip', [Controller\FilesController::class, 'zip']);
         $r->get('/api/files/roots', [Controller\FilesController::class, 'roots']);
         $r->get('/api/files/tree', [Controller\FilesController::class, 'tree']);
@@ -253,6 +284,10 @@ final class App
         $r->get('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'acl']);
         $r->post('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'saveAcl']);
         $r->post('/api/files/space/{id}', [Controller\FilesController::class, 'updateSpace']);
+        $r->get('/api/files/file/{id}/expiry', [Controller\FilesController::class, 'expiry']);
+        $r->post('/api/files/file/{id}/expiry', [Controller\FilesController::class, 'saveExpiry']);
+        $r->get('/api/files/file/{id}/acl', [Controller\FilesController::class, 'fileAcl']);
+        $r->post('/api/files/file/{id}/acl', [Controller\FilesController::class, 'saveFileAcl']);
         $r->get('/api/files/file/{id}/versions', [Controller\FilesController::class, 'versions']);
         $r->post('/api/files/file/{id}/restore-version', [Controller\FilesController::class, 'restoreVersion']);
         $r->post('/api/files/folders', [Controller\FilesController::class, 'createFolder']);
@@ -260,6 +295,7 @@ final class App
         $r->post('/api/files/upload', [Controller\FilesController::class, 'upload']);
         $r->post('/api/files/rename', [Controller\FilesController::class, 'rename']);
         $r->post('/api/files/move', [Controller\FilesController::class, 'move']);
+        $r->post('/api/files/compress', [Controller\FilesController::class, 'compress']);
         $r->post('/api/files/copy', [Controller\FilesController::class, 'copy']);
         $r->post('/api/files/delete', [Controller\FilesController::class, 'delete']);
         $r->post('/api/files/restore', [Controller\FilesController::class, 'restore']);
@@ -275,6 +311,9 @@ final class App
         $r->post('/admin/deleted/settings', [Controller\RetentionController::class, 'settings'], $admin);
         $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
         $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
+        $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $admin);
+        $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
+        $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
 
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);
@@ -290,7 +329,6 @@ final class App
         $r->get('/settings/forwarding', [Controller\SettingsController::class, 'forwarding']);
         $r->post('/settings/forwarding', [Controller\SettingsController::class, 'saveForwarding']);
         $r->get('/settings/signature', [Controller\SettingsController::class, 'signature']);
-        $r->post('/settings/signature', [Controller\SettingsController::class, 'saveSignature']);
         $r->get('/settings/security', [Controller\SettingsController::class, 'security']);
         $r->post('/settings/security/password', [Controller\SettingsController::class, 'changePassword']);
         $r->post('/settings/security/2fa/start', [Controller\SettingsController::class, 'start2fa']);
@@ -298,6 +336,10 @@ final class App
         $r->post('/settings/security/2fa/disable', [Controller\SettingsController::class, 'disable2fa']);
         $r->post('/settings/security/sessions/revoke', [Controller\SettingsController::class, 'revokeSessions']);
         $r->get('/settings/accounts', [Controller\SettingsController::class, 'accounts']);
+        $r->get('/settings/mailboxes', [Controller\SettingsController::class, 'mailboxes']);
+        $r->post('/settings/mailboxes/add', [Controller\SettingsController::class, 'addMailbox']);
+        $r->post('/settings/mailboxes/remove', [Controller\SettingsController::class, 'removeMailbox']);
+        $r->post('/mailbox/switch', [Controller\SettingsController::class, 'switchMailbox']);
         $r->post('/settings/accounts/save', [Controller\SettingsController::class, 'saveAccount']);
         $r->post('/settings/accounts/delete', [Controller\SettingsController::class, 'deleteAccount']);
         $r->post('/settings/accounts/run', [Controller\SettingsController::class, 'runAccount']);
@@ -312,6 +354,8 @@ final class App
         $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $admin);
         $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $admin);
         $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $admin);
+        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $admin);
+        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $admin);
         $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $admin);
         $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $admin);
         $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $admin);
@@ -324,13 +368,19 @@ final class App
         $r->post('/admin/signatures/save', [Controller\AdminController::class, 'saveSignature'], $admin);
         $r->post('/admin/signatures/delete', [Controller\AdminController::class, 'deleteSignature'], $admin);
         $r->post('/admin/signatures/preview', [Controller\AdminController::class, 'previewSignature'], $admin);
-        $r->post('/admin/signatures/assign', [Controller\AdminController::class, 'assignSignature'], $admin);
+        $r->post('/admin/signatures/{id}/activate', [Controller\AdminController::class, 'activateSignature'], $admin);
         $r->get('/admin/branding', [Controller\AdminController::class, 'branding'], $admin);
         $r->post('/admin/branding', [Controller\AdminController::class, 'saveBranding'], $admin);
         $r->get('/admin/mail', [Controller\AdminController::class, 'mail'], $admin);
         $r->post('/admin/mail', [Controller\AdminController::class, 'saveMail'], $admin);
         $r->post('/admin/mail/test', [Controller\AdminController::class, 'testMail'], $admin);
         $r->post('/admin/mail/dkim', [Controller\AdminController::class, 'generateDkim'], $admin);
+        $r->post('/admin/mail/collector/test', [Controller\AdminController::class, 'testCollector'], $admin);
+        $r->post('/admin/mail/collector/sync', [Controller\AdminController::class, 'syncCollector'], $admin);
+        $r->get('/admin/mail/collector/stats', [Controller\AdminController::class, 'collectorStats'], $admin);
+        $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $admin);
+        $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
+        $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);

@@ -28,6 +28,17 @@ final class MailController extends Controller
 
     public function shell(): Response
     {
+        // Link from a notification of one of "my other mailboxes": open that mailbox first.
+        // Never on a link from another site (a crafted link must not switch the mailbox someone sends from).
+        $site = strtolower((string) $this->req->header('Sec-Fetch-Site'));
+        $dest = strtolower((string) $this->req->header('Sec-Fetch-Dest'));
+        if (isset($this->req->query['mbx']) && !in_array($site, ['cross-site', 'same-site'], true) && in_array($dest, ['', 'document'], true)) {
+            $mbx = (int) $this->req->query['mbx'];
+            $actor = $this->actor();
+            if ($mbx === (int) $actor['id'] || \M4W\Service\SharedMailboxes::linked((int) $actor['id'], $mbx)) {
+                \M4W\Service\SharedMailboxes::open($actor, $mbx);
+            }
+        }
         $u = $this->user();
         return $this->view('mail/app', ['user' => $u], 'layouts/mail');
     }
@@ -105,7 +116,8 @@ final class MailController extends Controller
 
     public function readAll(string $id): Response
     {
-        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u AND folder_id = :f', ['u' => $this->uid(), 'f' => (int) $id]);
+        // A delegate does not touch what the owner keeps personal.
+        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u AND folder_id = :f' . Mailbox::privacySql($this->uid()), ['u' => $this->uid(), 'f' => (int) $id]);
         return $this->ok(['folders' => Folders::listWithCounts($this->uid())]);
     }
 
@@ -172,11 +184,13 @@ final class MailController extends Controller
         $parsed = Mailbox::parsed($m);
         $u = $this->user();
         $blockImages = (int) Settings::get('security.block_remote_images', 1) && !(int) $u['prefs']['show_images'];
-        // Count blocked images without rendering the full body.
+        // Count blocked pictures and removed trackers without rendering the full body.
         $blocked = 0;
-        if ($blockImages) {
-            $s = new HtmlSanitizer(true, static fn() => 'about:blank');
-            $s->sanitize($parsed->html());
+        $trackers = 0;
+        $s = new HtmlSanitizer(true, static fn() => 'about:blank', true, $this->remoteResolver((int) $m['id']));
+        $s->sanitize($parsed->html());
+        $trackers = $s->trackerCount();
+        if ($blockImages || \M4W\Service\MailAssets::enabled()) {
             $blocked = $s->blockedCount();
         }
         $listUnsub = (string) $parsed->header('List-Unsubscribe');
@@ -208,12 +222,53 @@ final class MailController extends Controller
             'draft'       => (bool) $m['is_draft'],
             'draft_meta'  => $draftMeta,
             'priority'    => (int) $m['priority'],
-            'attachments' => json_decode((string) $m['attachments'], true) ?: [],
+            // Read live: the risk analysis also applies to messages stored before it existed.
+            'attachments' => $m['has_attachments'] ? $parsed->attachmentList() : [],
             'blocked_images' => $blocked,
+            'trackers'    => $trackers,
             'unsubscribe' => $unsub,
             'auto'        => $parsed->isAutomated(),
+            'reply_target' => self::replyTargetKind($parsed),
+            'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
+            'impersonation' => self::impersonation($parsed),
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    /** An outside sender using a colleague's name, or a domain imitating ours. */
+    private static function impersonation(\M4W\Mail\ParsedMessage $p): ?array
+    {
+        if (($c = \M4W\Service\SpamFilter::colleagueName($p)) !== null) {
+            return ['kind' => 'colleague', 'colleague' => $c, 'address' => $p->from()['email']];
+        }
+        if (($d = \M4W\Service\SpamFilter::lookalikeDomain(\M4W\Mail\Address::domain($p->from()['email']))) !== null) {
+            return ['kind' => 'lookalike', 'domain' => $d, 'address' => $p->from()['email']];
+        }
+        return null;
+    }
+
+    /** Why a message is in the Junk folder: score and the tests that weighed most. */
+    private static function spamInfo(\M4W\Mail\ParsedMessage $p, int $folderId): ?array
+    {
+        $r = \M4W\Service\SpamFilter::parse($p->header(\M4W\Service\SpamFilter::HEADER));
+        if (!$r || \M4W\Core\Database::value('SELECT role FROM folders WHERE id = :id', ['id' => $folderId]) !== 'spam') {
+            return null;
+        }
+        $tests = array_filter($r['tests'], static fn($w) => $w > 0);
+        arsort($tests);
+        return ['score' => $r['score'], 'reasons' => array_map([\M4W\Service\SpamFilter::class, 'label'], array_slice(array_keys($tests), 0, 5))];
+    }
+
+    /** Whether a reply would reach anybody: 'disposable', 'noreply' or ''. */
+    private static function replyTargetKind(\M4W\Mail\ParsedMessage $p): string
+    {
+        $to = \M4W\Mail\Address::parseList((string) $p->header('Reply-To'))[0]['email'] ?? $p->from()['email'];
+        return match (true) {
+            $to === '' => '',
+            \M4W\Service\Senders::isDisposable($to) => 'disposable',
+            \M4W\Service\Senders::isNoReply($to) => 'noreply',
+            default => '',
+        };
     }
 
     /** Sanitized HTML document, loaded in a sandboxed iframe. */
@@ -226,7 +281,16 @@ final class MailController extends Controller
         $allowImages = !empty($this->req->query['images']) || (int) $u['prefs']['show_images'] || !(int) Settings::get('security.block_remote_images', 1);
         $mid = (int) $m['id'];
         $resolver = static fn(string $cid) => url('api/messages/' . $mid . '/part/cid:' . rawurlencode($cid), ['inline' => 1]);
-        $sanitizer = new HtmlSanitizer(!$allowImages, $resolver);
+        $proxy = \M4W\Service\MailAssets::enabled();
+        if ($proxy && $allowImages) {
+            // Asked to show pictures not fetched yet (older message, spam folder…): the server fetches them now.
+            \M4W\Service\MailAssets::register($mid, (int) $u['id'], $parsed->html());
+            \M4W\Service\MailAssets::processPending(40, $mid, 12.0);
+        }
+        // With the proxy, the browser never loads a remote picture: only the cleaned local copies.
+        $links = \M4W\Service\LinkGuard::enabled() ? static fn(string $href, string $text) => \M4W\Service\LinkGuard::wrap($href, $text, $mid, (int) $u['id']) : null;
+        $sanitizer = new HtmlSanitizer($proxy || !$allowImages, $resolver, true, $proxy ? $this->remoteResolver($mid) : null, $links);
+        $allowImages = $allowImages && !$proxy;
         $html = $sanitizer->sanitize($parsed->html());
         $dark = ($this->req->query['theme'] ?? '') === 'dark';
         $doc = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -246,6 +310,53 @@ final class MailController extends Controller
         ]);
     }
 
+    /** Local copy of a remote picture: decoded and re-encoded by the server, nothing else. */
+    public function image(string $id, string $asset): Response
+    {
+        Session::close();
+        $m = $this->message($id);
+        $a = \M4W\Service\MailAssets::asset((int) $m['id'], (int) $asset);
+        if (!$a) {
+            throw new HttpException(404, t('mail.not_found'));
+        }
+        return $this->cleanImageResponse($a);
+    }
+
+    private function cleanImageResponse(array $a): Response
+    {
+        return new Response('', 200, [
+            'Content-Type' => $a['mime'],
+            'Content-Length' => (string) (int) $a['size'],
+            'Cache-Control' => 'private, max-age=86400',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
+            'X-Content-Type-Options' => 'nosniff',
+            'Cross-Origin-Resource-Policy' => 'same-origin',
+        ], static function () use ($a) {
+            \M4W\Service\MailAssets::stream($a, static function (string $buf) {
+                echo $buf;
+            });
+        });
+    }
+
+    /** url → local address of the cleaned copy, '' for a tracker, null when not available. */
+    private function remoteResolver(int $mid): ?\Closure
+    {
+        if (!\M4W\Service\MailAssets::enabled()) {
+            return null;
+        }
+        $assets = \M4W\Service\MailAssets::forMessage($mid);
+        return static function (string $url) use ($assets, $mid): ?string {
+            $a = $assets[$url] ?? null;
+            if (!$a) {
+                return null;
+            }
+            if ($a['status'] === 'tracker') {
+                return '';
+            }
+            return $a['status'] === 'ok' && $a['asset'] ? url('api/messages/' . $mid . '/img/' . $a['asset']) : null;
+        };
+    }
+
     public function part(string $id, string $part): Response
     {
         Session::close();
@@ -260,10 +371,29 @@ final class MailController extends Controller
         $name = $p->filename() ?: 'attachment';
         $mime = $p->type;
         $inline = !empty($this->req->query['inline']);
+        // Programs and scripts (whatever their name says) are not handed out, unless the administration allows it.
+        if ((int) Settings::get('security.block_executables', 1) === 1) {
+            $ft = \M4W\Mail\FileType::classify($name, $content);
+            if ($ft['risk'] === 'block') {
+                \M4W\Core\Audit::log('mail.attachment_blocked', $name, ['type' => $ft['type']], (int) $this->actor()['id']);
+                throw new HttpException(403, t('att.blocked_download', ['type' => $ft['label']]));
+            }
+        }
         // Only render safe types inline; everything else is a download.
         $safeInline = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf', 'text/plain'];
         if ($inline && !in_array($mime, $safeInline, true)) {
             $inline = false;
+        }
+        // Pictures shown in the page are re-encoded too (metadata and hidden payloads dropped).
+        if ($inline && str_starts_with($mime, 'image/') && \M4W\Service\MailAssets::enabled()) {
+            $a = \M4W\Service\MailAssets::inline((int) $m['id'], (int) $m['user_id'], 'part:' . $part, $content);
+            if ($a && $a['kind'] === 'image') {
+                return $this->cleanImageResponse($a);
+            }
+            if ($a && $a['kind'] === 'tracker') {
+                return new Response('', 204);
+            }
+            $inline = false; // not a picture GD can read: never rendered, only downloaded
         }
         if ($mime === 'text/plain') {
             $mime = 'text/plain; charset=utf-8';
@@ -289,7 +419,8 @@ final class MailController extends Controller
         $zip->open($tmp, \ZipArchive::OVERWRITE);
         $used = [];
         foreach ($parsed->attachmentList() as $a) {
-            if ($a['inline']) {
+            // Removed by the antivirus, or a program: never packed for download.
+            if ($a['inline'] || $a['removed'] || ($a['risk'] === 'block' && (int) Settings::get('security.block_executables', 1) === 1)) {
                 continue;
             }
             $part = $parsed->findPart($a['part']);
@@ -453,14 +584,21 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
+        // Webmail mode: reading the mailbox is enough to pull new mail from the provider.
+        try {
+            \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], $this->req->bool('force') ? 15 : 60);
+        } catch (\Throwable $e) {
+            error_log('[m4w] webmail sync: ' . $e->getMessage());
+        }
         $since = (int) ($this->req->query['since'] ?? 0);
         $inbox = Folders::byRole((int) $u['id'], 'inbox');
         $new = DB::all(
-            'SELECT id, from_name, from_email, subject FROM messages WHERE user_id = :u AND folder_id = :f AND id > :s AND is_read = 0 ORDER BY id DESC LIMIT 5',
+            'SELECT id, from_name, from_email, subject FROM messages WHERE user_id = :u AND folder_id = :f AND id > :s AND is_read = 0' . Mailbox::privacySql((int) $u['id']) . ' ORDER BY id DESC LIMIT 5',
             ['u' => $u['id'], 'f' => $inbox['id'], 's' => $since]
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         return $this->ok([
+            'remote'  => \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status(\M4W\Service\RemoteMailbox::find((int) $u['id']))] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
             'folders' => Folders::listWithCounts((int) $u['id']),

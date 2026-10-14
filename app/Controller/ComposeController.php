@@ -68,6 +68,9 @@ final class ComposeController extends Controller
                     }
                 }
             }
+            // A draft can be written by a delegate or a co-member of a shared mailbox: it goes
+            // back into the editor of whoever opens it, so it is cleaned like received mail.
+            $out['html'] = (new \M4W\Mail\HtmlSanitizer(false, null, true, null, null, [url('api/upload/'), url('api/messages/')]))->sanitize((string) $out['html']);
             return $this->ok(['compose' => $out, 'signature' => Signatures::render($u, 'preview', $out['mode'] !== 'new')['html']]);
         }
 
@@ -145,7 +148,7 @@ final class ComposeController extends Controller
         try {
             $res = Composer::send($u, $this->payload());
         } catch (\InvalidArgumentException | \RuntimeException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok($res);
     }
@@ -156,7 +159,7 @@ final class ComposeController extends Controller
         try {
             $id = Composer::schedule($u, $this->payload(), $this->req->int('send_at'));
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['draft_id' => $id]);
     }
@@ -167,7 +170,7 @@ final class ComposeController extends Controller
         try {
             $id = Composer::saveDraft($u, $this->payload());
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         return $this->ok(['draft_id' => $id, 'saved_at' => time()]);
     }
@@ -199,7 +202,7 @@ final class ComposeController extends Controller
         try {
             $info = Composer::storeUpload((int) $u['id'], $file);
         } catch (\InvalidArgumentException $e) {
-            return $this->fail($e->getMessage());
+            return $this->failWith($e);
         }
         $info['url'] = url('api/upload/' . $info['token']);
         return $this->ok(['file' => $info]);

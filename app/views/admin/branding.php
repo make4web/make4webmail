@@ -30,6 +30,7 @@ $presets = ['#2563eb', '#4f46e5', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#
         <div class="col-12"><label class="form-label"><?= te('admin.brand_tagline') ?></label><input class="form-control" name="tagline" value="<?= e(S::get('brand.tagline')) ?>"></div>
         <div class="col-md-6"><label class="form-label"><?= te('admin.brand_website') ?></label><input class="form-control" name="website" type="url" value="<?= e(S::get('brand.website')) ?>" placeholder="https://"></div>
         <div class="col-md-6"><label class="form-label"><?= te('admin.brand_address') ?></label><input class="form-control" name="address" value="<?= e(S::get('brand.address')) ?>"></div>
+        <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="show_name" value="1" id="b-show-name" <?= S::get('brand.show_name') ? 'checked' : '' ?>><label class="form-check-label" for="b-show-name"><?= te('admin.brand_show_name') ?></label></div><div class="form-text"><?= te('admin.brand_show_name_hint') ?></div></div>
       </div></div></div>
 
       <div class="card mb-4"><div class="card-header"><i class="bi bi-images me-2 text-primary"></i><?= te('admin.brand_images') ?></div><div class="card-body">
@@ -37,6 +38,8 @@ $presets = ['#2563eb', '#4f46e5', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#
         <?= $img('logo_dark', 'admin.brand_logo_dark', 'admin.brand_logo_dark_hint') ?>
         <?= $img('favicon', 'admin.brand_favicon', 'admin.brand_favicon_hint') ?>
         <?= $img('login_bg', 'admin.brand_login_bg', 'admin.brand_login_bg_hint') ?>
+        <?= $img('reader_bg', 'admin.brand_reader_bg', 'admin.brand_reader_bg_hint') ?>
+        <div class="mb-1 ms-md-5 ps-md-4"><label class="form-label small" for="b-reader-fit"><?= te('admin.brand_reader_fit') ?></label><select class="form-select form-select-sm" id="b-reader-fit" name="reader_bg_fit" style="max-width:260px"><?php foreach (['cover', 'contain', 'tile'] as $fit): ?><option value="<?= $fit ?>" <?= S::get('brand.reader_bg_fit') === $fit ? 'selected' : '' ?>><?= te('admin.fit_' . $fit) ?></option><?php endforeach; ?></select></div>
       </div></div>
 
       <div class="card mb-4"><div class="card-header"><i class="bi bi-palette me-2 text-primary"></i><?= te('admin.brand_colors') ?></div><div class="card-body">

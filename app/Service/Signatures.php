@@ -20,7 +20,7 @@ final class Signatures
 
     public static function all(): array
     {
-        return DB::all('SELECT t.*, (SELECT COUNT(*) FROM users u WHERE u.signature_template_id = t.id) AS users_count FROM signature_templates t ORDER BY is_default DESC, name');
+        return DB::all('SELECT t.*, 0 AS users_count FROM signature_templates t ORDER BY is_default DESC, name');
     }
 
     public static function find(int $id): ?array
@@ -28,14 +28,9 @@ final class Signatures
         return DB::one('SELECT * FROM signature_templates WHERE id = :id', ['id' => $id]);
     }
 
+    /** The active template applies to everyone: nobody gets another one or none at all. */
     public static function forUser(array $user): ?array
     {
-        if (!empty($user['signature_template_id'])) {
-            $t = self::find((int) $user['signature_template_id']);
-            if ($t) {
-                return $t;
-            }
-        }
         return DB::one('SELECT * FROM signature_templates WHERE is_default = 1 ORDER BY id LIMIT 1');
     }
 
@@ -45,7 +40,7 @@ final class Signatures
             'name'           => mb_substr(trim((string) ($d['name'] ?? '')) ?: 'Signature', 0, 190),
             'description'    => mb_substr(trim((string) ($d['description'] ?? '')), 0, 255),
             'html'           => self::cleanTemplate((string) ($d['html'] ?? '')),
-            'apply_on_reply' => !empty($d['apply_on_reply']) ? 1 : 0,
+            'apply_on_reply' => 1,
             'updated_at'     => time(),
         ];
         DB::transaction(function () use (&$id, $data, $d) {
@@ -68,6 +63,10 @@ final class Signatures
     {
         DB::run('UPDATE users SET signature_template_id = NULL WHERE signature_template_id = :id', ['id' => $id]);
         DB::delete('signature_templates', 'id = :id', ['id' => $id]);
+        // There is always an active template while any exists.
+        if (!DB::value('SELECT COUNT(*) FROM signature_templates WHERE is_default = 1')) {
+            DB::run('UPDATE signature_templates SET is_default = 1 WHERE id = (SELECT id FROM (SELECT MIN(id) AS id FROM signature_templates) x)');
+        }
     }
 
     /**
@@ -144,17 +143,15 @@ final class Signatures
     }
 
     /**
-     * Full signature HTML for a user (personal part + corporate template).
+     * Signature HTML of a user: the template set by the administration, nothing else
+     * (users never write or pick their own signature).
      * @return array{html:string,needs_logo:bool}
      */
     public static function render(array $user, string $mode = 'preview', bool $isReply = false): array
     {
         $parts = [];
-        if ((int) Settings::get('features.user_signature', 0) && trim(strip_tags((string) $user['personal_signature'], '<img>')) !== '') {
-            $parts[] = '<div class="m4w-personal-signature">' . $user['personal_signature'] . '</div>';
-        }
         $tpl = self::forUser($user);
-        if ($tpl && (!$isReply || (int) $tpl['apply_on_reply'])) {
+        if ($tpl) {
             $parts[] = self::renderTemplate((string) $tpl['html'], $user, $mode);
         }
         $html = implode('', $parts);

@@ -74,6 +74,40 @@ final class Forwarding
             . 'Resent-From: ' . $user['email'] . "\r\n"
             . 'Resent-Date: ' . date('r') . "\r\n"
             . 'Resent-To: ' . implode(', ', $targets) . "\r\n";
-        Transport::enqueue($headers . str_replace("\n", "\r\n", str_replace("\r\n", "\n", $raw)), $user['email'], $targets, (int) $user['id'], 'forward');
+        $raw = str_replace("\r\n", "\n", $raw);
+        if (RemoteMailbox::mode() !== 'server') {
+            $raw = self::rewriteSender($raw, $user);
+        }
+        Transport::enqueue($headers . str_replace("\n", "\r\n", $raw), $user['email'], $targets, (int) $user['id'], 'forward');
+    }
+
+    /**
+     * A relay or a provider's SMTP only sends mail "from" its own accounts, and the
+     * original author's domain would fail DMARC anyway. Like mailing lists do, the
+     * forward is sent from the mailbox ("Name via Julie") and replies still reach the
+     * original author through Reply-To.
+     */
+    public static function rewriteSender(string $raw, array $user): string
+    {
+        $pos = strpos($raw, "\n\n");
+        $head = $pos === false ? $raw : substr($raw, 0, $pos);
+        $body = $pos === false ? '' : substr($raw, $pos);
+        $parsed = \M4W\Mail\MimeParser::parse($raw);
+        $orig = $parsed->from();
+        $hasReplyTo = $parsed->replyTo() !== [];
+        foreach (['From', 'Sender', 'DKIM-Signature', 'ARC-Seal', 'ARC-Message-Signature', 'ARC-Authentication-Results', 'Return-Path', 'Authentication-Results', 'X-M4W-Auth'] as $h) {
+            $head = preg_replace('/^' . preg_quote($h, '/') . ':.*(?:\n[ \t].*)*\n?/mi', '', $head . "\n") ?? $head;
+            $head = rtrim($head, "\n");
+        }
+        $label = trim(($orig['name'] ?? '') !== '' ? $orig['name'] : ($orig['email'] ?? ''));
+        $name = mb_substr(t('wm.via', ['name' => $label, 'user' => $user['name'] ?: $user['email']]), 0, 150);
+        $add = 'From: ' . \M4W\Mail\Address::encode($user['email'], $name) . "\n";
+        if (!$hasReplyTo && !empty($orig['email'])) {
+            $add .= 'Reply-To: ' . \M4W\Mail\Address::encode($orig['email'], $orig['name'] ?? '') . "\n";
+        }
+        if (!empty($orig['email'])) {
+            $add .= 'X-Original-From: ' . \M4W\Mail\Address::encode($orig['email'], $orig['name'] ?? '') . "\n";
+        }
+        return $add . $head . $body;
     }
 }

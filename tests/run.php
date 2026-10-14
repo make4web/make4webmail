@@ -7,7 +7,8 @@ declare(strict_types=1);
  * Runs against an isolated temporary installation.
  */
 
-$tmp = __DIR__ . '/_tmp';
+// tests/_tmp, or the system temp folder when the checkout is not writable (run as www-data).
+$tmp = getenv('M4W_TEST_TMP') ?: (is_writable(__DIR__) ? __DIR__ . '/_tmp' : sys_get_temp_dir() . '/m4w-tests-' . getmypid());
 if (is_dir($tmp)) {
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -38,6 +39,8 @@ use M4W\Service\Forwarding;
 use M4W\Service\Installer;
 use M4W\Service\Mailbox;
 use M4W\Service\RuleEngine;
+use M4W\Service\Senders;
+use M4W\Service\SpamFilter;
 use M4W\Service\Signatures;
 use M4W\Service\Transport;
 use M4W\Service\Users;
@@ -368,6 +371,23 @@ test('signature values are escaped and template script stripped', function () us
     $html = Signatures::renderTemplate(Signatures::cleanTemplate('<p onclick="x()">{{display_name}}</p><script>alert(1)</script>'), $evil);
     ok(!str_contains($html, '<img') && !str_contains($html, 'onclick') && !str_contains($html, '<script'), $html);
 });
+test('the active template is everyone\'s signature, replies included, nothing personal', function () use ($bob) {
+    $a = Signatures::save(['name' => 'Officielle', 'html' => '<p>OFFICIELLE {{display_name}}</p>', 'is_default' => 1]);
+    $b = Signatures::save(['name' => 'Brouillon', 'html' => '<p>BROUILLON</p>']);
+    $u = $bob;
+    $u['signature_template_id'] = $b;            // a former per-user assignment is ignored
+    $u['personal_signature'] = '<p>PERSO</p>';   // so is a former personal signature
+    Settings::set('features.user_signature', 1);
+    foreach ([false, true] as $reply) {
+        $h = Signatures::render($u, 'preview', $reply)['html'];
+        ok(str_contains($h, 'OFFICIELLE') && !str_contains($h, 'BROUILLON') && !str_contains($h, 'PERSO'), ($reply ? 'reply: ' : 'new: ') . $h);
+    }
+    // Deleting the active template hands the role to another one: never no signature.
+    Signatures::delete($a);
+    ok(str_contains(Signatures::render($u)['html'], 'BROUILLON') || (int) DB::value('SELECT COUNT(*) FROM signature_templates WHERE is_default = 1') === 1, 'one active template remains');
+    Signatures::delete($b);
+    Settings::set('features.user_signature', 0);
+});
 test('signature injected before quoted text', function () {
     $body = '<p>Merci</p><div data-m4w-quote="1"><blockquote>old</blockquote></div>';
     $out = Signatures::inject($body, '<b>SIG</b>');
@@ -479,6 +499,13 @@ test('built-in smtpd accepts local mail, rejects relay', function () use ($tmp, 
     $w('DATA'); ok(str_starts_with($r(), '354'));
     $w("Subject: via smtpd\r\nFrom: x@ext.com\r\nTo: bob@test.local\r\n\r\n..leading dot\r\nbody\r\n.");
     ok(str_starts_with($r(), '250'), 'data not accepted');
+    // Disposable senders: refused at MAIL FROM, or after DATA when only the header shows it.
+    $w('MAIL FROM:<bot@yopmail.com>'); ok(str_starts_with($r(), '550'), 'disposable envelope accepted');
+    $w('MAIL FROM:<x@ext.com>'); $r();
+    $w('RCPT TO:<bob@test.local>'); $r();
+    $w('DATA'); $r();
+    $w("Subject: jetable\r\nFrom: bot@sub.mailinator.com\r\nTo: bob@test.local\r\n\r\nhi\r\n.");
+    ok(str_starts_with($r(), '550'), 'disposable From accepted');
     $w('QUIT'); $r();
     fclose($c);
     proc_terminate($proc);
@@ -552,6 +579,236 @@ test('no auto-reply to null envelope sender', function () use ($bob, $sendTo) {
     Delivery::deliver($sendTo('bob@test.local', 'bounce', 'someone@ext.com'), '', ['bob@test.local'], 'smtp');
     eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'"), $n);
     Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
+});
+test('disposable and no-reply addresses', function () {
+    ok(Senders::isDisposable('bot@yopmail.com'));
+    ok(Senders::isDisposable('x@deep.sub.mailinator.com'), 'subdomain of a listed domain');
+    ok(!Senders::isDisposable('julie@gmail.com'));
+    ok(!Senders::isDisposable('julie@orange.fr'));
+    ok(!Senders::isDisposable('bob@test.local'), 'hosted domains never');
+    Settings::setMany(['security.disposable_extra' => "jetable-maison.fr", 'security.disposable_allow' => "yopmail.com"]);
+    Senders::reset();
+    ok(Senders::isDisposable('a@jetable-maison.fr'), 'admin addition');
+    ok(!Senders::isDisposable('bot@yopmail.com'), 'admin exception');
+    Settings::setMany(['security.disposable_extra' => '', 'security.disposable_allow' => '']);
+    Senders::reset();
+    foreach (['noreply@x.com', 'No-Reply@x.com', 'no_reply+abc@x.com', 'donotreply@x.com', 'ne-pas-repondre@impots.gouv.fr', 'nepasrepondre@x.fr', 'mailer-daemon@x.com', 'notifications@github.com', 'bounces+123@x.com'] as $a) {
+        ok(Senders::isNoReply($a), $a);
+    }
+    foreach (['noreen@x.com', 'julie.bernard@x.com', 'contact@x.com', 'reply@x.com'] as $a) {
+        ok(!Senders::isNoReply($a), $a);
+    }
+});
+test('disposable senders are refused, never answered', function () use ($bob, $sendTo) {
+    Vacation::save((int) $bob['id'], ['enabled' => 1, 'body_html' => '<p>away</p>', 'interval_days' => 0]);
+    $q = static fn() => (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE kind = 'vacation'");
+    $n = $q();
+    $res = Delivery::deliver($sendTo('bob@test.local', 'Jetable 1', 'bot@yopmail.com'), 'bot@yopmail.com', ['bob@test.local'], 'pipe');
+    eq($res, ['bob@test.local' => 'rejected: disposable sender']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Jetable 1'"), 0, 'not stored');
+    eq(DB::value("SELECT status FROM mail_log WHERE subject = 'Jetable 1'"), 'rejected', 'logged');
+    // Hidden behind a normal envelope / From, through Reply-To.
+    Delivery::deliver($sendTo('bob@test.local', 'Jetable 2', 'client@ext.com', ['Reply-To' => 'x@guerrillamail.com']), 'client@ext.com', ['bob@test.local'], 'sync');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Jetable 2'"), 0);
+    // "Put in spam" mode: stored in the spam folder, still no auto-reply.
+    Settings::set('security.disposable_action', 'spam');
+    Delivery::deliver($sendTo('bob@test.local', 'Jetable 3', 'bot@yopmail.com'), 'bot@yopmail.com', ['bob@test.local'], 'smtp');
+    eq((int) DB::value("SELECT folder_id FROM messages WHERE subject = 'Jetable 3'"), (int) Folders::byRole((int) $bob['id'], 'spam')['id']);
+    // No-reply senders are delivered normally but never answered.
+    Delivery::deliver($sendTo('bob@test.local', 'Facture dispo', 'ne-pas-repondre@fournisseur.fr'), 'bounce-1@mailer.fournisseur.fr', ['bob@test.local'], 'smtp');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Facture dispo'"));
+    eq($q(), $n, 'no auto-reply sent');
+    Delivery::deliver($sendTo('bob@test.local', 'Vraie question', 'client@ext.com'), 'client@ext.com', ['bob@test.local'], 'smtp');
+    eq($q(), $n + 1, 'a real sender still gets the out-of-office');
+    Settings::set('security.disposable_action', 'reject');
+    Vacation::save((int) $bob['id'], ['enabled' => 0, 'body_html' => '']);
+});
+test('links: misleading text, IP, shorteners, look-alikes', function () {
+    eq(M4W\Mail\LinkCheck::registrable('www.impots.gouv.fr'), 'impots.gouv.fr');
+    eq(M4W\Mail\LinkCheck::registrable('a.b.example.co.uk'), 'example.co.uk');
+    eq(M4W\Mail\LinkCheck::problems('https://secure-login.example.ru/x', 'www.mabanque.fr'), ['mismatch']);
+    eq(M4W\Mail\LinkCheck::problems('https://cfspart.impots.gouv.fr/', 'www.impots.gouv.fr'), [], 'same site');
+    eq(M4W\Mail\LinkCheck::problems('https://example.com/', 'Cliquez ici'), [], 'plain text is not an address');
+    eq(M4W\Mail\LinkCheck::problems('http://192.168.4.20/login'), ['ip']);
+    eq(M4W\Mail\LinkCheck::problems('https://bit.ly/3xYz'), ['shortener']);
+    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode']);
+    eq(M4W\Mail\LinkCheck::problems('https://www.paypal.com@evil.example/'), ['userinfo']);
+    eq(M4W\Mail\LinkCheck::problems('javascript:alert(1)'), ['script']);
+});
+test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendTo) {
+    $spamId = (int) Folders::byRole((int) $bob['id'], 'spam')['id'];
+    $inboxId = (int) Folders::byRole((int) $bob['id'], 'inbox')['id'];
+    $folderOf = static fn(string $s) => (int) DB::value('SELECT folder_id FROM messages WHERE subject = :s ORDER BY id DESC', ['s' => $s]);
+    // Clean mail.
+    Delivery::deliver($sendTo('bob@test.local', 'Compte rendu de réunion', 'paul@partenaire-ext.com'), 'paul@partenaire-ext.com', ['bob@test.local']);
+    eq($folderOf('Compte rendu de réunion'), $inboxId);
+    // Phishing: shouting subject, misleading link, asks to verify the account → Junk, with the reasons.
+    $phish = '<p>Votre compte est suspendu. Vérifiez votre compte : <a href="https://secure-verif.example.ru/login">www.mabanque.fr</a></p>';
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EST SUSPENDU!!!', 'service@banque-ext.com', [], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EST SUSPENDU!!!'), $spamId, 'suspect → Junk');
+    $m = DB::one("SELECT * FROM messages WHERE subject = 'VOTRE COMPTE EST SUSPENDU!!!'");
+    $r = SpamFilter::parse(Mailbox::parsed($m)->header(SpamFilter::HEADER));
+    eq($r['level'], 'suspect');
+    ok(isset($r['tests']['LINK_MISMATCH'], $r['tests']['CREDENTIAL_BAIT'], $r['tests']['SUBJECT_CAPS']));
+    // A forged negative upstream score and a forged verdict change nothing.
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EST BLOQUE!!!', 'service@banque-ext.com', ['X-Spam-Score' => '-50', 'X-M4W-Spam' => 'score=0; level=ok; tests='], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EST BLOQUE!!!'), $spamId);
+    $raw = Mailbox::raw(DB::one("SELECT * FROM messages WHERE subject = 'VOTRE COMPTE EST BLOQUE!!!'"));
+    eq(substr_count($raw, 'X-M4W-Spam:'), 1, 'only our verdict is kept');
+    // Rules cannot pull a suspect message out of Junk.
+    $bankF = Folders::create((int) $bob['id'], 'Banque');
+    DB::insert('rules', RuleEngine::normalize((int) $bob['id'], ['name' => 'Banque', 'enabled' => 1, 'conditions' => [['field' => 'from', 'op' => 'contains', 'value' => 'banque-ext.com']],
+        'actions' => [['type' => 'move', 'folder' => $bankF]]]) + ['user_id' => $bob['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Delivery::deliver($sendTo('bob@test.local', 'VOTRE COMPTE EXPIRE!!!', 'service@banque-ext.com', [], $phish), 'service@banque-ext.com', ['bob@test.local']);
+    eq($folderOf('VOTRE COMPTE EXPIRE!!!'), $spamId);
+    DB::run('DELETE FROM rules WHERE user_id = :u', ['u' => $bob['id']]);
+    // Upstream filter certain it is spam → quarantine: the user does not see it, an administrator releases it.
+    Delivery::deliver($sendTo('bob@test.local', 'Offre speciale', 'promo@ext-promo.com', ['X-Spam-Score' => '12.4']), 'promo@ext-promo.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Offre speciale'"), 0, 'held');
+    $q = DB::one("SELECT * FROM deleted_messages WHERE subject = 'Offre speciale'");
+    eq($q['reason'], 'quarantine');
+    M4W\Service\Retention::restore((int) $q['id'], Users::find((int) $bob['id']));
+    $rel = DB::one("SELECT * FROM messages WHERE subject = 'Offre speciale'");
+    eq([(int) $rel['folder_id'], (int) $rel['is_read']], [$inboxId, 0], 'released to the inbox, unread');
+    // Block list → deleted (a copy is kept for the administrators).
+    Settings::set('spam.block', "ext-promo.com");
+    Delivery::deliver($sendTo('bob@test.local', 'Encore une offre', 'news@mail.ext-promo.com'), 'news@mail.ext-promo.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Encore une offre'"), 0);
+    eq(DB::value("SELECT reason FROM deleted_messages WHERE subject = 'Encore une offre'"), 'spam');
+    // Allow list wins over the upstream verdict.
+    Settings::setMany(['spam.block' => '', 'spam.allow' => 'ext-promo.com']);
+    Delivery::deliver($sendTo('bob@test.local', 'Offre partenaire', 'promo@ext-promo.com', ['X-Spam-Flag' => 'YES']), 'promo@ext-promo.com', ['bob@test.local']);
+    eq($folderOf('Offre partenaire'), $inboxId);
+    Settings::set('spam.allow', '');
+    // Thresholds: 0 turns a level off.
+    Settings::setMany(['spam.quarantine' => 0, 'spam.delete' => 0]);
+    eq(SpamFilter::level(80), 'suspect');
+    Settings::setMany(['spam.quarantine' => 10, 'spam.delete' => 20]);
+    eq(SpamFilter::level(4.5), 'ok');
+    eq(SpamFilter::level(20), 'delete');
+});
+test('antispam: people the user writes to are trusted a little more', function () use ($bob, $sendTo) {
+    $body = '<p>Voir <a href="https://bit.ly/abc">le lien</a></p>';
+    $mk = static fn(string $s) => $sendTo('bob@test.local', $s, 'ami@ext-ami.com', [], $body);
+    $p = MimeParser::parse($mk('A'));
+    $base = SpamFilter::evaluate($p, null, '');
+    Settings::set('spam.suspect', $base['score'] + 0.5);
+    $before = SpamFilter::forUser($base, (int) $bob['id'], $p, null);
+    M4W\Service\Contacts::touchRecipients((int) $bob['id'], [['email' => 'ami@ext-ami.com', 'name' => 'Ami']]);
+    $after = SpamFilter::forUser($base, (int) $bob['id'], $p, null);
+    eq(round($before['score'] - $after['score'], 1), 3.0);
+    // A forged contact address that fails authentication gets no bonus.
+    $forged = SpamFilter::forUser($base, (int) $bob['id'], $p, ['verdict' => 'dmarc', 'spf' => 'fail', 'dkim' => []]);
+    eq($forged['score'], $before['score']);
+    Settings::set('spam.suspect', 5);
+});
+test('links: checked on click, real destination on hover', function () {
+    $s = new HtmlSanitizer(true, null, true, null, static fn(string $h, string $t) => M4W\Service\LinkGuard::wrap($h, $t, 42, 1));
+    $out = $s->sanitize('<a href="https://evil.example.ru/x?a=1&amp;b=2">www.mabanque.fr</a> <a href="mailto:a@b.fr">mail</a>');
+    ok(str_contains($out, 'title="https://evil.example.ru/x?a=1&amp;b=2"'), 'real address on hover');
+    ok(preg_match('#href="[^"]*/go\?u=https%3A%2F%2Fevil\.example\.ru%2Fx%3Fa%3D1%26b%3D2&amp;t=www\.mabanque\.fr&amp;m=42&amp;s=[0-9a-f]{32}"#', $out) === 1, 'goes through /go');
+    ok(str_contains($out, 'href="mailto:a@b.fr"'), 'mailto untouched');
+    $sig = M4W\Service\LinkGuard::sign('https://a.example/', 'x', 1, 5);
+    ok(M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, 5, $sig));
+    ok(!M4W\Service\LinkGuard::verify('https://evil.example/', 'x', 1, 5, $sig), 'cannot reuse a signature for another address');
+    ok(!M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, 6, $sig), 'nor for another user');
+});
+test('links: /go redirects, warns or blocks', function () use ($bob) {
+    \M4W\Core\Auth::setUser(Users::find((int) $bob['id']));
+    $_SESSION = [];
+    $mid = (int) DB::value('SELECT id FROM messages WHERE user_id = :u ORDER BY id LIMIT 1', ['u' => $bob['id']]);
+    $go = static function (string $href, string $text = '', ?string $sig = null) use ($mid, $bob) {
+        $q = ['u' => $href, 't' => $text, 'm' => $mid, 's' => $sig ?? M4W\Service\LinkGuard::sign($href, $text, $mid, (int) $bob['id'])];
+        return (new M4W\Controller\LinkController(new \M4W\Core\Request('GET', '/go', $q, [], [], [])))->go();
+    };
+    $r = $go('https://www.example.org/page', 'Lire la suite');
+    eq([$r->status, $r->getHeader('Location')], [302, 'https://www.example.org/page'], 'clean link goes straight through');
+    eq($r->getHeader('Referrer-Policy'), 'no-referrer');
+    $r = $go('https://secure-verif.example.ru/login', 'https://www.mabanque.fr/');
+    eq([$r->status, $r->getHeader('Location')], [200, null], 'misleading link: warning page');
+    ok(str_contains($r->body, 'example.ru') && str_contains($r->body, 'href="https://secure-verif.example.ru/login"'), 'shows the real site, lets the user decide');
+    $r = $go('https://evil.example/', '', 'forged');
+    eq([$r->status, $r->getHeader('Location')], [400, null], 'not an open redirect');
+    // A link signed for someone else's message (minted by mailing oneself) does not work for Bob.
+    $other = (int) DB::value('SELECT id FROM messages WHERE user_id <> :u ORDER BY id LIMIT 1', ['u' => $bob['id']]);
+    $q = ['u' => 'https://evil.example/', 't' => '', 'm' => $other, 's' => M4W\Service\LinkGuard::sign('https://evil.example/', '', $other, (int) $bob['id'])];
+    eq((new M4W\Controller\LinkController(new \M4W\Core\Request('GET', '/go', $q, [], [], [])))->go()->status, 400, 'bound to the viewer\'s own messages');
+    // URLhaus feed (no key needed).
+    M4W\Service\LinkGuard::updateFeed("# URLhaus\n" . implode("\n", array_map(static fn($i) => "http://203.0.113.$i/bins/x.sh", range(1, 12))) . "\nhttps://malware.example.net/payload.exe\n");
+    $r = $go('https://malware.example.net/payload.exe', 'Facture');
+    ok($r->status === 200 && str_contains($r->body, 'URLhaus') && !str_contains($r->body, 'href="https://malware.example.net'), 'known malware: blocked, no way through');
+    ok((bool) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'link.blocked'"), 'journaled');
+    // Administrator's block list, subdomains included.
+    Settings::set('security.link_block', 'interdit.example');
+    ok(str_contains($go('https://www.interdit.example/', 'x')->body, 'bloqué par votre administrateur'));
+    Settings::set('security.link_block', '');
+    // Google Safe Browsing (fake transport), with its cache.
+    $calls = 0;
+    M4W\Service\LinkGuard::$transport = static function (string $api, array $urls) use (&$calls) {
+        $calls++;
+        return array_fill_keys(array_filter($urls, static fn($u) => str_contains($u, 'phish')), 'SOCIAL_ENGINEERING');
+    };
+    M4W\Service\LinkGuard::setApiKey('AIzaFakeKeyForTests_0123456789');
+    ok(str_contains($go('https://login.phish.example/', 'x')->body, 'hameçonnage (Google Safe Browsing)'));
+    $go('https://login.phish.example/', 'x');
+    eq($calls, 1, 'verdict cached');
+    eq($go('https://ok.example/', 'x')->status, 302);
+    M4W\Service\LinkGuard::$transport = null;
+    M4W\Service\LinkGuard::setApiKey('');
+    \M4W\Core\Auth::setUser(null);
+});
+test('impersonation: colleague names and look-alike domains', function () use ($bob, $sendTo) {
+    DB::insert('domains', ['name' => 'acmecorp.fr', 'active' => 1, 'created_at' => time()]);
+    foreach (['acmecorp.com', 'acme-corp.fr', 'acmecorp-paiement.fr', 'acrnecorp.fr', 'acmecorq.fr'] as $d) {
+        eq(SpamFilter::lookalikeDomain($d), 'acmecorp.fr', $d);
+    }
+    foreach (['acmecorp.fr', 'mail.acmecorp.fr', 'gmail.com', 'corp.fr'] as $d) {
+        eq(SpamFilter::lookalikeDomain($d), null, $d);
+    }
+    DB::run("DELETE FROM domains WHERE name = 'acmecorp.fr'");
+    $u = DB::one('SELECT first_name, last_name FROM users WHERE id = :id', ['id' => $bob['id']]);
+    $name = $u['first_name'] . ' ' . $u['last_name'];
+    $raw = $sendTo('bob@test.local', 'Virement urgent', 'pdg.direction@gmail.com');
+    $raw = preg_replace('/^From: .*$/m', 'From: "' . mb_strtoupper($name) . '" <pdg.direction@gmail.com>', $raw, 1);
+    $p = MimeParser::parse($raw);
+    eq(SpamFilter::colleagueName($p), $bob['email']);
+    ok(isset(SpamFilter::evaluate($p, null)['tests']['COLLEAGUE_NAME']));
+    eq(SpamFilter::colleagueName(MimeParser::parse($sendTo('bob@test.local', 'x', 'client@ext.com'))), null);
+});
+test('security review: trust markers, 2FA lock, delegate privacy', function () use ($bob, $sendTo) {
+    // Our markers are dropped on every path, provider spam and antivirus off included.
+    $forged = "X-M4W-Auth: verdict=ok; spf=pass; dkim=pass@x; dmarc=pass; policy=reject\nX-M4W-Spam: score=0; level=ok; tests=\n" . $sendTo('bob@test.local', 'forge');
+    $clean = Delivery::sanitizeIncoming($forged);
+    ok(!str_contains($clean, 'X-M4W-Auth') && !str_contains($clean, 'X-M4W-Spam'));
+    $av = Settings::get('security.antivirus');
+    Settings::set('security.antivirus', 0);
+    $part = "From: a@ext.com\nSubject: x\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"B\"\n\n--B\nContent-Type: text/plain\n\nhi\n--B\nContent-Type: application/octet-stream; name=\"f.exe\"\nX-M4W-Removed: virus; name*=UTF-8''f.exe; signature*=UTF-8''Fake\n\nMZ\n--B--\n";
+    ok(!str_contains(M4W\Service\AttachmentGuard::process($part)['raw'], 'X-M4W-Removed'), 'part markers dropped, antivirus off');
+    Settings::set('security.antivirus', $av);
+    // Wrong passwords typed by a third party do not lock the owner out of the code step.
+    for ($i = 0; $i < 6; $i++) {
+        DB::insert('login_attempts', ['ip' => '198.51.100.9', 'email' => 'bob@test.local', 'success' => 0, 'created_at' => time()]);
+    }
+    ok(!\M4W\Core\Auth::twoFactorLocked('bob@test.local'));
+    for ($i = 0; $i < 5; $i++) {
+        \M4W\Core\Auth::twoFactorFailed('bob@test.local', '198.51.100.10');
+    }
+    ok(\M4W\Core\Auth::twoFactorLocked('bob@test.local'), 'wrong codes do lock');
+    DB::run("DELETE FROM login_attempts WHERE email LIKE '%bob@test.local'");
+    // Delegate: personal folders cannot be reached through their parent or through rules.
+    $uid = (int) $bob['id'];
+    $parent = Folders::create($uid, 'Projets');
+    $perso = Folders::create($uid, 'Perso', $parent);
+    Mailbox::$privacy = true;
+    $thrown = false;
+    try { Folders::delete($uid, $parent); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'parent of a personal folder not deleted');
+    $rule = ['conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'x']], 'match' => 'all', 'actions' => []];
+    $thrown = false;
+    try { RuleEngine::applyToFolder($uid, $rule, $perso); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'rules cannot probe a personal folder');
+    Mailbox::$privacy = false;
+    Folders::delete($uid, $parent);
 });
 test('SSRF guard rejects private and IPv6 loopback', function () {
     foreach (['127.0.0.1', '::1', '10.1.2.3', '169.254.169.254', '::ffff:127.0.0.1', 'localhost'] as $h) {
@@ -635,6 +892,241 @@ test('files: personal space is private, even to administrators', function () use
     $mine = array_column(Files::sharedWithMe($fsAdmin), 'id');
     ok(in_array($shared, $mine, true), 'listed in "shared with me"');
     eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE, 'parent stays private');
+});
+test('files: a single file is shared without its folder', function () use ($fsAdmin, $fsBob, $fsCarol, $fsFile) {
+    $root = Files::personalRoot((int) $fsBob['id']);
+    $dir = Files::createFolder($fsBob, (int) $root['id'], 'Dossier privé');
+    $one = Files::addFromPath($fsBob, $dir, $fsFile('rapport'), 'rapport.pdf');
+    $other = Files::addFromPath($fsBob, $dir, $fsFile('secret'), 'autre.pdf');
+    $thrown = false;
+    try { Files::requireFile($fsCarol, $one['id'], Files::READ); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 404; }
+    ok($thrown, 'nothing shared yet');
+    // Only the manager of the folder may share its files.
+    $thrown = false;
+    try { Files::setFileAcl($fsCarol, $one['id'], [['type' => 'all', 'principal' => '*']]); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'a stranger cannot share it');
+    Files::setFileAcl($fsBob, $one['id'], [['type' => 'department', 'principal' => 'Finance'], ['type' => 'user', 'principal' => 'x'], ['type' => 'bogus', 'principal' => '1']]);
+    Files::resetCache();
+    eq(count(Files::fileAcl($fsBob, $one['id'])['entries']), 1, 'invalid entries dropped');
+    eq(Files::filePermission($fsCarol, Files::file($one['id'])), Files::READ, 'department sees the file');
+    eq(Files::contents(Files::requireFile($fsCarol, $one['id'], Files::READ)['blob_id']), 'rapport', 'can download');
+    eq(Files::permission($fsCarol, $dir), Files::NONE, 'the folder stays private');
+    $thrown = false;
+    try { Files::requireFile($fsCarol, $other['id'], Files::READ); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'its neighbours stay private');
+    $thrown = false;
+    try { Files::rename($fsCarol, 'file', $one['id'], 'pirate.pdf'); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    ok($thrown, 'read only: no rename');
+    $thrown = false;
+    try { Files::delete($fsCarol, [['type' => 'file', 'id' => $one['id']]]); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown || Files::file($one['id']) !== null, 'read only: no delete');
+    ok(in_array($one['id'], array_column(Files::sharedFilesWithMe($fsCarol), 'id'), true), 'listed in "shared with me"');
+    ok(!in_array($one['id'], array_column(Files::sharedFilesWithMe($fsBob), 'id'), true), 'not for its owner');
+    // Copy into one's own files, attach to a message.
+    $mine = Files::personalRoot((int) $fsCarol['id']);
+    eq(Files::copy($fsCarol, [['type' => 'file', 'id' => $one['id']]], (int) $mine['id']), 1, 'copied');
+    ok(count(Files::toUploads($fsCarol, [$one['id']])) === 1, 'attachable');
+    // Trashing the folder hides the file too; unsharing removes access.
+    Files::delete($fsBob, [['type' => 'folder', 'id' => $dir]]);
+    Files::resetCache();
+    eq(Files::filePermission($fsCarol, Files::file($one['id'], true)), Files::NONE, 'gone with its folder');
+    Files::restore($fsBob, [['type' => 'folder', 'id' => $dir]]);
+    Files::setFileAcl($fsBob, $one['id'], []);
+    Files::resetCache();
+    eq(Files::filePermission($fsCarol, Files::file($one['id'])), Files::NONE, 'unshared');
+});
+test('files: compress a selection into a zip next to it', function () use ($fsBob, $fsCarol, $fsFile) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $dir = Files::createFolder($fsBob, $root, 'Projet');
+    $sub = Files::createFolder($fsBob, $dir, 'Annexes');
+    $a = Files::addFromPath($fsBob, $dir, $fsFile('alpha'), 'a.txt');
+    Files::addFromPath($fsBob, $sub, $fsFile('beta'), 'b.txt');
+    $c = Files::addFromPath($fsBob, $root, $fsFile('gamma'), 'c.txt');
+    $z = Files::compress($fsBob, [['type' => 'folder', 'id' => $dir], ['type' => 'file', 'id' => $c['id']]], $root);
+    eq($z['name'], 'Archive.zip');
+    eq($z['mime'], 'application/zip');
+    $tmp = Files::toTempFile(Files::file($z['id'])['blob_id']);
+    $zip = new \ZipArchive();
+    $zip->open($tmp);
+    eq([$zip->getFromName('Projet/a.txt'), $zip->getFromName('Projet/Annexes/b.txt'), $zip->getFromName('c.txt')], ['alpha', 'beta', 'gamma'], 'tree kept');
+    $zip->close();
+    @unlink($tmp);
+    eq(Files::compress($fsBob, [['type' => 'file', 'id' => $a['id']]], $dir)['name'], 'a.zip', 'named after a single item');
+    eq(Files::compress($fsBob, [['type' => 'file', 'id' => $a['id']]], $dir)['name'], 'a (2).zip', 'never overwrites');
+    $thrown = false;
+    try { Files::compress($fsCarol, [['type' => 'file', 'id' => $a['id']]], (int) Files::personalRoot((int) $fsCarol['id'])['id']); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'cannot zip what one cannot read');
+});
+test('files: too big for e-mail suggests a transfer service, never a public link', function () use ($fsBob, $fsFile) {
+    Settings::set('security.max_attachment_mb', 1);
+    $big = Files::addFromPath($fsBob, (int) Files::personalRoot((int) $fsBob['id'])['id'], $fsFile(str_repeat('x', 1100000)), 'video.mp4');
+    $e = null;
+    try { Files::toUploads($fsBob, [$big['id']]); } catch (\M4W\Service\TooBigForMail $x) { $e = $x; }
+    ok($e !== null, 'refused as attachment');
+    eq([$e->details()['too_big'], $e->details()['file_id'], $e->details()['max_mb']], [true, $big['id'], 1]);
+    $names = array_column(\M4W\Service\TooBigForMail::services(), 'name');
+    ok(in_array('SwissTransfer', $names, true) && in_array('WeTransfer', $names, true), 'default services');
+    Settings::set('files.transfer_services', "Interne|http://insecure.example\nBon|https://ok.example\n|https://noname");
+    eq(\M4W\Service\TooBigForMail::services(), [['name' => 'Bon', 'url' => 'https://ok.example']], 'https only, named');
+    Settings::set('files.transfer_services', (string) (\M4W\Core\Settings::DEFAULTS['files.transfer_services'] ?? ''));
+    Settings::set('security.max_attachment_mb', 25);
+});
+test('files: office documents are previewed in the app, safely', function () use ($tmp) {
+    $mk = static function (string $name, array $parts) use ($tmp): string {
+        $p = $tmp . '/' . $name;
+        $z = new \ZipArchive();
+        $z->open($p, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        foreach ($parts as $k => $v) { $z->addFromString($k, $v); }
+        $z->close();
+        return $p;
+    };
+    $w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    $docx = $mk('t.docx', ['word/document.xml' => "<?xml version=\"1.0\"?><w:document $w><w:body>"
+        . '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Rapport annuel</w:t></w:r></w:p>'
+        . '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Gras</w:t></w:r><w:r><w:t xml:space="preserve"> et &lt;script&gt;alert(1)&lt;/script&gt;</w:t></w:r></w:p>'
+        . '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        . '</w:body></w:document>']);
+    $h = \M4W\Service\DocPreview::render($docx, 'rapport.docx');
+    ok(str_contains($h, '<h1>Rapport annuel</h1>') && str_contains($h, '<b>Gras</b>'), 'headings and bold');
+    ok(str_contains($h, '&lt;script&gt;') && !str_contains($h, '<script'), 'text escaped');
+    ok(str_contains($h, '<td><p>A1</p></td>'), 'tables');
+    $s = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+    $xlsx = $mk('t.xlsx', [
+        'xl/workbook.xml' => "<workbook $s><sheets><sheet name=\"Budget\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"Caché\" sheetId=\"2\" state=\"hidden\" r:id=\"rId2\"/></sheets></workbook>",
+        'xl/_rels/workbook.xml.rels' => '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="x"/><Relationship Id="rId2" Target="worksheets/sheet2.xml" Type="x"/></Relationships>',
+        'xl/sharedStrings.xml' => "<sst $s><si><t>Poste</t></si><si><t>Loyer</t></si></sst>",
+        'xl/worksheets/sheet1.xml' => "<worksheet $s><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"C1\"><v>1250.5</v></c></row><row r=\"3\"><c r=\"A3\" t=\"s\"><v>1</v></c></row></sheetData></worksheet>",
+    ]);
+    $h = \M4W\Service\DocPreview::render($xlsx, 'budget.xlsx');
+    ok(str_contains($h, '<h2>Budget</h2>') && !str_contains($h, 'Caché'), 'visible sheets only');
+    ok(str_contains($h, '>Poste</td><td></td><td class="n"') && str_contains($h, '1250.5') && str_contains($h, '>Loyer<'), 'cells placed by reference');
+    $pptx = $mk('t.pptx', [
+        'ppt/presentation.xml' => '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>',
+        'ppt/_rels/presentation.xml.rels' => '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Target="slides/slide1.xml" Type="x"/></Relationships>',
+        'ppt/slides/slide1.xml' => '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>Bienvenue</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+    ]);
+    ok(str_contains(\M4W\Service\DocPreview::render($pptx, 'deck.pptx'), '<p class="t">Bienvenue</p>'), 'slides');
+    file_put_contents($tmp . '/t.csv', "Nom;Montant\nDupont;12,50\n");
+    ok(str_contains(\M4W\Service\DocPreview::render($tmp . '/t.csv', 'export.csv'), '<td>Dupont</td><td class="n">12,50</td>'), 'csv with ; separator');
+    $thrown = false;
+    try { \M4W\Service\DocPreview::render($tmp . '/t.csv', 'macro.docm'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown && !\M4W\Service\DocPreview::supports('ancien.doc'), 'unsupported formats are downloaded');
+    // An entity bomb or external entity is never expanded.
+    $evil = $mk('evil.docx', ['word/document.xml' => '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]>' . "<w:document $w><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>"]);
+    $thrown = false;
+    try { $out = \M4W\Service\DocPreview::render($evil, 'evil.docx'); } catch (\InvalidArgumentException) { $thrown = true; $out = ''; }
+    ok($thrown && !str_contains($out, 'root:'), 'a document carrying a DTD is refused, nothing expanded');
+});
+test('files: every document expires; reminders, then archive and e-mail', function () use ($fsBob, $fsCarol, $fsAdmin, $fsFile) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = Files::addFromPath($fsBob, $root, $fsFile('contenu du devis'), 'devis.txt');
+    ok(abs($f['expires_at'] - (time() + 365 * 86400)) < 60, 'one year by default');
+    // Limits: between tomorrow and three years.
+    foreach ([time() - 86400, time() + 1200 * 86400] as $bad) {
+        $thrown = false;
+        try { Files::setExpiry($fsBob, $f['id'], $bad); } catch (\InvalidArgumentException) { $thrown = true; }
+        ok($thrown, 'out of range refused');
+    }
+    Files::setFileAcl($fsBob, $f['id'], [['type' => 'user', 'principal' => $fsCarol['id']]]);
+    Files::resetCache();
+    $thrown = false;
+    try { Files::setExpiry($fsCarol, $f['id'], time() + 10 * 86400); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'a reader cannot change it');
+    Files::setExpiry($fsBob, $f['id'], time() + 40 * 86400);
+    $inbox = static fn() => (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $fsBob['id'], 's' => '%devis.txt%']);
+    $before = $inbox();
+    eq(Files::processExpiry()[0] >= 0, true);
+    eq($inbox(), $before, 'nothing 40 days before');
+    $now = time() + 11 * 86400;                       // 29 days left
+    Files::processExpiry($now);
+    eq($inbox(), $before + 1, 'one month before');
+    Files::processExpiry($now);
+    eq($inbox(), $before + 1, 'never twice the same reminder');
+    Files::processExpiry(time() + 34 * 86400);      // 6 days left
+    Files::processExpiry(time() + 39 * 86400);      // 1 day left
+    eq($inbox(), $before + 3, 'one week and two days before');
+    // Postponing restarts the cycle.
+    $stage = (int) DB::value('SELECT expiry_stage FROM fs_files WHERE id = :i', ['i' => $f['id']]);
+    Files::setExpiry($fsBob, $f['id'], time() + 200 * 86400);
+    eq((int) DB::value('SELECT expiry_stage FROM fs_files WHERE id = :i', ['i' => $f['id']]), 0, 'reset after postponing (was ' . $stage . ')');
+    // Past the date: archived, unshared, sent to its author with the document.
+    Files::processExpiry(time() + 201 * 86400);
+    Files::resetCache();
+    $row = DB::one('SELECT * FROM fs_files WHERE id = :i', ['i' => $f['id']]);
+    ok((int) $row['archived_at'] > 0 && (int) $row['archived_from'] === $root, 'archived, origin kept');
+    $thrown = false;
+    try { Files::requireFile($fsBob, $f['id'], Files::READ); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'no longer in the file space, even for its author');
+    eq(Files::sharedFilesWithMe($fsCarol), [], 'no longer shared');
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject LIKE :s ORDER BY id DESC", ['u' => $fsBob['id'], 's' => 'Document archivé%']);
+    ok($m && str_contains(Mailbox::raw($m), base64_encode('contenu du devis')) || str_contains((string) Mailbox::raw($m), 'contenu du devis'), 'the document is attached');
+    ok(in_array($f['id'], array_map('intval', array_column(Files::archived(), 'id')), true), 'listed for administrators');
+    // Restored by an administrator, with a new period.
+    $back = Files::restoreArchived($f['id'], (int) $fsAdmin['id']);
+    eq($back['folder_id'], $root);
+    ok($back['expires_at'] > time() + 300 * 86400, 'new period');
+    // Author gone: the notice goes to an administrator.
+    $tmpU = Users::find(Users::create(['email' => 'parti@test.local', 'password' => 'Secret!Pass123']));
+    $g = Files::addFromPath($tmpU, (int) Files::personalRoot((int) $tmpU['id'])['id'], $fsFile('x'), 'orphelin.txt');
+    DB::update('users', ['status' => 'disabled'], 'id = :i', ['i' => $tmpU['id']]);
+    DB::update('fs_files', ['expires_at' => time() - 10], 'id = :i', ['i' => $g['id']]);
+    Files::processExpiry();
+    ok((bool) DB::value("SELECT 1 FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $fsAdmin['id'], 's' => '%orphelin.txt%']), 'administrator informed');
+});
+test('office: WOPI host (discovery, tokens, rights, locks, versions)', function () use ($fsBob, $fsCarol, $fsFile) {
+    \M4W\Service\Office::$fetch = static fn(string $url) => str_ends_with($url, '/hosting/discovery') ? '<wopi-discovery><net-zone name="external-http">'
+        . '<app name="writer"><action name="edit" ext="docx" urlsrc="https://office.test/browser/abc/cool.html?"/><action name="view" ext="doc" urlsrc="https://office.test/browser/abc/cool.html?"/></app>'
+        . '<app name="Word"><action name="edit" ext="docx" urlsrc="https://office.test/we/wordeditorframe.aspx?&lt;ui=UI_LLCC&amp;&gt;&lt;rs=DC_LLCC&amp;&gt;&lt;showpagestats=PERFSTATS&amp;&gt;"/></app>'
+        . '</net-zone></wopi-discovery>' : null;
+    Settings::set('office.url', 'https://office.test');
+    Settings::set('office.discovery', '');
+    eq(\M4W\Service\Office::test(), '', 'discovery read');
+    eq(\M4W\Service\Office::editable(), ['docx'], 'editable formats from discovery');
+    ok(in_array('doc', \M4W\Service\Office::viewable(), true), 'older formats viewable');
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = Files::addFromPath($fsBob, $root, $fsFile('PK v1'), 'contrat.docx');
+    $url = \M4W\Service\Office::actionUrl($f, 'edit', 'https://mail.test/wopi/files/' . $f['id'], 'fr-FR');
+    eq($url, 'https://office.test/browser/abc/cool.html?WOPISrc=' . rawurlencode('https://mail.test/wopi/files/' . $f['id']) . '&lang=fr-FR');
+    // Tokens: one document, one person, rights re-read at every call.
+    $tok = \M4W\Service\Office::issueToken($fsBob, $f, true);
+    ok(!DB::value('SELECT 1 FROM wopi_tokens WHERE token_hash = :t', ['t' => $tok['token']]), 'stored hashed');
+    eq(\M4W\Service\Office::resolve($tok['token'], $f['id'])['write'], true);
+    eq(\M4W\Service\Office::resolve($tok['token'], $f['id'] + 1), null, 'bound to its document');
+    eq(\M4W\Service\Office::resolve(str_repeat('a', 64), $f['id']), null, 'unknown token');
+    Files::setFileAcl($fsBob, $f['id'], [['type' => 'user', 'principal' => $fsCarol['id']]]);
+    $ro = \M4W\Service\Office::issueToken($fsCarol, $f, true);
+    eq(\M4W\Service\Office::resolve($ro['token'], $f['id'])['write'], false, 'a reader never writes, whatever the token says');
+    Files::setFileAcl($fsBob, $f['id'], []);
+    eq(\M4W\Service\Office::resolve($ro['token'], $f['id']), null, 'revoked at once');
+    // WOPI calls through the controller, as the office server makes them.
+    $call = static function (string $method, string $path, array $headers = []) use ($tok, $f) {
+        $server = ['REQUEST_METHOD' => $method, 'REMOTE_ADDR' => '10.0.0.9', 'HTTP_HOST' => 'mail.test'];
+        foreach ($headers as $k => $v) { $server['HTTP_' . strtoupper(str_replace('-', '_', $k))] = $v; }
+        $c = new \M4W\Controller\OfficeController(new \M4W\Core\Request($method, $path, ['access_token' => $tok['token']], [], [], $server));
+        return $c;
+    };
+    $info = json_decode($call('GET', '/wopi/files/' . $f['id'])->checkFileInfo((string) $f['id'])->body, true);
+    eq([$info['BaseFileName'], $info['UserCanWrite'], $info['UserFriendlyName'], $info['EnableInsertRemoteImage']], ['contrat.docx', true, $fsBob['name'], false]);
+    $lock = static fn(string $op, string $lock, string $old = '') => $call('POST', '/wopi/files/' . $f['id'], array_filter(['X-WOPI-Override' => $op, 'X-WOPI-Lock' => $lock, 'X-WOPI-OldLock' => $old]))->fileOperation((string) $f['id']);
+    eq($lock('LOCK', 'L1')->status, 200);
+    eq($lock('LOCK', 'L1')->status, 200, 'same lock: refresh');
+    $r = $lock('LOCK', 'L2');
+    eq([$r->status, $r->getHeader('X-WOPI-Lock')], [409, 'L1'], 'other lock: conflict names the holder');
+    eq($lock('GET_LOCK', '')->getHeader('X-WOPI-Lock'), 'L1');
+    eq($lock('LOCK', 'L3', 'L1')->status, 200, 'unlock and relock');
+    eq($lock('UNLOCK', 'L1')->status, 409);
+    eq($lock('UNLOCK', 'L3')->status, 200);
+    eq($lock('PUT_RELATIVE', '')->status, 501, 'no new files from the editor');
+    // A save becomes a version.
+    $p = $fsFile('PK v2');
+    $saved = Files::putContent($fsBob, $f['id'], $p);
+    eq([$saved['version'], Files::contents(Files::file($f['id'])['blob_id'])], [2, 'PK v2']);
+    eq(Files::putContent($fsBob, $f['id'], $fsFile('PK v2'))['version'], 2, 'unchanged content: no new version');
+    $thrown = false;
+    try { Files::putContent($fsCarol, $f['id'], $p); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'no write without the right');
+    \M4W\Service\Office::$fetch = null;
+    Settings::set('office.url', '');
 });
 test('files: versions, conflicts and restore', function () use ($fsAdmin, $fsFile, &$fsState) {
     $a = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v1'), 'budget.xlsx');
@@ -962,6 +1454,653 @@ test('retention: drafts replaced at send are not kept, personal mail is masked, 
     Mailbox::delete($uid, [(int) $m['id']], true);
     eq((int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE subject = 'Sans conservation'"), 0, 'disabled');
     Settings::set('retention.enabled', 1);
+});
+
+// ---------------------------------------------------------- Webmail mode (mailboxes at an external provider)
+use M4W\Service\RemoteMailbox;
+
+echo "\nWebmail mode (fake provider over real sockets)\n";
+$wm = ['imap' => random_int(41000, 45000), 'smtp' => random_int(45001, 49000), 'state' => $tmp . '/provider.json', 'log' => $tmp . '/provider-smtp.jsonl'];
+$wmMsg = static fn(string $from, string $subject, string $returnPath = null, string $body = 'Bonjour') =>
+    ($returnPath !== null ? "Return-Path: <$returnPath>\r\n" : '') . "From: $from\r\nTo: paul@test.local\r\nSubject: $subject\r\nDate: " . date('r') . "\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n$body\r\n";
+file_put_contents($wm['state'], json_encode([
+    'accounts' => ['paul@test.local' => 'secret-paul', 'lea@test.local' => 'secret-lea'],
+    'boxes' => [
+        'paul@test.local' => ['INBOX' => ['validity' => 7, 'msgs' => [
+            ['uid' => 1, 'raw' => $wmMsg('Client <client@ext.com>', 'Facture 42', 'client@ext.com')],
+            ['uid' => 2, 'raw' => $wmMsg('Patron <boss@ext.com>', 'Point projet', 'boss@ext.com')],
+            ['uid' => 3, 'raw' => $wmMsg('MAILER-DAEMON <mailer-daemon@ext.com>', 'Undelivered Mail', '')],
+        ]], 'Junk' => ['validity' => 3, 'msgs' => [['uid' => 9, 'raw' => $wmMsg('Promo <promo@spam.example>', 'Gagnez 1000 euros', 'promo@spam.example')]]]],
+        'lea@test.local' => ['INBOX' => ['validity' => 1, 'msgs' => []]],
+    ],
+]));
+@unlink($wm['log']);
+$wmProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_provider.php', (string) $wm['imap'], (string) $wm['smtp'], $wm['state'], $wm['log']], [], $wmPipes);
+usleep(400000);
+Settings::setMany([
+    'mail.mode' => 'webmail', 'webmail.imap_host' => '127.0.0.1', 'webmail.imap_port' => $wm['imap'], 'webmail.imap_security' => 'none',
+    'webmail.smtp_host' => '127.0.0.1', 'webmail.smtp_port' => $wm['smtp'], 'webmail.smtp_security' => 'none', 'webmail.verify_peer' => 0,
+    'webmail.spam_folder' => 'Junk', 'webmail.leave_days' => -1,
+]);
+$wmSmtp = static function () use ($wm): array {
+    $out = [];
+    foreach (file($wm['log'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $l) {
+        $out[] = json_decode($l, true);
+    }
+    return $out;
+};
+$paul = Users::find(Users::create(['email' => 'paul@test.local', 'password' => 'Webmail!Pass123', 'first_name' => 'Paul', 'last_name' => 'Durand']));
+$lea = Users::find(Users::create(['email' => 'lea@test.local', 'password' => 'Webmail!Pass123', 'first_name' => 'Léa']));
+
+test('webmail: mailbox password is separate from the webmail password and stored encrypted', function () use ($paul, $fsAdmin) {
+    ok(RemoteMailbox::active());
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'missing');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1], (int) $fsAdmin['id']);
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    ok(!str_contains((string) $acc['password_enc'], 'secret-paul'), 'encrypted at rest');
+    ok(\M4W\Core\Crypto::verifyPassword('Webmail!Pass123', Users::find((int) $paul['id'])['password_hash']), 'webmail password untouched');
+    eq(RemoteMailbox::effective($acc)['login'], 'paul@test.local', 'login defaults to the address');
+    $t = RemoteMailbox::test((int) $paul['id']);
+    eq([$t['imap'], $t['smtp']], ['', ''], 'IMAP and SMTP authenticate');
+});
+test('webmail: fetched mail goes through rules, spam folder, and no reply to bounces', function () use ($paul, $wmSmtp) {
+    $uid = (int) $paul['id'];
+    $factures = Folders::create($uid, 'Factures');
+    DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'Factures', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'facture']],
+        'actions' => [['type' => 'move', 'folder' => $factures]]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    Vacation::save($uid, ['enabled' => 1, 'subject' => 'Absent', 'body_html' => '<p>Je suis absent.</p>', 'interval_days' => 1]);
+    Forwarding::save($uid, true, ['archive@ext.com'], true);
+    $r = RemoteMailbox::sync(RemoteMailbox::find($uid));
+    eq($r['error'], '');
+    eq($r['fetched'], 4, '3 inbox + 1 spam');
+    $where = static fn(string $subject) => DB::one("SELECT f.role, f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = :s", ['u' => $uid, 's' => $subject]);
+    eq($where('Facture 42')['name'], 'Factures', 'rule applied');
+    eq($where('Point projet')['role'], 'inbox');
+    eq($where('Gagnez 1000 euros')['role'], 'spam', 'provider spam folder');
+    Transport::processQueue(50);
+    $sent = $wmSmtp();
+    $vac = array_values(array_filter($sent, static fn($s) => str_contains($s['data'], 'Auto-Submitted: auto-replied')));
+    $to = array_merge(...array_map(static fn($v) => $v['rcpt'], $vac));
+    sort($to);
+    eq($to, ['boss@ext.com', 'client@ext.com'], 'one reply per real sender (rules do not prevent it), none to the bounce');
+    eq([$vac[0]['auth'], $vac[0]['from']], ['paul@test.local', 'paul@test.local'], 'sent with Paul\'s own mailbox');
+    ok(!str_contains(json_encode($sent), 'mailer-daemon@ext.com"]'), 'no auto-reply to a bounce');
+});
+test('webmail: forwards leave from the mailbox, original author in Reply-To', function () use ($wmSmtp) {
+    $fwd = array_values(array_filter($wmSmtp(), static fn($s) => $s['rcpt'] === ['archive@ext.com']));
+    ok(count($fwd) >= 2, 'forwarded');
+    $f = array_values(array_filter($fwd, static fn($s) => str_contains($s['data'], 'Point projet')))[0];
+    eq([$f['auth'], $f['from']], ['paul@test.local', 'paul@test.local']);
+    ok((bool) preg_match('/^From: .*\(via Paul Durand\).*<paul@test\.local>/m', $f['data']), 'From rewritten');
+    ok((bool) preg_match('/^Reply-To: .*boss@ext\.com/m', $f['data']), 'replies reach the author');
+    ok(!preg_match('/^DKIM-Signature:/m', $f['data']), 'no foreign signature kept');
+});
+test('webmail: re-sync imports nothing twice, then cleanup at the provider', function () use ($paul, $wm) {
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    eq(RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']))['fetched'], 0);
+    Settings::set('webmail.leave_days', 0);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']));
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    eq(count($st['boxes']['paul@test.local']['INBOX']['msgs']), 0, 'deleted at the provider after import');
+    Settings::set('webmail.leave_days', -1);
+});
+test('webmail: sending, colleagues included, goes through the provider with the sender\'s mailbox', function () use ($paul, $lea, $wmSmtp) {
+    $before = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'lea@test.local, client@ext.com', 'subject' => 'Compte rendu', 'html' => '<p>Ci-joint.</p>']);
+    $s = array_slice($wmSmtp(), $before);
+    eq(count($s), 1);
+    eq([$s[0]['auth'], $s[0]['from']], ['paul@test.local', 'paul@test.local']);
+    ok(in_array('lea@test.local', $s[0]['rcpt'], true), 'colleague reached through the provider');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'Compte rendu'", ['u' => $lea['id']]), 0, 'no local shortcut');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs, not us');
+    // A mailbox that is not linked cannot send.
+    $thrown = false;
+    try { Composer::send(Users::find((int) $lea['id']), ['to' => 'x@ext.com', 'subject' => 's', 'html' => 'x']); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'unlinked mailbox refused');
+});
+test('webmail: a delegate sends with the owner\'s mailbox credentials', function () use ($paul, $fsAdmin, $wmSmtp) {
+    $_SESSION = [];
+    Delegation::open($fsAdmin, (int) $paul['id'], 'Absence de Paul');
+    $owner = Delegation::current($fsAdmin);
+    $before = count($wmSmtp());
+    Composer::send($owner, ['to' => 'client@ext.com', 'subject' => 'Réponse pendant l\'absence', 'html' => '<p>ok</p>']);
+    $s = array_slice($wmSmtp(), $before)[0];
+    eq([$s['auth'], $s['from']], ['paul@test.local', 'paul@test.local'], 'owner\'s mailbox');
+    ok((bool) preg_match('/^Sender: .*admin@test\.local/m', $s['data']), 'real sender named');
+    // The delegate can also manage the owner's out-of-office while he is away.
+    Vacation::save((int) $owner['id'], ['enabled' => 0]);
+    eq(Vacation::get((int) $paul['id'])['enabled'], false);
+    Delegation::close($fsAdmin);
+});
+test('webmail: wrong provider password is reported, not retried blindly', function () use ($paul, $fsAdmin) {
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'mauvais', 'enabled' => 1], (int) $fsAdmin['id']);
+    $acc = RemoteMailbox::find((int) $paul['id']);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    $r = RemoteMailbox::sync(RemoteMailbox::find((int) $paul['id']));
+    ok($r['error'] !== '', 'error kept');
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'error');
+    $thrown = false;
+    try { Composer::send(Users::find((int) $paul['id']), ['to' => 'x@ext.com', 'subject' => 's', 'html' => 'x']); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'send fails visibly');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1], (int) $fsAdmin['id']);
+    eq(RemoteMailbox::status(RemoteMailbox::find((int) $paul['id'])), 'pending', 'fixed password clears the error');
+});
+
+// ---------------------------------------------------------- Collector mode (one provider mailbox for everyone)
+echo "\nCollector mode (one provider mailbox, redirections, hourly limit)\n";
+use M4W\Service\Collector;
+$colMsg = static fn(string $headers, string $subject, string $id = '', string $from = 'Client <client@ext.com>') =>
+    $headers . "From: $from\r\nSubject: $subject\r\nDate: " . date('r') . "\r\nMessage-ID: <" . ($id ?: bin2hex(random_bytes(6))) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nBonjour\r\n";
+$colState = static function (callable $fn) use ($wm): void {
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $fn($st);
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+};
+$colState(static function (array &$st) use ($colMsg) {
+    $st['accounts']['mail@test.local'] = 'secret-col';
+    $st['boxes']['mail@test.local'] = ['INBOX' => ['validity' => 5, 'msgs' => [
+        // OVH-style redirection traces
+        ['uid' => 1, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nDelivered-To: mail@test.local\r\nX-Original-To: paul@test.local\r\nTo: Paul <paul@test.local>\r\n", 'Commande 2041')],
+        // Blind copy: only the provider's Received line names the recipient
+        ['uid' => 2, 'raw' => $colMsg("Return-Path: <boss@ext.com>\r\nDelivered-To: mail@test.local\r\nReceived: from mx1.ext.com by mx3.mail.ovh.net with ESMTPS id 4abc for <lea@test.local>; " . date('r') . "\r\nTo: equipe@ext.com\r\n", 'Copie cachée pour Léa', '', 'Boss <boss@ext.com>')],
+        // No trace at all: To/Cc decide; the provider delivered two copies of it
+        ['uid' => 3, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Réunion lundi', 'dup-1')],
+        ['uid' => 4, 'raw' => $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Réunion lundi', 'dup-1')],
+        // Mailing list: nobody identified → fallback mailbox
+        ['uid' => 5, 'raw' => $colMsg("Return-Path: <list@ext.com>\r\nTo: newsletter@ext.com\r\n", 'Lettre d\'information')],
+        // Bounce of a message Paul sent (envelope sender = collector)
+        ['uid' => 6, 'raw' => "Return-Path: <>\r\nFrom: Mail Delivery System <MAILER-DAEMON@mx.ovh.net>\r\nTo: mail@test.local\r\nSubject: Undelivered Mail Returned to Sender\r\nAuto-Submitted: auto-replied\r\nMessage-ID: <dsn1@mx.ovh.net>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=\"b1\"\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nunknown user\r\n--b1\r\nContent-Type: text/rfc822-headers\r\n\r\nFrom: Paul Durand <paul@test.local>\r\nTo: nobody@ext.com\r\nSubject: Devis\r\n--b1--\r\n"],
+    ]]];
+});
+Settings::setMany(['mail.mode' => 'collector', 'collector.hourly_limit' => 200, 'collector.fallback_user' => 0, 'collector.block' => '']);
+$colCount = static fn(array $u, string $subject) => (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = :s', ['u' => $u['id'], 's' => $subject]);
+
+test('collector: shared mailbox configured, a user address refused', function () use ($fsAdmin) {
+    ok(Collector::active() && !RemoteMailbox::active(), 'mode');
+    $thrown = false;
+    try { Collector::save('paul@test.local', 'x', (int) $fsAdmin['id']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'a user address cannot be the collector');
+    Collector::save('mail@test.local', 'secret-col', (int) $fsAdmin['id']);
+    $t = RemoteMailbox::test(Collector::ACCOUNT);
+    eq([$t['imap'], $t['smtp']], ['', ''], 'IMAP and SMTP authenticate');
+    ok(in_array('paul@test.local', Collector::addressesToRedirect(), true), 'redirection list');
+});
+test('collector: each message reaches its recipient (envelope, Received, To/Cc, bounce), once', function () use ($paul, $lea, $fsAdmin, $colCount) {
+    $paulBefore = $colCount($paul, 'Facture 42');
+    eq(RemoteMailbox::syncAll(), 6, 'six messages pulled');
+    eq($colCount($paul, 'Commande 2041'), 1, 'X-Original-To');
+    eq($colCount($lea, 'Commande 2041'), 0);
+    eq($colCount($lea, 'Copie cachée pour Léa'), 1, 'Received … for <lea@>');
+    eq([$colCount($paul, 'Réunion lundi'), $colCount($lea, 'Réunion lundi')], [1, 1], 'To + Cc, duplicate copy delivered once');
+    eq($colCount($fsAdmin, 'Lettre d\'information'), 1, 'fallback mailbox');
+    $m = DB::one('SELECT * FROM messages WHERE user_id = :u AND subject = :s', ['u' => $fsAdmin['id'], 's' => 'Lettre d\'information']);
+    ok(str_contains((string) Mailbox::raw($m), 'X-M4W-Unrouted: mail@test.local'), 'marked unattributed');
+    eq($colCount($paul, 'Undelivered Mail Returned to Sender'), 1, 'bounce back to its sender');
+    eq($colCount($paul, 'Facture 42'), $paulBefore, 'per-user webmail accounts are not pulled in this mode');
+    eq(RemoteMailbox::syncAll(), 0, 'nothing twice');
+});
+test('collector: sending goes through the shared account as the user; colleagues stay internal', function () use ($paul, $lea, $wmSmtp, $colCount) {
+    DB::delete('send_log', '1 = 1');
+    $before = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'client@ext.com, lea@test.local', 'subject' => 'Proposition', 'html' => '<p>Voici</p>']);
+    $s = array_slice($wmSmtp(), $before);
+    eq(count($s), 1, 'one SMTP transaction');
+    eq([$s[0]['auth'], $s[0]['from'], $s[0]['rcpt']], ['mail@test.local', 'mail@test.local', ['client@ext.com']], 'collector account, external recipient only');
+    ok((bool) preg_match('/^From: .*paul@test\.local/m', $s[0]['data']), 'the user is the sender');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs');
+    eq($colCount($lea, 'Proposition'), 1, 'colleague served locally');
+    eq(Collector::used(), 1, 'only the external recipient counts');
+});
+test('collector: over the hourly limit, mail waits in order and leaves on its own', function () use ($paul, $lea, $wmSmtp) {
+    Settings::set('collector.hourly_limit', 3);
+    DB::run("UPDATE mail_queue SET status = 'failed' WHERE status = 'pending'"); // leftovers of earlier tests
+    $before = count($wmSmtp());
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'a@ext.com, b@ext.com, c@ext.com', 'subject' => 'Trois destinataires', 'html' => '<p>x</p>']);
+    eq(count(array_slice($wmSmtp(), $before)[0]['rcpt']), 2, 'two leave now (1 already used)');
+    eq($r['deferred']['count'], 1, 'one waits');
+    ok($r['deferred']['at'] > time() + 3000, 'when the window reopens');
+    // A later message cannot overtake the waiting one, even once a slot is free.
+    $r2 = Composer::send(Users::find((int) $lea['id']), ['to' => 'd@ext.com', 'subject' => 'Plus tard', 'html' => '<p>y</p>']);
+    eq($r2['deferred']['count'], 1);
+    $st = Collector::stats();
+    eq([$st['level'], $st['used'], $st['held'], $st['held_rcpts']], ['full', 3, 2, 2], 'gauge: full, 2 waiting');
+    ok($st['next'] > time(), 'resumption time shown');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_log WHERE status = 'held'"), 2, 'logged as held');
+    // Nothing leaves before the window reopens…
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    eq(count($wmSmtp()), $n, 'still held');
+    eq(Collector::held(), 2);
+    // …one hour later, both leave in arrival order.
+    DB::run('UPDATE send_log SET created_at = created_at - 3700');
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    Transport::processQueue();
+    $out = array_slice($wmSmtp(), $n);
+    eq(array_map(static fn($x) => $x['rcpt'], $out), [['c@ext.com'], ['d@ext.com']], 'sent in order');
+    eq(Collector::held(), 0);
+    eq(Collector::stats()['level'], 'mid', '2 of 3 used');
+});
+test('collector: a refusal from the provider itself pauses sending and is shown', function () use ($paul, $colState, $wmSmtp) {
+    Settings::set('collector.hourly_limit', 200);
+    $colState(static function (array &$st) { $st['smtp_reject'] = 'Sender rate limit exceeded, try again later'; });
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'e@ext.com', 'subject' => 'Refus fournisseur', 'html' => '<p>z</p>']);
+    eq($r['deferred']['count'], 1, 'waits instead of failing');
+    $st = Collector::stats();
+    eq($st['level'], 'full');
+    ok(str_contains($st['block']['message'], 'rate limit'), 'provider message kept for the admin');
+    $colState(static function (array &$st) { unset($st['smtp_reject']); });
+    Settings::set('collector.block', '');
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => Collector::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    eq(array_slice($wmSmtp(), $n)[0]['rcpt'] ?? null, ['e@ext.com'], 'sent once the provider accepts again');
+});
+proc_terminate($wmProc);
+Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
+
+
+// ------------------------------------------------------------------ message pictures
+echo "\nMessage pictures (fetched and cleaned by the server)\n";
+use M4W\Service\MailAssets;
+$png = static function (int $w, int $h, bool $alpha = false): string {
+    $im = imagecreatetruecolor($w, $h);
+    if ($alpha) { imagesavealpha($im, true); imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127)); }
+    else { imagefill($im, 0, 0, imagecolorallocate($im, 30, 120, 200)); }
+    ob_start(); imagepng($im); imagedestroy($im);
+    return (string) ob_get_clean();
+};
+test('pictures: re-encoded by GD (size capped, metadata and payloads dropped), trackers recognised', function () use ($png) {
+    $jpeg = (function () { $im = imagecreatetruecolor(3000, 1000); imagefill($im, 0, 0, imagecolorallocate($im, 200, 50, 50)); ob_start(); imagejpeg($im); return (string) ob_get_clean(); })();
+    // A comment segment as EXIF-like metadata, and a script appended after the image data.
+    $withMeta = substr($jpeg, 0, 2) . "\xFF\xFE\x00\x16GPS 48.85,2.35 secret" . substr($jpeg, 2) . '<script>alert(1)</script>';
+    $c = MailAssets::clean($withMeta);
+    eq([$c['kind'], $c['mime'], $c['width'], $c['height']], ['image', 'image/jpeg', 1600, 533], 'resized to the width limit');
+    ok(!str_contains($c['bytes'], 'GPS') && !str_contains($c['bytes'], '<script'), 'metadata and trailing payload gone');
+    eq(MailAssets::clean($png(1, 1))['kind'], 'tracker', '1×1 pixel');
+    eq(MailAssets::clean($png(200, 100, true))['mime'], 'image/png', 'transparency kept');
+    eq(MailAssets::clean($png(200, 100))['mime'], 'image/jpeg', 'opaque PNG becomes JPEG');
+    eq(MailAssets::clean('<svg onload="alert(1)"/>'), null, 'SVG and other non-pictures refused');
+    eq(MailAssets::clean("GIF89a" . str_repeat("\0", 20)), null, 'broken picture refused');
+    $tall = (function () { $im = imagecreatetruecolor(800, 9000); ob_start(); imagepng($im); return (string) ob_get_clean(); })();
+    eq(MailAssets::clean($tall)['height'], 4000, 'very long pictures cropped');
+});
+test('pictures: fetched once after delivery, served locally, trackers removed, cleaned up with the message', function () use ($png, $bob, $sendTo) {
+    $calls = [];
+    MailAssets::$http = function (string $url) use (&$calls, $png) {
+        $calls[] = $url;
+        return match (true) {
+            str_contains($url, 'pixel') => ['status' => 200, 'type' => 'image/gif', 'body' => $png(1, 1), 'location' => ''],
+            str_contains($url, 'moved') => ['status' => 302, 'type' => '', 'body' => '', 'location' => 'https://cdn.ext.com/logo.png'],
+            str_contains($url, 'missing') => ['status' => 404, 'type' => '', 'body' => '', 'location' => ''],
+            default => ['status' => 200, 'type' => 'image/png', 'body' => $png(400, 100), 'location' => ''],
+        };
+    };
+    try {
+        $html = '<p>Promo</p><img src="https://cdn.ext.com/logo.png"><img src="https://track.ext.com/pixel.gif?u=bob"><img src="https://ext.com/moved"><img src="https://ext.com/missing.png">';
+        $raw = "From: shop@ext.com\r\nTo: bob@test.local\r\nSubject: Images\r\nMessage-ID: <img1@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" . $html . "\r\n";
+        Delivery::deliver($raw, 'shop@ext.com', ['bob@test.local']);
+        $mid = (int) DB::value("SELECT id FROM messages WHERE user_id = :u AND subject = 'Images' ORDER BY id DESC", ['u' => $bob['id']]);
+        eq(count($calls), 0, 'nothing fetched while delivering');
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_asset_refs WHERE message_id = :m AND status = 'pending'", ['m' => $mid]), 4);
+        MailAssets::processPending();
+        eq(count($calls), 5, 'each picture once (+1 redirect)');
+        $state = MailAssets::forMessage($mid);
+        eq([$state['https://cdn.ext.com/logo.png']['status'], $state['https://track.ext.com/pixel.gif?u=bob']['status'], $state['https://ext.com/moved']['status'], $state['https://ext.com/missing.png']['status']], ['ok', 'tracker', 'ok', 'failed']);
+        eq($state['https://cdn.ext.com/logo.png']['asset'], $state['https://ext.com/moved']['asset'], 'same picture stored once');
+        // Rendering: local copies only, tracker removed, missing one stays blocked.
+        $assets = $state;
+        $sz = new \M4W\Mail\HtmlSanitizer(true, null, true, static function (string $u) use ($assets, $mid) {
+            $a = $assets[$u] ?? null;
+            return !$a ? null : ($a['status'] === 'tracker' ? '' : ($a['status'] === 'ok' ? '/api/messages/' . $mid . '/img/' . $a['asset'] : null));
+        });
+        $out = $sz->sanitize($html);
+        ok(!str_contains($out, 'ext.com/logo') && !str_contains($out, 'pixel.gif') && substr_count($out, '/img/') === 2, 'no remote address left in the page');
+        eq([$sz->trackerCount(), $sz->blockedCount()], [1, 1]);
+        $disguised = $sz->sanitize('<img src="https://cdn.ext.com/logo.png" width="1" height="1"><img src="https://cdn.ext.com/logo.png" style="display:none">');
+        ok(!str_contains($disguised, '<img') && $sz->trackerCount() === 2, 'a real picture shrunk to 1×1 or hidden is a tracker too');
+        // A second message with the same picture shares it; deleting both frees it.
+        $raw2 = str_replace(['Subject: Images', '<img1@'], ['Subject: Images 2', '<img2@'], $raw);
+        Delivery::deliver($raw2, 'shop@ext.com', ['bob@test.local']);
+        MailAssets::processPending();
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_assets WHERE kind = 'image'"), 1, 'deduplicated by checksum');
+        $m1 = DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $mid]);
+        Mailbox::purge((int) $bob['id'], $m1);
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_assets WHERE kind = 'image'"), 1, 'still used by the other message');
+        $m2 = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Images 2'", ['u' => $bob['id']]);
+        Mailbox::purge((int) $bob['id'], $m2);
+        eq((int) DB::value('SELECT COUNT(*) FROM mail_assets'), 0, 'no message left: pictures deleted');
+        // Spam: nothing fetched (it would confirm the address to the spammer).
+        Delivery::deliver(str_replace('Subject: Images', "X-Spam-Flag: YES\r\nSubject: Spam images", $raw), 'shop@ext.com', ['bob@test.local']);
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_asset_refs r JOIN messages m ON m.id = r.message_id WHERE m.subject = 'Spam images'"), 0);
+    } finally {
+        MailAssets::$http = null;
+    }
+});
+
+// ------------------------------------------------------------------ attachments
+echo "\nAttachments (antivirus, real file type)\n";
+use M4W\Mail\FileType;
+use M4W\Service\Antivirus;
+use M4W\Service\AttachmentGuard;
+$avPort = random_int(30000, 32000);
+$avProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_clamd.php', (string) $avPort], [], $avPipes);
+usleep(300000);
+$eicar = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
+$mixed = static function (array $files) {
+    $raw = "From: x@ext.com\r\nTo: bob@test.local\r\nSubject: Pieces jointes\r\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"B1\"\r\n\r\npreamble\r\n--B1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nBonjour\r\n";
+    foreach ($files as [$name, $mime, $bytes]) {
+        $raw .= "--B1\r\nContent-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . chunk_split(base64_encode($bytes)) . "\r\n";
+    }
+    return $raw . "--B1--\r\n";
+};
+test('antivirus: clamd protocol', function () use ($avPort, $eicar) {
+    Settings::set('security.clamd', 'tcp://127.0.0.1:' . $avPort);
+    ok(Antivirus::ping(), 'PING');
+    eq(Antivirus::scan('hello')['status'], 'clean');
+    eq(Antivirus::scan(str_repeat('x', 200000) . $eicar), ['status' => 'infected', 'signature' => 'Eicar-Test-Signature'], 'streamed in chunks');
+    Settings::set('security.clamd', 'tcp://127.0.0.1:1');
+    eq(Antivirus::scan('x')['status'], 'error', 'daemon down is not "clean"');
+    Settings::set('security.clamd', 'tcp://127.0.0.1:' . $avPort);
+});
+test('antivirus: an infected attachment is replaced by a notice, still listed', function () use ($bob, $mixed, $eicar) {
+    $raw = $mixed([['rapport.pdf', 'application/pdf', '%PDF-1.4 ok'], ['facture.zip', 'application/zip', $eicar]]);
+    Settings::set('spam.enabled', 0); // with the filter, a virus sends the message to quarantine (tested there)
+    Delivery::deliver($raw, 'x@ext.com', ['bob@test.local']);
+    Settings::set('spam.enabled', 1);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Pieces jointes' ORDER BY id DESC", ['u' => $bob['id']]);
+    $stored = Mailbox::raw($m);
+    ok(!str_contains($stored, base64_encode($eicar)) && !str_contains($stored, 'EICAR-STANDARD'), 'the virus is not stored');
+    ok(str_contains($stored, 'X-M4W-AV: infected=1'), 'result stamped');
+    $list = Mailbox::parsed($m)->attachmentList();
+    eq(array_column($list, 'name'), ['rapport.pdf', 'facture.zip'], 'both still listed under their names');
+    eq($list[1]['removed']['signature'], 'Eicar-Test-Signature');
+    eq($list[0]['removed'], null);
+    // A sender cannot fake the marker.
+    $fake = str_replace("Content-Disposition: attachment; filename=\"rapport.pdf\"", "Content-Disposition: attachment; filename=\"rapport.pdf\"\r\nX-M4W-Removed: virus; name*=UTF-8''x; signature*=UTF-8''Fake", $mixed([['rapport.pdf', 'application/pdf', '%PDF-1.4 ok']]));
+    $out = AttachmentGuard::process($fake)['raw'];
+    ok(!str_contains($out, 'Fake'), 'forged marker dropped');
+});
+test('file types: programs recognised by content, whatever the name', function () {
+    $exe = "MZ\x90\x00" . str_repeat("\0", 60);
+    eq(FileType::classify('facture.pdf', $exe)['risk'], 'block', 'renamed executable');
+    eq(FileType::classify('facture.pdf', $exe)['why'], 'disguised');
+    eq(FileType::classify('scan', "\x7FELF" . str_repeat("\0", 20))['risk'], 'block', 'no extension');
+    eq(FileType::classify('lisezmoi.js', 'alert(1)')['risk'], 'block', 'script by extension');
+    eq(FileType::classify("facture\u{202E}fdp.exe", 'x')['risk'], 'block', 'RTL trick');
+    eq(FileType::classify('photo.jpg.txt', 'hello')['why'], 'double_ext');
+    eq(FileType::classify('devis.pdf', "%PDF-1.7\n")['risk'], '', 'genuine PDF');
+    eq(FileType::classify('devis.pdf', "PK\x03\x04" . str_repeat('x', 30))['why'], 'mismatch', 'zip named .pdf');
+    eq(FileType::classify('budget.xlsm', "PK\x03\x04")['why'], 'macros');
+    eq(FileType::classify('connexion.html', '<html><form>')['why'], 'active_content');
+    $z = new \ZipArchive(); $tmpz = tempnam(sys_get_temp_dir(), 'z'); $z->open($tmpz, \ZipArchive::OVERWRITE); $z->addFromString('setup.exe', 'MZ'); $z->close();
+    eq(FileType::classify('docs.zip', (string) file_get_contents($tmpz))['why'], 'exec_inside', 'program inside an archive');
+    @unlink($tmpz);
+});
+test('file types: a blocked program is not handed out', function () use ($bob, $mixed) {
+    Delivery::deliver(str_replace('Pieces jointes', 'Programme', $mixed([['facture.pdf', 'application/pdf', "MZ\x90\x00" . str_repeat("\0", 60)]])), 'x@ext.com', ['bob@test.local']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Programme' ORDER BY id DESC", ['u' => $bob['id']]);
+    $a = Mailbox::parsed($m)->attachmentList()[0];
+    eq([$a['risk'], $a['why']], ['block', 'disguised']);
+    \M4W\Core\Auth::setUser(Users::find((int) $bob['id']));
+    $_SESSION = [];
+    $c = new \M4W\Controller\MailController(new \M4W\Core\Request('GET', '/api/messages/' . $m['id'] . '/part/' . $a['part'], [], [], [], []));
+    $thrown = false;
+    try { $c->part((string) $m['id'], $a['part']); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    \M4W\Core\Auth::setUser(null);
+    ok($thrown, 'download refused');
+});
+test('antivirus: infected files never enter the file space', function () use ($bob, $eicar, $fsFile) {
+    $thrown = false;
+    try { Files::addFromPath(Users::find((int) $bob['id']), (int) Files::personalRoot((int) $bob['id'])['id'], $fsFile($eicar), 'outil.zip'); } catch (\InvalidArgumentException $e) { $thrown = str_contains($e->getMessage(), 'Eicar'); }
+    ok($thrown);
+});
+test('antispam: a message carrying a virus goes to quarantine', function () use ($bob, $mixed, $eicar) {
+    Delivery::deliver(str_replace('Pieces jointes', 'Virus quarantaine', $mixed([['note.zip', 'application/zip', $eicar]])), 'x@ext.com', ['bob@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE subject = 'Virus quarantaine'"), 0, 'not delivered');
+    $q = DB::one("SELECT * FROM deleted_messages WHERE subject = 'Virus quarantaine'");
+    eq($q['reason'], 'quarantine');
+    ok(!str_contains(Retention::raw($q), 'EICAR-STANDARD'), 'the quarantine copy holds no virus either');
+});
+proc_terminate($avProc);
+Settings::set('security.antivirus', 0);
+
+// ------------------------------------------------------------------ my other mailboxes
+echo "\nShared mailboxes (my other mailboxes)\n";
+use M4W\Service\SharedMailboxes;
+$shReq = new \M4W\Core\Request('POST', '/settings/mailboxes/add', [], [], [], ['REMOTE_ADDR' => '198.51.100.' . random_int(2, 250)]);
+$shBox = Users::find(Users::create(['email' => 'contact@test.local', 'password' => 'Contact!Pass2026', 'first_name' => 'Contact', 'last_name' => 'Accueil']));
+$shUser = Users::find(Users::create(['email' => 'nina@test.local', 'password' => 'Nina!Pass20266', 'first_name' => 'Nina']));
+test('shared: a user proves the right to a mailbox with its password', function () use ($shBox, $shUser, $shReq) {
+    $thrown = false;
+    try { SharedMailboxes::add($shUser, 'contact@test.local', 'mauvais', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown && !SharedMailboxes::linked((int) $shUser['id'], (int) $shBox['id']), 'wrong password refused');
+    ok((int) DB::value("SELECT COUNT(*) FROM login_attempts WHERE email = 'contact@test.local' AND success = 0") >= 1, 'counted like a failed login');
+    $thrown = false;
+    try { SharedMailboxes::add($shUser, 'nina@test.local', 'x', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'not your own mailbox');
+    SharedMailboxes::add($shUser, 'Contact@test.local', 'Contact!Pass2026', '', $shReq);
+    ok(SharedMailboxes::linked((int) $shUser['id'], (int) $shBox['id']));
+    eq(SharedMailboxes::of((int) $shUser['id'])[0]['method'], 'password');
+});
+test('shared: two-factor mailboxes also need their code, never twice the same', function () use ($shReq) {
+    $secret = Totp::generateSecret();
+    $box = Users::find(Users::create(['email' => 'compta@test.local', 'password' => 'Compta!Pass2026', 'first_name' => 'Compta']));
+    DB::update('users', ['totp_enabled' => 1, 'totp_secret' => Crypto::encrypt($secret)], 'id = :i', ['i' => $box['id']]);
+    $u1 = Users::find(Users::create(['email' => 'u1@test.local', 'password' => 'Somebody!Pass26']));
+    $u2 = Users::find(Users::create(['email' => 'u2@test.local', 'password' => 'Somebody!Pass26']));
+    $thrown = false;
+    try { SharedMailboxes::add($u1, 'compta@test.local', 'Compta!Pass2026', '', $shReq); } catch (\InvalidArgumentException $e) { $thrown = $e->getMessage() === t('shared.need_code'); }
+    ok($thrown, 'code asked');
+    $code = Totp::code($secret);
+    SharedMailboxes::add($u1, 'compta@test.local', 'Compta!Pass2026', $code, $shReq);
+    ok(SharedMailboxes::linked((int) $u1['id'], (int) $box['id']));
+    $thrown = false;
+    try { SharedMailboxes::add($u2, 'compta@test.local', 'Compta!Pass2026', $code, $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'replayed code refused');
+});
+test('shared: administrators attach any mailbox without its password', function () use ($alice, $shBox, $shReq) {
+    SharedMailboxes::add($alice, 'contact@test.local', '', '', $shReq);
+    eq(SharedMailboxes::of((int) $alice['id'])[0]['method'], 'admin');
+    $thrown = false;
+    try { SharedMailboxes::add($alice, 'nobody@test.local', '', '', $shReq); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'unknown mailbox');
+});
+test('shared: switching leaves no delegation trace, sends as the mailbox, hides nothing', function () use ($shBox, $shUser, $alice) {
+    $_SESSION = [];
+    $logs = (int) DB::value('SELECT COUNT(*) FROM delegation_log');
+    $audit = (int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action LIKE 'delegation.%'");
+    $boxInbox = Folders::byRole((int) $shBox['id'], 'inbox');
+    Mailbox::store((int) $shBox['id'], (int) $boxInbox['id'], "From: x@ext.com\r\nTo: contact@test.local\r\nSubject: [Perso] visible quand même\r\nMessage-ID: <sh1@ext.com>\r\n\r\nx\r\n");
+    SharedMailboxes::open($shUser, (int) $shBox['id']);
+    $mb = Delegation::mailbox($shUser);
+    eq($mb['email'], 'contact@test.local', 'works in the shared mailbox');
+    ok(empty($mb['_actor']) && !Mailbox::$privacy, 'not a delegation: nothing hidden');
+    Composer::send($mb, ['to' => 'admin@test.local', 'subject' => 'Réponse de l\'accueil', 'html' => '<p>Bonjour</p>']);
+    $m = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Réponse de l''accueil'", ['u' => $alice['id']]);
+    $raw = Mailbox::raw($m);
+    ok(str_contains($raw, 'contact@test.local') && !preg_match('/^Sender:/mi', $raw), 'From the shared mailbox, no Sender:');
+    eq((int) DB::value('SELECT COUNT(*) FROM delegation_log'), $logs, 'no access journal');
+    eq((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action LIKE 'delegation.%'"), $audit, 'no delegation audit');
+    // Through a mail screen controller, as the web requests do.
+    \M4W\Core\Auth::setUser($shUser);
+    $ctl = new class (new \M4W\Core\Request('GET', '/api/messages', [], [], [], [])) extends \M4W\Controller\Controller {
+        protected function delegable(): bool { return true; }
+        public function who(): array { return $this->user(); }
+    };
+    eq($ctl->who()['email'], 'contact@test.local', 'mail screens follow the switch');
+    \M4W\Core\Auth::setUser(null);
+    SharedMailboxes::open($shUser, 0);
+    eq(Delegation::mailbox($shUser)['email'], 'nina@test.local', 'back to my mailbox');
+    // Someone without the link cannot open it, even with a forged session.
+    $outsider = Users::findByEmail('u2@test.local');
+    $_SESSION['shared_mbx'] = ['box' => (int) $shBox['id']];
+    eq(Delegation::mailbox($outsider)['email'], 'u2@test.local', 'forged session ignored');
+    $_SESSION = [];
+});
+test('shared: members by administration, push to members, cleanup', function () use ($shBox, $shUser, $alice, $sendTo) {
+    $bobId = (int) Users::findByEmail('bob@test.local')['id'];
+    SharedMailboxes::setMembers((int) $shBox['id'], [(int) $shUser['id'], $bobId], (int) $alice['id']);
+    eq(count(SharedMailboxes::members((int) $shBox['id'])), 2, 'admin link replaced by the chosen list');
+    ok(!SharedMailboxes::linked((int) $alice['id'], (int) $shBox['id']));
+    // Members are alerted on their devices when mail reaches the shared inbox.
+    $sent = [];
+    \M4W\Service\WebPush::$transport = function (string $ep) use (&$sent) { $sent[] = $ep; return 201; };
+    $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($k)['ec'];
+    $pub = \M4W\Service\WebPush::b64u("\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT));
+    \M4W\Service\WebPush::subscribe((int) $shUser['id'], 'https://fcm.googleapis.com/fcm/send/nina', $pub, \M4W\Service\WebPush::b64u(random_bytes(16)), 'ua');
+    try {
+        Delivery::deliver($sendTo('contact@test.local', 'Demande de devis'), 'client@ext.com', ['contact@test.local']);
+    } finally {
+        \M4W\Service\WebPush::$transport = null;
+    }
+    ok(in_array('https://fcm.googleapis.com/fcm/send/nina', $sent, true), 'member notified');
+    Users::delete((int) $shBox['id']);
+    eq(SharedMailboxes::of((int) $shUser['id']), [], 'links gone with the mailbox');
+});
+
+// ------------------------------------------------------------------ push notifications
+echo "\nPush notifications\n";
+/** EC private key from its raw scalar and public point (SEC1 DER). */
+$ecKey = static function (string $d, string $pub): \OpenSSLAsymmetricKey {
+    $der = hex2bin('307702010104') . "\x20" . $d . hex2bin('a00a06082a8648ce3d030107a144034200') . $pub;
+    return openssl_pkey_get_private("-----BEGIN EC PRIVATE KEY-----\n" . chunk_split(base64_encode($der), 64, "\n") . "-----END EC PRIVATE KEY-----\n");
+};
+/** Decryption by the browser side (RFC 8291 §3.4), written independently of the service. */
+$pushDecrypt = static function (string $body, \OpenSSLAsymmetricKey $uaKey, string $uaPublic, string $auth): string {
+    $salt = substr($body, 0, 16);
+    $idlen = ord($body[20]);
+    $asPublic = substr($body, 21, $idlen);
+    $rest = substr($body, 21 + $idlen);
+    $spki = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode(hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $asPublic), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    $shared = openssl_pkey_derive(openssl_pkey_get_public($spki), $uaKey, 32);
+    $ikm = hash_hkdf('sha256', $shared, 32, "WebPush: info\0" . $uaPublic . $asPublic, $auth);
+    $cek = hash_hkdf('sha256', $ikm, 16, "Content-Encoding: aes128gcm\0", $salt);
+    $nonce = hash_hkdf('sha256', $ikm, 12, "Content-Encoding: nonce\0", $salt);
+    $plain = openssl_decrypt(substr($rest, 0, -16), 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, substr($rest, -16));
+    if ($plain === false) {
+        throw new \RuntimeException('decryption failed');
+    }
+    return rtrim(substr($plain, 0, (int) strrpos($plain, "\x02")), "\0");
+};
+$b64 = [M4W\Service\WebPush::class, 'b64uDecode'];
+test('push: encryption matches the RFC 8291 test vector', function () use ($ecKey, $b64) {
+    $as = $ecKey($b64('yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw'), $b64('BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8'));
+    $out = M4W\Service\WebPush::encrypt('When I grow up, I want to be a watermelon', 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', 'BTBZMqHH6r4Tts7J_aSIgg', $as, $b64('DGv6ra1nlYgDCS1FRnbzlw'));
+    eq(M4W\Service\WebPush::b64u($out), 'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN');
+});
+test('push: a browser decrypts what the server sends', function () use ($pushDecrypt) {
+    $ua = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($ua)['ec'];
+    $uaPub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+    $auth = random_bytes(16);
+    $msg = json_encode(['title' => 'Élodie', 'body' => 'Devis signé ✔']);
+    $body = M4W\Service\WebPush::encrypt($msg, M4W\Service\WebPush::b64u($uaPub), M4W\Service\WebPush::b64u($auth));
+    eq(unpack('N', substr($body, 16, 4))[1], 4096, 'record size');
+    eq($pushDecrypt($body, $ua, $uaPub, $auth), $msg);
+    ok(M4W\Service\WebPush::encrypt($msg, M4W\Service\WebPush::b64u($uaPub), M4W\Service\WebPush::b64u($auth)) !== $body, 'fresh key and salt each time');
+});
+test('push: VAPID token is a valid ES256 JWT for the push service', function () use ($b64) {
+    $h = M4W\Service\WebPush::vapidHeader('https://fcm.googleapis.com/fcm/send/abc:def');
+    ok((bool) preg_match('/^vapid t=([\w-]+)\.([\w-]+)\.([\w-]+), k=([\w-]+)$/', $h, $m), 'header format');
+    eq($m[4], M4W\Service\WebPush::vapid()['public']);
+    $claims = json_decode($b64($m[2]), true);
+    eq($claims['aud'], 'https://fcm.googleapis.com');
+    ok($claims['exp'] > time() && $claims['exp'] <= time() + 86400, 'expiry within 24 h');
+    ok(str_starts_with($claims['sub'], 'mailto:'), 'contact');
+    $sig = $b64($m[3]);
+    eq(strlen($sig), 64, 'raw R||S');
+    $int = static function (string $x): string { $x = ltrim($x, "\0"); if (ord($x[0]) & 0x80) { $x = "\0" . $x; } return "\x02" . chr(strlen($x)) . $x; };
+    $der = $int(substr($sig, 0, 32)) . $int(substr($sig, 32));
+    $der = "\x30" . chr(strlen($der)) . $der;
+    $pem = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode(hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $b64($m[4])), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    eq(openssl_verify($m[1] . '.' . $m[2], $der, openssl_pkey_get_public($pem), OPENSSL_ALGO_SHA256), 1, 'signature verifies');
+    eq(M4W\Service\WebPush::vapid()['public'], $m[4], 'key pair kept');
+});
+test('push: only known push services are accepted (no SSRF)', function () use ($bob) {
+    $ok = ['https://fcm.googleapis.com/fcm/send/x', 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://web.push.apple.com/QH', 'https://wns2-par02p.notify.windows.com/w/?token=x'];
+    foreach ($ok as $u) { ok(M4W\Service\WebPush::allowedEndpoint($u), $u); }
+    $bad = ['http://fcm.googleapis.com/x', 'https://127.0.0.1/x', 'https://evilfcm.googleapis.com.attacker.io/x', 'https://localhost/x', 'file:///etc/passwd', 'https://notify.windows.com.evil.net/'];
+    foreach ($bad as $u) { ok(!M4W\Service\WebPush::allowedEndpoint($u), $u); }
+    $thrown = false;
+    try { M4W\Service\WebPush::subscribe((int) $bob['id'], 'https://169.254.169.254/latest', str_repeat('A', 87), 'AAAAAAAAAAAAAAAAAAAAAA', 'ua'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'internal address refused');
+    $thrown = false;
+    try { M4W\Service\WebPush::subscribe((int) $bob['id'], 'https://fcm.googleapis.com/fcm/send/x', 'short', 'AAAAAAAAAAAAAAAAAAAAAA', 'ua'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'bad key refused');
+});
+test('push: new inbox mail reaches the devices; expired ones are forgotten', function () use ($bob, $pushDecrypt, $sendTo) {
+    DB::delete('push_subscriptions', '1 = 1');
+    $devices = [];
+    foreach (['https://fcm.googleapis.com/fcm/send/phone', 'https://updates.push.services.mozilla.com/wpush/v2/gone'] as $ep) {
+        $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+        $d = openssl_pkey_get_details($k)['ec'];
+        $pub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+        $auth = random_bytes(16);
+        M4W\Service\WebPush::subscribe((int) $bob['id'], $ep, M4W\Service\WebPush::b64u($pub), M4W\Service\WebPush::b64u($auth), 'Mozilla/5.0 (Linux; Android 14) Chrome/130.0 Mobile Safari/537.36');
+        $devices[$ep] = [$k, $pub, $auth];
+    }
+    $sent = [];
+    M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) {
+        $sent[] = [$ep, $h, $body];
+        return str_contains($ep, 'gone') ? 410 : 201;
+    };
+    try {
+        Delivery::deliver($sendTo('bob@test.local', 'Devis à valider', 'claire@client.fr'), 'claire@client.fr', ['bob@test.local']);
+        eq(count($sent), 2, 'both devices tried');
+        [$ep, $h, $body] = $sent[0];
+        eq($h['Content-Encoding'], 'aes128gcm');
+        ok(str_starts_with($h['Authorization'], 'vapid t='), 'VAPID');
+        $dev = $devices[$ep];
+        $msg = json_decode($pushDecrypt($body, $dev[0], $dev[1], $dev[2]), true);
+        eq($msg['title'], 'Client Ext');
+        eq($msg['body'], 'Devis à valider');
+        ok((bool) preg_match('~^mail#f/\d+/m/\d+$~', $msg['url']), 'opens the message: ' . $msg['url']);
+        eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 1, 'expired subscription removed');
+        eq(M4W\Service\WebPush::deviceLabel(M4W\Service\WebPush::devices((int) $bob['id'])[0]['user_agent']), 'Chrome · Android');
+
+        // Discreet mode: nothing readable on a lock screen.
+        Settings::set('push.preview', 0);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Salaires 2026', 'rh@client.fr'), 'rh@client.fr', ['bob@test.local']);
+        $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
+        ok(!str_contains(json_encode($msg, JSON_UNESCAPED_UNICODE), 'Salaires') && !str_contains($msg['title'], 'Client'), 'no subject nor sender');
+        Settings::set('push.preview', 1);
+
+        // Personal subjects stay hidden.
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', '[Perso] rendez-vous médecin', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
+        ok(!str_contains($msg['body'], 'médecin'), 'personal subject hidden');
+
+        // Mail filed away by a rule, or turned off in preferences: no alert.
+        $sent = [];
+        Users::savePrefs((int) $bob['id'], ['notifications' => 0]);
+        Delivery::deliver($sendTo('bob@test.local', 'Silence', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'preference respected');
+        Users::savePrefs((int) $bob['id'], ['notifications' => 1]);
+        Settings::set('push.enabled', 0);
+        Delivery::deliver($sendTo('bob@test.local', 'Coupé', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'disabled by the administrator');
+        Settings::set('push.enabled', 1);
+    } finally {
+        M4W\Service\WebPush::$transport = null;
+    }
+});
+test('push: a device moves to whoever signs in on it, and leaves with a deleted user', function () use ($bob) {
+    $tmpId = Users::create(['email' => 'stagiaire@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Sam', 'last_name' => 'Stage']);
+    $ep = 'https://fcm.googleapis.com/fcm/send/phone';
+    $row = DB::one('SELECT p256dh, auth FROM push_subscriptions WHERE endpoint_hash = :h', ['h' => hash('sha256', $ep)]);
+    M4W\Service\WebPush::subscribe($tmpId, $ep, $row['p256dh'], $row['auth'], 'ua');
+    eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 0, 'no longer Bob\'s');
+    eq(count(M4W\Service\WebPush::devices($tmpId)), 1);
+    M4W\Service\WebPush::unsubscribe((int) $bob['id'], null, (int) M4W\Service\WebPush::devices($tmpId)[0]['id']);
+    eq(count(M4W\Service\WebPush::devices($tmpId)), 1, 'cannot remove someone else\'s device');
+    Users::delete($tmpId);
+    eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

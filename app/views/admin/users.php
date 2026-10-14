@@ -20,9 +20,8 @@
     <span class="small fw-semibold ms-2" data-bulk-count></span>
     <select name="bulk_action" class="form-select form-select-sm w-auto">
       <option value="enable"><?= te('admin.b_enable') ?></option><option value="disable"><?= te('admin.b_disable') ?></option>
-      <option value="force_pw"><?= te('admin.b_force_pw') ?></option><option value="template"><?= te('admin.b_template') ?></option><option value="delete"><?= te('admin.b_delete') ?></option>
+      <option value="force_pw"><?= te('admin.b_force_pw') ?></option><option value="delete"><?= te('admin.b_delete') ?></option>
     </select>
-    <select name="template_id" class="form-select form-select-sm w-auto"><option value=""><?= te('admin.default_template') ?></option><?php foreach ($templates as $tp): ?><option value="<?= (int) $tp['id'] ?>"><?= e($tp['name']) ?></option><?php endforeach; ?></select>
     <button class="btn btn-primary btn-sm" data-confirm-bulk="<?= te('admin.bulk_confirm') ?>"><?= te('admin.apply') ?></button>
   </div>
   <div class="m4w-table-card"><div class="table-responsive"><table class="table table-hover">
@@ -35,7 +34,8 @@
         <td class="d-none d-lg-table-cell"><div class="small"><?= e($u['job_title']) ?></div><div class="small text-muted"><?= e($u['department']) ?></div></td>
         <td class="d-none d-md-table-cell" style="min-width:150px"><div class="small mb-1"><?= e(format_bytes((int) $u['used_bytes'])) ?> <span class="text-muted">/ <?= $u['quota_mb'] > 0 ? e(format_bytes($u['quota_mb'] * 1048576)) : '∞' ?></span></div><div class="progress" style="height:4px"><div class="progress-bar <?= $pct > 90 ? 'bg-danger' : '' ?>" style="width:<?= max(1, $pct) ?>%"></div></div></td>
         <td class="d-none d-xl-table-cell small text-muted"><?= e(format_datetime((int) $u['last_login_at'])) ?></td>
-        <td><span class="badge <?= $u['status'] === 'active' ? 'badge-soft-success' : 'badge-soft-secondary' ?>"><?= te('admin.st_' . $u['status']) ?></span><?= $u['must_change_password'] ? ' <i class="bi bi-key text-warning" title="' . te('admin.must_change') . '"></i>' : '' ?></td>
+        <td><span class="badge <?= $u['status'] === 'active' ? 'badge-soft-success' : 'badge-soft-secondary' ?>"><?= te('admin.st_' . $u['status']) ?></span>
+          <?php if (M4W\Service\RemoteMailbox::active()): $rs = M4W\Service\RemoteMailbox::status($remotes[(int) $u['id']] ?? null); ?><a href="<?= e(url('admin/users/' . $u['id'])) ?>#remote" class="badge text-decoration-none ms-1 <?= ['ok' => 'badge-soft-success', 'error' => 'badge-soft-danger', 'pending' => 'badge-soft-warning'][$rs] ?? 'badge-soft-secondary' ?>" title="<?= te('wm.user_card') ?>"><i class="bi bi-window-stack me-1"></i><?= te('wm.st_' . $rs) ?></a><?php endif; ?><?= $u['must_change_password'] ? ' <i class="bi bi-key text-warning" title="' . te('admin.must_change') . '"></i>' : '' ?></td>
         <td class="text-end text-nowrap">
           <?php if ((int) $u['id'] !== (int) $currentUser['id'] && M4W\Service\Delegation::adminsByDefault()): ?>
           <button type="button" class="btn btn-ghost btn-icon btn-sm" data-open-mailbox="<?= (int) $u['id'] ?>" data-name="<?= e($name) ?>" data-email="<?= e($u['email']) ?>" data-reason="<?= (int) M4W\Core\Settings::get('delegation.require_reason', 1) ?>" title="<?= te('deleg.open_this') ?>" aria-label="<?= te('deleg.open_for', ['name' => $name]) ?>"><i class="bi bi-box-arrow-in-right"></i></button>

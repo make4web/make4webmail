@@ -96,9 +96,7 @@ final class AuthController extends Controller
         }
         $user = Users::find((int) $p['uid']);
         $window = max(1, (int) \M4W\Core\Settings::get('security.lockout_minutes', 15)) * 60;
-        $max = max(3, (int) \M4W\Core\Settings::get('security.max_attempts', 5));
-        if ($user && (int) DB::value('SELECT COUNT(*) FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :t',
-            ['e' => $user['email'], 't' => time() - $window]) >= $max) {
+        if ($user && Auth::twoFactorLocked($user['email'])) {
             Session::forget('pending_2fa');
             Session::flash('danger', t('auth.locked', ['minutes' => (int) ($window / 60)]));
             return Response::redirect('/login');
@@ -120,7 +118,7 @@ final class AuthController extends Controller
             $p['tries']++;
             Session::set('pending_2fa', $p);
             if ($user) {
-                DB::insert('login_attempts', ['ip' => $this->req->ip(), 'email' => $user['email'], 'success' => 0, 'created_at' => time()]);
+                Auth::twoFactorFailed($user['email'], $this->req->ip());
             }
             Audit::log('login.2fa_failed', $user['email'] ?? '', [], $user['id'] ?? null);
             Session::flash('danger', t('auth.2fa_invalid'));

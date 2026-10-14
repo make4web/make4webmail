@@ -4,7 +4,7 @@ $u = $currentUser;
 $isMail = ($topbarMode ?? '') === 'mail';
 $prefs = $u['prefs'] ?? [];
 ?>
-<?php $deleg = $delegation ?? null; $delegatedTo = M4W\Service\Delegation::delegatedTo((int) $u['id']); ?>
+<?php $deleg = $delegation ?? null; $delegatedTo = M4W\Service\Delegation::delegatedTo((int) $u['id']); $shared = $sharedBox ?? null; $myBoxes = M4W\Service\SharedMailboxes::of((int) $u['id']); ?>
 <header class="m4w-topbar<?= $deleg ? ' is-delegated' : '' ?>" role="banner">
   <button class="btn btn-ghost btn-icon m4w-mobile-only" type="button" data-action="toggle-sidebar" aria-label="<?= te('nav.menu') ?>"><i class="bi bi-list"></i></button>
   <?php include __DIR__ . '/brand.php'; ?>
@@ -45,6 +45,20 @@ $prefs = $u['prefs'] ?? [];
     <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span></button>
   </form>
   <?php endif; ?>
+  <?php if ($shared): ?>
+  <form method="post" action="<?= e(url('mailbox/switch')) ?>" class="m4w-shared-pill" role="status">
+    <?= csrf_field() ?><input type="hidden" name="id" value="0">
+    <i class="bi bi-inboxes" aria-hidden="true"></i>
+    <span class="text-truncate"><span class="m4w-deleg-label"><?= te('shared.pill') ?></span> <strong><?= e($shared['email']) ?></strong></span>
+    <button class="btn btn-sm" type="submit" title="<?= te('shared.back_mine') ?>"><i class="bi bi-arrow-return-left"></i><span class="m4w-hide-xs ms-1"><?= te('shared.back_short') ?></span></button>
+  </form>
+  <?php endif; ?>
+  <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); if ($cs['level'] === 'full' || $cs['level'] === 'high'): ?>
+  <a class="m4w-limit-pill <?= $cs['level'] ?>" href="<?= e(url('admin/mail')) ?>#col-gauge" role="status" title="<?= te('col.pill_title', ['limit' => $cs['limit']]) ?>">
+    <i class="bi bi-<?= $cs['level'] === 'full' ? 'sign-stop-fill' : 'speedometer' ?>" aria-hidden="true"></i>
+    <span class="text-truncate"><?= $cs['level'] === 'full' ? te('col.pill_full', ['used' => $cs['used'], 'limit' => $cs['limit']]) : te('col.pill_high', ['used' => $cs['used'], 'limit' => $cs['limit']]) ?><?php if ($cs['next']): ?><span class="m4w-hide-xs"> · <?= te('col.pill_resume', ['time' => date('H:i', $cs['next'])]) ?></span><?php endif; ?></span>
+  </a>
+  <?php endif; endif; ?>
   <div class="m4w-top-actions">
     <?php if ($isMail): ?>
     <button class="btn btn-ghost btn-icon m4w-hide-xs" type="button" data-action="shortcuts" title="<?= te('nav.help') ?>" aria-label="<?= te('nav.help') ?>"><i class="bi bi-question-circle"></i></button>
@@ -110,6 +124,15 @@ $prefs = $u['prefs'] ?? [];
         <?php if ($deleg): ?>
         <form method="post" action="<?= e(url('delegation/close')) ?>"><?= csrf_field() ?><button class="dropdown-item fw-semibold" type="submit"><i class="bi bi-box-arrow-left"></i><?= te('deleg.back_mine') ?></button></form>
         <?php endif; ?>
+        <h6 class="dropdown-header"><?= te('shared.menu') ?></h6>
+        <?php if ($shared || $deleg): ?>
+        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="0"><button class="dropdown-item" type="submit"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span><span class="text-truncate"><?= te('shared.my_box') ?></span></button></form>
+        <?php endif; ?>
+        <?php foreach ($myBoxes as $mb): $mbn = $mb['display_name'] ?: $mb['email']; $isCur = $shared && (int) $shared['id'] === (int) $mb['id']; ?>
+        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $mb['id'] ?>"><button class="dropdown-item<?= $isCur ? ' active' : '' ?>" type="submit"<?= $isCur ? ' aria-current="true"' : '' ?>><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($mb['email'])) ?>"><?= e(initials($mbn)) ?></span><span class="min-w-0 flex-grow-1"><span class="d-block text-truncate"><?= e($mbn) ?></span><small class="d-block text-truncate text-muted"><?= e($mb['email']) ?></small></span><?php if ((int) $mb['unread']): ?><span class="badge rounded-pill text-bg-primary ms-2"><?= (int) $mb['unread'] ?></span><?php endif; ?></button></form>
+        <?php endforeach; ?>
+        <a class="dropdown-item" href="<?= e(url('settings/mailboxes')) ?>#add"><i class="bi bi-plus-lg"></i><?= te('shared.menu_add') ?></a>
+        <div class="dropdown-divider"></div>
         <?php if ($delegatedTo || ($u['role'] ?? '') === 'admin'): ?>
         <h6 class="dropdown-header"><?= te('deleg.mailboxes') ?></h6>
         <?php foreach ($delegatedTo as $d): $dn = $d['display_name'] ?: trim($d['first_name'] . ' ' . $d['last_name']) ?: $d['email']; ?>

@@ -34,7 +34,7 @@ try {
     fwrite(STDERR, 'delivery failed: ' . $e->getMessage() . "\n");
     exit(75);
 }
-$ok = array_filter($res, static fn($r) => $r === 'ok');
+$ok = array_filter($res, static fn($r) => $r === 'ok' || $r === 'rejected: disposable sender');
 if (!$ok) {
     fwrite(STDERR, implode('; ', array_map(static fn($k, $v) => "$k: $v", array_keys($res), $res)) . "\n");
     exit(in_array('mailbox full', $res, true) ? 75 : 67);

@@ -208,6 +208,12 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                     $send('553 5.1.7 Invalid sender address');
                     break;
                 }
+                if ($from !== '' && M4W\Service\Senders::inboundAction() === 'reject' && M4W\Service\Senders::isDisposable($from)) {
+                    smtpd_log("from=<$from> ip=$ip rejected: disposable sender");
+                    $from = null;
+                    $send('550 5.7.1 Disposable sender addresses are not accepted');
+                    break;
+                }
                 $rcpts = [];
                 $send('250 2.1.0 OK');
                 break;
@@ -276,14 +282,15 @@ function smtpd_session($c, string $peer, string $hostname, int $maxSize, array $
                         $auth = null;
                         if ((int) M4W\Core\Settings::get('inbound.auth_checks', 1)) {
                             try {
-                                $auth = M4W\Mail\MailAuth::evaluate($data, $ip, (string) $from, $helo, [Users::class, 'isLocalDomain']);
+                                $auth = M4W\Mail\MailAuth::evaluate($data, $ip, (string) $from, $helo, [Users::class, 'isLocalDomain']) + ['ip' => $ip];
                             } catch (\Throwable $e) {
                                 smtpd_log('auth check error: ' . $e->getMessage());
                             }
                         }
                         $res = Delivery::deliver($received . $data, (string) $from, $rcpts, 'smtp', true, $auth);
                         $ok = count(array_filter($res, static fn($r) => $r === 'ok'));
-                        $send($ok ? "250 2.0.0 OK queued as $id" : '451 4.3.0 Delivery failed');
+                        $refused = !$ok && in_array('rejected: disposable sender', $res, true);
+                        $send($ok ? "250 2.0.0 OK queued as $id" : ($refused ? '550 5.7.1 Disposable sender addresses are not accepted' : '451 4.3.0 Delivery failed'));
                         smtpd_log("from=<$from> ip=$ip rcpt=" . implode(',', $rcpts) . ' size=' . strlen($data) . " id=$id ok=$ok" . ($auth ? ' auth=' . $auth['verdict'] . ' spf=' . $auth['spf'] . ' dmarc=' . $auth['dmarc'] : ''));
                         Transport::processQueue(20);
                     } catch (\Throwable $e) {
