@@ -42,6 +42,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 ### Fichiers (espace partagé)
 - **Mes fichiers** (privé, invisible même pour les administrateurs), **Partagés avec moi**, **Espaces d'équipe** et **Corbeille**.
 - Droits par dossier, hérités par tout le contenu : **Lecture** (consulter, télécharger), **Modification** (ajouter, renommer, déplacer, supprimer), **Gestion** (modifier aussi les accès). Ils s'accordent à une personne, à un service (champ « service » des utilisateurs) ou à tout le monde. Les administrateurs gèrent tous les espaces d'équipe.
+- **Partage d'un fichier seul**, sans son dossier : en lecture (consulter, télécharger, copier, joindre à un message), à une personne, un service ou tout le monde, par la personne qui gère le dossier. Le fichier apparaît dans « Partagés avec moi » ; les fichiers voisins et le dossier restent privés, et l'accès disparaît si le dossier part à la corbeille.
 - Import par glisser-déposer de fichiers et de dossiers entiers, avec progression. Un fichier du même nom peut devenir une nouvelle version (historique consultable et restaurable) ou être conservé à côté.
 - Vue liste ou vignettes, tri, sélection multiple, menu contextuel, déplacement par glisser-déposer (y compris sur le fil d'Ariane et la barre latérale), copie, renommage, recherche, aperçu (images, PDF, texte, audio, vidéo), téléchargement d'un dossier en ZIP.
 - Intégration à la messagerie : **joindre depuis Fichiers** dans la fenêtre de rédaction, **enregistrer dans Fichiers** une pièce jointe reçue, « Envoyer par e-mail » depuis Fichiers.
@@ -213,7 +214,7 @@ Dans « Administration → Serveur de messagerie », renseignez le relais SMTP d
 
 ## Tests
 ```bash
-php tests/run.php   # 112 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 113 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

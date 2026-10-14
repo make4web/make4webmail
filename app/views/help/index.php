@@ -183,7 +183,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>L'application <?= $go('files', 'Fichiers') ?> (menu <?= $ui('grid-3x3-gap', '') ?> ou colonne de gauche de la messagerie) stocke et partage des documents au sein de l'organisation.</p>
     <dl class="m4w-help-dl">
       <dt><i class="bi bi-person-workspace"></i>Mes fichiers</dt><dd>Votre espace privé. Personne d'autre n'y a accès, pas même les administrateurs, sauf les dossiers que vous partagez.</dd>
-      <dt><i class="bi bi-people"></i>Partagés avec moi</dt><dd>Les dossiers que vos collègues ont partagés avec vous.</dd>
+      <dt><i class="bi bi-people"></i>Partagés avec moi</dt><dd>Les dossiers et les fichiers que vos collègues ont partagés avec vous.</dd>
       <dt><i class="bi bi-collection"></i>Espaces d'équipe</dt><dd>Des espaces communs (par exemple « Direction financière ») créés par <?= $cfg['user_spaces'] ? 'les utilisateurs ou les administrateurs' : 'les administrateurs' ?>.</dd>
       <dt><i class="bi bi-trash3"></i>Corbeille</dt><dd>Les éléments supprimés, restaurables pendant <?= $days((int) $cfg['files_trash']) ?>.</dd>
     </dl>
@@ -211,6 +211,8 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
         <tr><td><span class="badge badge-soft-warning">Gestion</span></td><td>en plus : modifier les accès du dossier</td></tr>
       </tbody>
     </table>
+    <h3>Partager un seul fichier</h3>
+    <p>Pour partager un fichier sans donner accès au reste du dossier, ouvrez son menu <?= $ui('three-dots', '') ?> → <?= $ui('person-plus', 'Partager ce fichier') ?>, ajoutez les personnes, un service ou « Tout le monde », puis enregistrez. Ils peuvent le consulter, le télécharger, le copier dans leurs fichiers et le joindre à un message, mais ni le modifier, ni le renommer, ni le supprimer. Ils le retrouvent dans « Partagés avec moi ». L'icône <?= $ui('people', '') ?> à côté du nom signale un fichier partagé. Si le dossier part à la corbeille, le fichier n'est plus visible.</p>
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>
     <h3>Avec la messagerie</h3>
     <p>En rédaction, <?= $ui('folder2-open', '') ?> joint un fichier de l'espace. Dans un message reçu, <?= $ui('folder-plus', '') ?> enregistre une pièce jointe dans le dossier de votre choix.</p>

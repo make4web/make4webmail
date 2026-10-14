@@ -76,7 +76,7 @@
         </div>
         <button class="btn btn-light" type="button" data-fs="share-everyone"><i class="bi bi-globe2 me-1"></i><?= te('files.everyone') ?></button>
       </div>
-      <p class="small text-muted mt-2 mb-3"><?= te('files.share_help') ?></p>
+      <p class="small text-muted mt-2 mb-3" id="fs-share-help" data-folder="<?= te('files.share_help') ?>" data-file="<?= te('files.share_file_help') ?>"><?= te('files.share_help') ?></p>
       <ul class="fs-acl-list" id="fs-acl-list"></ul>
       <div id="fs-acl-inherited"></div>
     </div>

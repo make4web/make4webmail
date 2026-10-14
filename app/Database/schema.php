@@ -499,5 +499,19 @@ static function (): void {
 "CREATE UNIQUE INDEX mailbox_links_pair ON mailbox_links(user_id, mailbox_id)",
 "CREATE INDEX mailbox_links_box ON mailbox_links(mailbox_id)",
 ],
+10 => [
+// A single file shared without its folder (read access).
+"CREATE TABLE fs_file_acl (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  principal_type VARCHAR(20) NOT NULL,
+  principal VARCHAR(190) NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX fs_file_acl_unique ON fs_file_acl(file_id, principal_type, principal)",
+"CREATE INDEX fs_file_acl_principal ON fs_file_acl(principal_type, principal)",
+],
 ];
 

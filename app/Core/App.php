@@ -261,6 +261,8 @@ final class App
         $r->get('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'acl']);
         $r->post('/api/files/folder/{id}/acl', [Controller\FilesController::class, 'saveAcl']);
         $r->post('/api/files/space/{id}', [Controller\FilesController::class, 'updateSpace']);
+        $r->get('/api/files/file/{id}/acl', [Controller\FilesController::class, 'fileAcl']);
+        $r->post('/api/files/file/{id}/acl', [Controller\FilesController::class, 'saveFileAcl']);
         $r->get('/api/files/file/{id}/versions', [Controller\FilesController::class, 'versions']);
         $r->post('/api/files/file/{id}/restore-version', [Controller\FilesController::class, 'restoreVersion']);
         $r->post('/api/files/folders', [Controller\FilesController::class, 'createFolder']);

@@ -143,7 +143,8 @@
   function openShared() {
     S.route = 'shared'; S.level = 'none'; S.current = null; loading();
     loadRoots().done(function () {
-      S.items = S.roots.shared.map(function (f) { f.type = 'folder'; return f; });
+      S.items = S.roots.shared.map(function (f) { f.type = 'folder'; return f; })
+        .concat((S.roots.shared_files || []).map(function (f) { f.type = 'file'; return f; }));
       setHeader([{ name: t('fs_shared_with_me') }], '<span>' + esc(t('fs_shared_desc')) + '</span>');
       toolbar(); render(); markNav();
     });
@@ -248,7 +249,7 @@
         var when = trash ? it.deleted_at : it.updated_at;
         var badges = '';
         if (it.type === 'file' && it.version > 1) badges += '<span class="badge badge-soft-secondary ms-2" title="' + esc(t('fs_versions')) + '">v' + it.version + '</span>';
-        if (it.type === 'folder' && it.shared && S.route !== 'shared') badges += '<i class="bi bi-people ms-2 text-muted small" title="' + esc(t('fs_shared_badge')) + '"></i>';
+        if (it.shared && S.route !== 'shared') badges += '<i class="bi bi-people ms-2 text-muted small" title="' + esc(t(it.type === 'file' ? 'fs_shared_file_badge' : 'fs_shared_badge')) + '"></i>';
         if (it.owner) badges += '<span class="small text-muted ms-2">' + esc(it.owner) + '</span>';
         html2 += '<tr data-i="' + i + '" data-key="' + itemKey(it) + '" draggable="' + (!trash && can('write') ? 'true' : 'false') + '">'
           + '<td class="fs-col-check"><input type="checkbox" class="form-check-input fs-check" aria-label="' + esc(t('fs_select_item', { name: it.name })) + '"></td>'
@@ -429,7 +430,7 @@
     'empty-trash': function () { actions.purge(S.items.slice()); },
     share: function (items) {
       var it = items && items[0];
-      shareDialog(it && it.type === 'folder' ? it : S.current);
+      shareDialog(it && (it.type === 'folder' || it.type === 'file') ? it : S.current);
     },
     versions: function (items) { versionsDialog((items || selectedItems())[0]); },
     'copy-link': function (items) {
@@ -465,6 +466,8 @@
     m.push(['download', 'download', 'fs_download']);
     if (files) m.push(['attach-mail', 'envelope', 'fs_send_mail']);
     if (one && one.type === 'folder' && LEVEL[one.level] >= 3 && one.kind !== 'personal') m.push(['share', 'person-plus', 'fs_share']);
+    // A single file can be shared without its folder by whoever manages that folder.
+    if (one && one.type === 'file' && S.route === 'folder' && can('manage')) m.push(['share', 'person-plus', 'fs_share_file']);
     if (S.route === 'search' && one) m.push(['open-location', 'folder-symlink', 'fs_open_location']);
     m.push('-');
     if (one && writable) m.push(['rename', 'input-cursor-text', 'fs_rename']);
@@ -504,13 +507,16 @@
   });
 
   // ---------------------------------------------------------------- sharing
-  var share = { folder: null, entries: [] };
-  function shareDialog(folder) {
-    if (!folder) return;
-    share.folder = folder;
-    M4W.get('api/files/folder/' + folder.id + '/acl').done(function (r) {
+  var share = { folder: null, entries: [], kind: 'folder' };
+  function shareDialog(item) {
+    if (!item) return;
+    share.folder = item;
+    share.kind = item.type === 'file' ? 'file' : 'folder';
+    var $help = $('#fs-share-help');
+    $help.text($help.data(share.kind));
+    M4W.get('api/files/' + share.kind + '/' + item.id + '/acl').done(function (r) {
       share.entries = r.entries;
-      $('#fs-share-title').text(t('fs_share_title', { name: r.folder.name }));
+      $('#fs-share-title').text(t('fs_share_title', { name: (r.folder || r.file).name }));
       renderAcl();
       var inh = '';
       if (r.owner) inh += '<div class="fs-acl-row"><span class="m4w-avatar sm" style="background:' + M4W.color(r.owner) + '">' + esc(M4W.initials(r.owner)) + '</span><div class="flex-grow-1"><div class="fw-medium">' + esc(r.owner) + '</div></div><span class="small text-muted">' + esc(t('fs_owner')) + '</span></div>';
@@ -524,6 +530,8 @@
     var av = e.type === 'all' ? '<span class="m4w-avatar sm fs-av-icon"><i class="bi bi-globe2"></i></span>'
       : (e.type === 'department' ? '<span class="m4w-avatar sm fs-av-icon"><i class="bi bi-diagram-3"></i></span>' : M4W.avatar(e.label, e.email, 'sm'));
     var right = readonly ? '<span class="small text-muted">' + esc(t('fs_level_' + e.level)) + (e.from ? ' · ' + esc(t('fs_from', { name: e.from })) : '') + '</span>'
+      : share.kind === 'file'
+        ? '<span class="small text-muted">' + esc(t('fs_level_read')) + '</span><button type="button" class="btn btn-ghost btn-icon btn-sm" data-acl-remove="' + i + '" aria-label="' + esc(t('fs_remove_access', { name: e.label })) + '"><i class="bi bi-x-lg"></i></button>'
       : '<select class="form-select form-select-sm w-auto" data-acl-level="' + i + '" aria-label="' + esc(t('fs_level_for', { name: e.label })) + '">'
         + ['read', 'write', 'manage'].map(function (l) { return '<option value="' + l + '"' + (e.level === l ? ' selected' : '') + '>' + esc(t('fs_level_' + l)) + '</option>'; }).join('')
         + '</select><button type="button" class="btn btn-ghost btn-icon btn-sm" data-acl-remove="' + i + '" aria-label="' + esc(t('fs_remove_access', { name: e.label })) + '"><i class="bi bi-x-lg"></i></button>';
@@ -562,7 +570,7 @@
     .on('click', '[data-acl-remove]', function () { share.entries.splice(+$(this).data('acl-remove'), 1); renderAcl(); });
   actions['share-everyone'] = function () { addEntry({ type: 'all', principal: '*', label: t('fs_everyone'), email: '' }); };
   actions['share-save'] = function () {
-    M4W.post('api/files/folder/' + share.folder.id + '/acl', { entries: share.entries.map(function (e) { return { type: e.type, principal: e.principal, level: e.level }; }) })
+    M4W.post('api/files/' + share.kind + '/' + share.folder.id + '/acl', { entries: share.entries.map(function (e) { return { type: e.type, principal: e.principal, level: e.level }; }) })
       .done(function () { bootstrap.Modal.getInstance($('#fs-share-modal')[0]).hide(); M4W.toast(t('fs_access_saved'), 'success'); refresh(); });
   };
 

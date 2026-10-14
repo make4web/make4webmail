@@ -153,6 +153,17 @@ final class FilesController extends Controller
         return $this->ok(Files::acl($this->user(), (int) $id));
     }
 
+    public function fileAcl(string $id): Response
+    {
+        return $this->ok(Files::fileAcl($this->user(), (int) $id));
+    }
+
+    public function saveFileAcl(string $id): Response
+    {
+        Files::setFileAcl($this->user(), (int) $id, $this->req->arr('entries'));
+        return $this->ok(Files::fileAcl($this->user(), (int) $id));
+    }
+
     public function principals(): Response
     {
         Session::close();

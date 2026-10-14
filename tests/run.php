@@ -653,6 +653,48 @@ test('files: personal space is private, even to administrators', function () use
     ok(in_array($shared, $mine, true), 'listed in "shared with me"');
     eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE, 'parent stays private');
 });
+test('files: a single file is shared without its folder', function () use ($fsAdmin, $fsBob, $fsCarol, $fsFile) {
+    $root = Files::personalRoot((int) $fsBob['id']);
+    $dir = Files::createFolder($fsBob, (int) $root['id'], 'Dossier privé');
+    $one = Files::addFromPath($fsBob, $dir, $fsFile('rapport'), 'rapport.pdf');
+    $other = Files::addFromPath($fsBob, $dir, $fsFile('secret'), 'autre.pdf');
+    $thrown = false;
+    try { Files::requireFile($fsCarol, $one['id'], Files::READ); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 404; }
+    ok($thrown, 'nothing shared yet');
+    // Only the manager of the folder may share its files.
+    $thrown = false;
+    try { Files::setFileAcl($fsCarol, $one['id'], [['type' => 'all', 'principal' => '*']]); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'a stranger cannot share it');
+    Files::setFileAcl($fsBob, $one['id'], [['type' => 'department', 'principal' => 'Finance'], ['type' => 'user', 'principal' => 'x'], ['type' => 'bogus', 'principal' => '1']]);
+    Files::resetCache();
+    eq(count(Files::fileAcl($fsBob, $one['id'])['entries']), 1, 'invalid entries dropped');
+    eq(Files::filePermission($fsCarol, Files::file($one['id'])), Files::READ, 'department sees the file');
+    eq(Files::contents(Files::requireFile($fsCarol, $one['id'], Files::READ)['blob_id']), 'rapport', 'can download');
+    eq(Files::permission($fsCarol, $dir), Files::NONE, 'the folder stays private');
+    $thrown = false;
+    try { Files::requireFile($fsCarol, $other['id'], Files::READ); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown, 'its neighbours stay private');
+    $thrown = false;
+    try { Files::rename($fsCarol, 'file', $one['id'], 'pirate.pdf'); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 403; }
+    ok($thrown, 'read only: no rename');
+    $thrown = false;
+    try { Files::delete($fsCarol, [['type' => 'file', 'id' => $one['id']]]); } catch (\M4W\Core\HttpException) { $thrown = true; }
+    ok($thrown || Files::file($one['id']) !== null, 'read only: no delete');
+    ok(in_array($one['id'], array_column(Files::sharedFilesWithMe($fsCarol), 'id'), true), 'listed in "shared with me"');
+    ok(!in_array($one['id'], array_column(Files::sharedFilesWithMe($fsBob), 'id'), true), 'not for its owner');
+    // Copy into one's own files, attach to a message.
+    $mine = Files::personalRoot((int) $fsCarol['id']);
+    eq(Files::copy($fsCarol, [['type' => 'file', 'id' => $one['id']]], (int) $mine['id']), 1, 'copied');
+    ok(count(Files::toUploads($fsCarol, [$one['id']])) === 1, 'attachable');
+    // Trashing the folder hides the file too; unsharing removes access.
+    Files::delete($fsBob, [['type' => 'folder', 'id' => $dir]]);
+    Files::resetCache();
+    eq(Files::filePermission($fsCarol, Files::file($one['id'], true)), Files::NONE, 'gone with its folder');
+    Files::restore($fsBob, [['type' => 'folder', 'id' => $dir]]);
+    Files::setFileAcl($fsBob, $one['id'], []);
+    Files::resetCache();
+    eq(Files::filePermission($fsCarol, Files::file($one['id'])), Files::NONE, 'unshared');
+});
 test('files: versions, conflicts and restore', function () use ($fsAdmin, $fsFile, &$fsState) {
     $a = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v1'), 'budget.xlsx');
     $b = Files::addFromPath($fsAdmin, $fsState['sub'], $fsFile('v2'), 'budget.xlsx', true);

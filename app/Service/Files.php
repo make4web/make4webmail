@@ -21,6 +21,10 @@ use M4W\Storage\Storage;
  *   MANAGE + change access, rename/delete the space itself
  *
  * The owner of a personal tree and administrators (on team spaces) always manage.
+ *
+ * A single file can also be shared on its own (fs_file_acl): the people it is shared
+ * with may read it — view, download, copy, attach to a message — without any access
+ * to its folder. They find it under "Shared with me".
  */
 final class Files
 {
@@ -249,6 +253,7 @@ final class Files
             'personal' => (int) $personal['id'],
             'spaces' => $spaces,
             'shared' => self::sharedWithMe($user),
+            'shared_files' => self::sharedFilesWithMe($user),
             'can_create_space' => self::canCreateSpaces($user),
             'usage' => self::usage(),
             'trash' => count(self::trash($user)),
@@ -319,6 +324,7 @@ final class Files
     {
         return [
             'id' => (int) $f['id'], 'folder_id' => (int) $f['folder_id'], 'name' => $f['name'], 'mime' => $f['mime'],
+            'shared' => (bool) DB::value('SELECT 1 FROM fs_file_acl WHERE file_id = :f LIMIT 1', ['f' => $f['id']]),
             'size' => (int) $f['size'], 'version' => (int) $f['version'], 'updated_at' => (int) $f['updated_at'],
             'created_at' => (int) $f['created_at'],
             'updated_by' => $f['updated_by'] ? self::userName((int) $f['updated_by']) : '',
@@ -397,11 +403,118 @@ final class Files
     public static function requireFile(array $user, int $id, int $level): array
     {
         $f = self::file($id);
-        if (!$f || self::permission($user, (int) $f['folder_id']) < $level) {
-            $exists = $f && self::permission($user, (int) $f['folder_id']) >= self::READ;
-            throw new \M4W\Core\HttpException($exists ? 403 : 404, t($exists ? 'files.forbidden' : 'files.not_found'));
+        $have = $f ? self::filePermission($user, $f) : self::NONE;
+        if ($have < $level) {
+            throw new \M4W\Core\HttpException($have >= self::READ ? 403 : 404, t($have >= self::READ ? 'files.forbidden' : 'files.not_found'));
         }
         return $f;
+    }
+
+    /** Effective level on a file: its folder's, or read access when the file itself is shared. */
+    public static function filePermission(array $user, array $file): int
+    {
+        $level = self::permission($user, (int) $file['folder_id']);
+        if ($level >= self::READ || (int) $file['deleted_at'] > 0 || self::isDeleted((int) $file['folder_id'])) {
+            return $level;
+        }
+        [$where, $params] = self::principalWhere($user);
+        $params['f'] = (int) $file['id'];
+        $grant = (int) (DB::value("SELECT MAX(level) FROM fs_file_acl WHERE file_id = :f AND ($where)", $params) ?? 0);
+        return min($grant, self::READ);
+    }
+
+    /** SQL condition matching the user, their department or everyone. @return array{string, array} */
+    private static function principalWhere(array $user, string $alias = ''): array
+    {
+        $or = [];
+        $params = [];
+        foreach (self::principals($user) as $i => [$type, $value]) {
+            $or[] = "({$alias}principal_type = :pt$i AND {$alias}principal = :pv$i)";
+            $params["pt$i"] = $type;
+            $params["pv$i"] = $value;
+        }
+        return [implode(' OR ', $or), $params];
+    }
+
+    /** Files shared one by one with the user, that their folder rights do not already show. */
+    public static function sharedFilesWithMe(array $user): array
+    {
+        [$where, $params] = self::principalWhere($user, 'a.');
+        $rows = DB::all("SELECT DISTINCT f.* FROM fs_file_acl a JOIN fs_files f ON f.id = a.file_id WHERE f.deleted_at = 0 AND ($where) ORDER BY f.name", $params);
+        $out = [];
+        foreach ($rows as $f) {
+            if (self::isDeleted((int) $f['folder_id']) || self::permission($user, (int) $f['folder_id']) >= self::READ) {
+                continue;
+            }
+            $o = self::fileOut($f);
+            $root = self::chain((int) $f['folder_id'])[0] ?? null;
+            $o['owner'] = $root && $root['kind'] === 'personal' ? self::userName((int) $root['owner_id']) : ($root['name'] ?? '');
+            $o['level'] = 'read';
+            $o['shared_file'] = true;
+            $out[] = $o;
+        }
+        return $out;
+    }
+
+    /** People a file is shared with (managers of its folder only). */
+    public static function fileAcl(array $user, int $fileId): array
+    {
+        $f = self::requireFile($user, $fileId, self::READ);
+        self::require($user, (int) $f['folder_id'], self::MANAGE);
+        $entries = [];
+        foreach (DB::all('SELECT * FROM fs_file_acl WHERE file_id = :f ORDER BY principal_type, principal', ['f' => $fileId]) as $a) {
+            $entries[] = self::aclOut($a);
+        }
+        // Who already sees it through its folder, shown read-only.
+        $inherited = [];
+        foreach (self::chain((int) $f['folder_id']) as $anc) {
+            foreach (DB::all('SELECT * FROM fs_acl WHERE folder_id = :f', ['f' => $anc['id']]) as $a) {
+                $o = self::aclOut($a);
+                $o['from'] = $anc['kind'] === 'personal' ? t('files.my_files') : $anc['name'];
+                $inherited[] = $o;
+            }
+        }
+        $root = self::chain((int) $f['folder_id'])[0];
+        return [
+            'file' => self::fileOut($f), 'entries' => $entries, 'inherited' => $inherited,
+            'owner' => $root['kind'] === 'personal' ? self::userName((int) $root['owner_id']) : '',
+        ];
+    }
+
+    /** Replace the people a file is shared with (read access). */
+    public static function setFileAcl(array $user, int $fileId, array $entries): void
+    {
+        $f = self::requireFile($user, $fileId, self::READ);
+        self::require($user, (int) $f['folder_id'], self::MANAGE);
+        $clean = [];
+        foreach (array_slice($entries, 0, 500) as $e) {
+            if (!is_array($e)) {
+                continue;
+            }
+            $type = (string) ($e['type'] ?? '');
+            $principal = trim((string) ($e['principal'] ?? ''));
+            if ($type === 'user' && DB::value('SELECT 1 FROM users WHERE id = :id', ['id' => (int) $principal])) {
+                $principal = (string) (int) $principal;
+            } elseif ($type === 'department' && $principal !== '') {
+                $principal = mb_substr(mb_strtolower($principal), 0, 190);
+            } elseif ($type === 'all') {
+                $principal = '*';
+            } else {
+                continue;
+            }
+            $clean[$type . ':' . $principal] = ['type' => $type, 'principal' => $principal];
+        }
+        DB::transaction(function () use ($fileId, $clean, $user) {
+            DB::delete('fs_file_acl', 'file_id = :f', ['f' => $fileId]);
+            foreach ($clean as $c) {
+                DB::insert('fs_file_acl', [
+                    'file_id' => $fileId, 'principal_type' => $c['type'], 'principal' => $c['principal'], 'level' => self::READ,
+                    'created_by' => (int) $user['id'], 'created_at' => time(),
+                ]);
+            }
+        });
+        self::resetCache();
+        Audit::log('files.file_shared', $f['name'], ['entries' => count($clean)], (int) $user['id']);
     }
 
     public static function maxFileBytes(): int
@@ -883,6 +996,7 @@ final class Files
             self::deleteBlob($v['blob_id']);
         }
         DB::delete('fs_versions', 'file_id = :f', ['f' => $id]);
+        DB::delete('fs_file_acl', 'file_id = :f', ['f' => $id]);
         self::deleteBlob($f['blob_id']);
         DB::delete('fs_files', 'id = :id', ['id' => $id]);
     }
@@ -927,6 +1041,7 @@ final class Files
             self::destroyFolder((int) $f['id']);
         }
         DB::delete('fs_acl', "principal_type = 'user' AND principal = :u", ['u' => (string) $userId]);
+        DB::delete('fs_file_acl', "principal_type = 'user' AND principal = :u", ['u' => (string) $userId]);
         self::resetCache();
     }
 
