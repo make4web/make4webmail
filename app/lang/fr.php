@@ -319,7 +319,7 @@ return [
     'js.empty_search_hint' => 'Essayez d\'autres mots-clés ou les opérateurs from:, subject:, has:attachment.', 'js.empty_inbox_hint' => 'Votre boîte de réception est vide. Profitez-en ☕',
     'js.pager' => ':from–:to sur :total', 'js.prev' => 'Page précédente', 'js.next' => 'Page suivante', 'js.selected_count' => ':n sélectionné(s)',
     'js.from' => 'De', 'js.to' => 'À', 'js.date' => 'Date', 'js.size' => 'Taille', 'js.download' => 'Télécharger', 'js.n_attachments' => ':n pièce(s) jointe(s) · :size',
-    'js.images_blocked' => ':n image(s) distante(s) bloquée(s) pour protéger votre vie privée.', 'js.show_images' => 'Afficher les images',
+    'js.images_blocked' => ':n image(s) pas encore récupérée(s). Elles seront téléchargées et nettoyées par le serveur : l\'expéditeur ne saura pas que vous avez ouvert ce message.', 'js.show_images' => 'Afficher les images',
     'js.always_show_images' => 'Toujours afficher', 'js.images_always' => 'Les images seront désormais toujours affichées.', 'js.newsletter_hint' => 'Ce message provient d\'une liste de diffusion.',
     'js.unsubscribe' => 'Se désabonner', 'js.unsubscribe_confirm' => 'Demander à l\'expéditeur de ne plus vous écrire ?', 'js.unsubscribed' => 'Demande de désabonnement envoyée.',
     'js.reply' => 'Répondre', 'js.reply_all' => 'Répondre à tous', 'js.forward' => 'Transférer', 'js.forward_attachment' => 'Transférer en pièce jointe',
@@ -1067,4 +1067,8 @@ return [
     'js.fs_text_saved' => 'Enregistré',
     'js.fs_text_unsaved' => 'Modifications non enregistrées',
     'js.fs_text_discard' => 'Fermer sans enregistrer vos modifications ?',
+    'js.trackers_removed' => ':n traceur(s) supprimé(s) : l\'expéditeur ne saura pas que vous avez lu ce message.',
+    'admin.image_proxy' => 'Images des messages récupérées par le serveur',
+    'admin.image_proxy_desc' => 'Les images distantes sont téléchargées une seule fois par le serveur après la réception, puis nettoyées (redimensionnées, métadonnées et contenus cachés supprimés) ; les pixels espions sont retirés. Le navigateur ne contacte jamais l\'expéditeur.',
+    'admin.image_max_px' => 'Largeur maximale des images',
 ];

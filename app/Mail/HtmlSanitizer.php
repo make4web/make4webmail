@@ -37,17 +37,21 @@ final class HtmlSanitizer
     ];
 
     private int $blocked = 0;
+    private int $trackers = 0;
     /** @var string[] */
     private array $styles = [];
 
     /**
      * @param bool $blockRemote  hide remote images (anti-tracking)
      * @param ?\Closure $cidResolver fn(string $cid): ?string -> URL
+     * @param ?\Closure $remoteResolver fn(string $url): ?string -> local copy of a remote picture,
+     *        '' to drop it (tracking pixel), null when not available (kept blocked)
      */
     public function __construct(
         private bool $blockRemote = true,
         private ?\Closure $cidResolver = null,
         private bool $keepStyleTags = true,
+        private ?\Closure $remoteResolver = null,
     ) {
     }
 
@@ -56,10 +60,16 @@ final class HtmlSanitizer
         return $this->blocked;
     }
 
+    public function trackerCount(): int
+    {
+        return $this->trackers;
+    }
+
     /** @return string sanitized fragment (style blocks first, then body content) */
     public function sanitize(string $html): string
     {
         $this->blocked = 0;
+        $this->trackers = 0;
         $this->styles = [];
         if (trim($html) === '') {
             return '';
@@ -194,6 +204,22 @@ final class HtmlSanitizer
         }
     }
 
+    private static function looksLikePixel(DOMElement $el): bool
+    {
+        $dim = static fn(string $v) => $v !== '' && preg_match('/^\s*(\d+(?:\.\d+)?)\s*(px)?\s*$/i', $v, $m) ? (float) $m[1] : null;
+        $w = $dim($el->getAttribute('width'));
+        $h = $dim($el->getAttribute('height'));
+        $style = strtolower($el->getAttribute('style'));
+        if (preg_match('/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)px/', $style, $m)) {
+            $w = (float) $m[1];
+        }
+        if (preg_match('/(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)px/', $style, $m)) {
+            $h = (float) $m[1];
+        }
+        $hidden = (bool) preg_match('/display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?\s*(?:;|$)/', $style);
+        return $hidden || ($w !== null && $w <= 2) || ($h !== null && $h <= 2);
+    }
+
     private function handleImageSrc(DOMElement $el, string $value): void
     {
         $value = trim($value);
@@ -213,6 +239,26 @@ final class HtmlSanitizer
         if (preg_match('#^https?://#i', $value) || str_starts_with($value, '//')) {
             if (str_starts_with($value, '//')) {
                 $value = 'https:' . $value;
+            }
+            if ($this->remoteResolver && self::looksLikePixel($el)) {
+                // Any picture forced to 1×1 (attributes or style) is a tracking pixel in disguise.
+                $this->trackers++;
+                $el->parentNode?->removeChild($el);
+                return;
+            }
+            if ($this->remoteResolver) {
+                // Served by the webmail itself: the sender's server is never contacted from here.
+                $local = ($this->remoteResolver)(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ($local === '') {
+                    $this->trackers++;
+                    $el->parentNode?->removeChild($el);
+                    return;
+                }
+                if ($local !== null) {
+                    $el->setAttribute('src', $local);
+                    $el->removeAttribute('srcset');
+                    return;
+                }
             }
             if ($this->blockRemote) {
                 $this->blocked++;
@@ -267,6 +313,16 @@ final class HtmlSanitizer
             return $value;
         }
         if (preg_match('#^https?://#i', $value)) {
+            if ($this->remoteResolver) {
+                $local = ($this->remoteResolver)(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ($local === '') {
+                    $this->trackers++;
+                    return null;
+                }
+                if ($local !== null) {
+                    return $local;
+                }
+            }
             if ($this->blockRemote) {
                 $this->blocked++;
                 return null;

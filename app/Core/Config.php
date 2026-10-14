@@ -27,6 +27,7 @@ final class Config
             'app_key'      => '',
             'base_url'     => '',
             'trusted_proxies' => [],
+            'outbound_proxy' => '',
         ];
         $file = self::path();
         if (is_file($file)) {

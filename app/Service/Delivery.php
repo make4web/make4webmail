@@ -109,9 +109,21 @@ final class Delivery
                     error_log('[m4w] push: ' . $e->getMessage());
                 }
             }
+            $copyIds = [];
             foreach (array_unique($actions['copies']) as $copy) {
                 if ($copy !== $folderId) {
-                    Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+                    $copyIds[] = Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+                }
+            }
+            // Remote pictures are fetched by the server soon after delivery, never at reading time.
+            // Not for spam: fetching them would confirm to a spammer that the address is alive.
+            if ($folderId !== (int) Folders::byRole($uid, 'spam')['id']) {
+                try {
+                    foreach (array_merge([$newId], $copyIds) as $mid) {
+                        MailAssets::register((int) $mid, $uid, $parsed->html());
+                    }
+                } catch (\Throwable $e) {
+                    error_log('[m4w] mail assets: ' . $e->getMessage());
                 }
             }
             Contacts::touchSender($uid, $parsed->from());

@@ -751,6 +751,8 @@ final class AdminController extends Controller
             'security.allow_external_forward' => $r->bool('allow_external_forward') ? 1 : 0,
             'security.forward_whitelist' => mb_strtolower($r->str('forward_whitelist')),
             'security.block_remote_images' => $r->bool('block_remote_images') ? 1 : 0,
+            'security.image_proxy' => $r->bool('image_proxy') ? 1 : 0,
+            'security.image_max_px' => max(200, min(4000, $r->int('image_max_px', 1600))),
             'security.max_attachment_mb' => max(1, min(100, $r->int('max_attachment_mb', 25))),
             'security.allowed_ips_admin' => $r->str('allowed_ips_admin'),
             'delegation.admins' => $r->bool('deleg_admins') ? 1 : 0,

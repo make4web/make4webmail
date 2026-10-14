@@ -87,6 +87,8 @@ final class Settings
         'files.max_file_mb' => 200,
         'files.expiry_default_days' => 365,
         'office.url' => '',
+        'security.image_proxy' => 1,
+        'security.image_max_px' => 1600,
         'office.wopi_base' => '',
         'files.expiry_max_days' => 1095,
         'files.transfer_services' => "SwissTransfer|https://www.swisstransfer.com\nSmash|https://fromsmash.com\nWeTransfer|https://wetransfer.com\nGrosfichiers|https://www.grosfichiers.com",

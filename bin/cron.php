@@ -25,6 +25,7 @@ $out = static function (string $m) {
 };
 M4W\Database\Migrator::migrate();
 $out('provider sync: ' . M4W\Service\RemoteMailbox::syncAll());
+$out('mail pictures: ' . M4W\Service\MailAssets::processPending(200));
 $out('scheduled: ' . M4W\Service\Composer::processScheduled(100));
 $out('queue: ' . M4W\Service\Transport::processQueue(200));
 if ((int) Settings::get('features.fetch_accounts', 1)) {
@@ -36,6 +37,7 @@ if ($hourly) {
     $out('purged: ' . M4W\Service\Mailbox::autoPurge(30));
     $out('retention expired: ' . M4W\Service\Retention::expire());
     M4W\Service\Collector::purge();
+    M4W\Service\MailAssets::gc();
     [$rem, $arc] = M4W\Service\Files::processExpiry();
     $out('files expiry: ' . $rem . ' reminder(s), ' . $arc . ' archived');
     $out('files purged: ' . M4W\Service\Files::autoPurge(max(1, (int) Settings::get('files.trash_days', 30))));

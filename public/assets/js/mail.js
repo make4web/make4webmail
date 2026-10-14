@@ -348,8 +348,11 @@
     if (verdict && verdict !== 'ok') {
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-shield-exclamation"></i><span><strong>' + esc(t('auth_' + verdict + '_title')) + '</strong> ' + esc(t('auth_' + verdict + '_text', { domain: (from.email || '').split('@').pop() })) + '</span></div>';
     }
+    if (msg.trackers > 0) {
+      banner += '<div class="m4w-msg-banner"><i class="bi bi-eye-slash text-success"></i><span>' + esc(t('trackers_removed', { n: msg.trackers })) + '</span></div>';
+    }
     if (msg.blocked_images > 0) {
-      banner = '<div class="m4w-msg-banner"><i class="bi bi-shield-lock text-primary"></i><span>' + esc(t('images_blocked', { n: msg.blocked_images })) + '</span>'
+      banner += '<div class="m4w-msg-banner"><i class="bi bi-shield-lock text-primary"></i><span>' + esc(t('images_blocked', { n: msg.blocked_images })) + '</span>'
         + '<a href="#" data-show-images="' + msg.id + '" class="fw-semibold">' + esc(t('show_images')) + '</a> · <a href="#" data-always-images class="text-muted">' + esc(t('always_show_images')) + '</a></div>';
     }
     if (msg.unsubscribe) {

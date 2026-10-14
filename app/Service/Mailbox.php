@@ -390,6 +390,7 @@ final class Mailbox
             }
         }
         DB::delete('messages', 'id = :id AND user_id = :u', ['id' => $row['id'], 'u' => $userId]);
+        MailAssets::forget([(int) $row['id']]);
         $path = storage_path($row['storage_path']);
         if ($row['storage_path'] !== '' && is_file($path)) {
             @unlink($path);

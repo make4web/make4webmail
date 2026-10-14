@@ -1460,6 +1460,84 @@ proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
 
+// ------------------------------------------------------------------ message pictures
+echo "\nMessage pictures (fetched and cleaned by the server)\n";
+use M4W\Service\MailAssets;
+$png = static function (int $w, int $h, bool $alpha = false): string {
+    $im = imagecreatetruecolor($w, $h);
+    if ($alpha) { imagesavealpha($im, true); imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127)); }
+    else { imagefill($im, 0, 0, imagecolorallocate($im, 30, 120, 200)); }
+    ob_start(); imagepng($im); imagedestroy($im);
+    return (string) ob_get_clean();
+};
+test('pictures: re-encoded by GD (size capped, metadata and payloads dropped), trackers recognised', function () use ($png) {
+    $jpeg = (function () { $im = imagecreatetruecolor(3000, 1000); imagefill($im, 0, 0, imagecolorallocate($im, 200, 50, 50)); ob_start(); imagejpeg($im); return (string) ob_get_clean(); })();
+    // A comment segment as EXIF-like metadata, and a script appended after the image data.
+    $withMeta = substr($jpeg, 0, 2) . "\xFF\xFE\x00\x16GPS 48.85,2.35 secret" . substr($jpeg, 2) . '<script>alert(1)</script>';
+    $c = MailAssets::clean($withMeta);
+    eq([$c['kind'], $c['mime'], $c['width'], $c['height']], ['image', 'image/jpeg', 1600, 533], 'resized to the width limit');
+    ok(!str_contains($c['bytes'], 'GPS') && !str_contains($c['bytes'], '<script'), 'metadata and trailing payload gone');
+    eq(MailAssets::clean($png(1, 1))['kind'], 'tracker', '1×1 pixel');
+    eq(MailAssets::clean($png(200, 100, true))['mime'], 'image/png', 'transparency kept');
+    eq(MailAssets::clean($png(200, 100))['mime'], 'image/jpeg', 'opaque PNG becomes JPEG');
+    eq(MailAssets::clean('<svg onload="alert(1)"/>'), null, 'SVG and other non-pictures refused');
+    eq(MailAssets::clean("GIF89a" . str_repeat("\0", 20)), null, 'broken picture refused');
+    $tall = (function () { $im = imagecreatetruecolor(800, 9000); ob_start(); imagepng($im); return (string) ob_get_clean(); })();
+    eq(MailAssets::clean($tall)['height'], 4000, 'very long pictures cropped');
+});
+test('pictures: fetched once after delivery, served locally, trackers removed, cleaned up with the message', function () use ($png, $bob, $sendTo) {
+    $calls = [];
+    MailAssets::$http = function (string $url) use (&$calls, $png) {
+        $calls[] = $url;
+        return match (true) {
+            str_contains($url, 'pixel') => ['status' => 200, 'type' => 'image/gif', 'body' => $png(1, 1), 'location' => ''],
+            str_contains($url, 'moved') => ['status' => 302, 'type' => '', 'body' => '', 'location' => 'https://cdn.ext.com/logo.png'],
+            str_contains($url, 'missing') => ['status' => 404, 'type' => '', 'body' => '', 'location' => ''],
+            default => ['status' => 200, 'type' => 'image/png', 'body' => $png(400, 100), 'location' => ''],
+        };
+    };
+    try {
+        $html = '<p>Promo</p><img src="https://cdn.ext.com/logo.png"><img src="https://track.ext.com/pixel.gif?u=bob"><img src="https://ext.com/moved"><img src="https://ext.com/missing.png">';
+        $raw = "From: shop@ext.com\r\nTo: bob@test.local\r\nSubject: Images\r\nMessage-ID: <img1@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" . $html . "\r\n";
+        Delivery::deliver($raw, 'shop@ext.com', ['bob@test.local']);
+        $mid = (int) DB::value("SELECT id FROM messages WHERE user_id = :u AND subject = 'Images' ORDER BY id DESC", ['u' => $bob['id']]);
+        eq(count($calls), 0, 'nothing fetched while delivering');
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_asset_refs WHERE message_id = :m AND status = 'pending'", ['m' => $mid]), 4);
+        MailAssets::processPending();
+        eq(count($calls), 5, 'each picture once (+1 redirect)');
+        $state = MailAssets::forMessage($mid);
+        eq([$state['https://cdn.ext.com/logo.png']['status'], $state['https://track.ext.com/pixel.gif?u=bob']['status'], $state['https://ext.com/moved']['status'], $state['https://ext.com/missing.png']['status']], ['ok', 'tracker', 'ok', 'failed']);
+        eq($state['https://cdn.ext.com/logo.png']['asset'], $state['https://ext.com/moved']['asset'], 'same picture stored once');
+        // Rendering: local copies only, tracker removed, missing one stays blocked.
+        $assets = $state;
+        $sz = new \M4W\Mail\HtmlSanitizer(true, null, true, static function (string $u) use ($assets, $mid) {
+            $a = $assets[$u] ?? null;
+            return !$a ? null : ($a['status'] === 'tracker' ? '' : ($a['status'] === 'ok' ? '/api/messages/' . $mid . '/img/' . $a['asset'] : null));
+        });
+        $out = $sz->sanitize($html);
+        ok(!str_contains($out, 'ext.com/logo') && !str_contains($out, 'pixel.gif') && substr_count($out, '/img/') === 2, 'no remote address left in the page');
+        eq([$sz->trackerCount(), $sz->blockedCount()], [1, 1]);
+        $disguised = $sz->sanitize('<img src="https://cdn.ext.com/logo.png" width="1" height="1"><img src="https://cdn.ext.com/logo.png" style="display:none">');
+        ok(!str_contains($disguised, '<img') && $sz->trackerCount() === 2, 'a real picture shrunk to 1×1 or hidden is a tracker too');
+        // A second message with the same picture shares it; deleting both frees it.
+        $raw2 = str_replace(['Subject: Images', '<img1@'], ['Subject: Images 2', '<img2@'], $raw);
+        Delivery::deliver($raw2, 'shop@ext.com', ['bob@test.local']);
+        MailAssets::processPending();
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_assets WHERE kind = 'image'"), 1, 'deduplicated by checksum');
+        $m1 = DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $mid]);
+        Mailbox::purge((int) $bob['id'], $m1);
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_assets WHERE kind = 'image'"), 1, 'still used by the other message');
+        $m2 = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Images 2'", ['u' => $bob['id']]);
+        Mailbox::purge((int) $bob['id'], $m2);
+        eq((int) DB::value('SELECT COUNT(*) FROM mail_assets'), 0, 'no message left: pictures deleted');
+        // Spam: nothing fetched (it would confirm the address to the spammer).
+        Delivery::deliver(str_replace('Subject: Images', "X-Spam-Flag: YES\r\nSubject: Spam images", $raw), 'shop@ext.com', ['bob@test.local']);
+        eq((int) DB::value("SELECT COUNT(*) FROM mail_asset_refs r JOIN messages m ON m.id = r.message_id WHERE m.subject = 'Spam images'"), 0);
+    } finally {
+        MailAssets::$http = null;
+    }
+});
+
 // ------------------------------------------------------------------ my other mailboxes
 echo "\nShared mailboxes (my other mailboxes)\n";
 use M4W\Service\SharedMailboxes;

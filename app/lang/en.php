@@ -257,7 +257,7 @@ return [
     'js.empty_search_hint' => 'Try other keywords or the from:, subject:, has:attachment operators.', 'js.empty_inbox_hint' => 'Your inbox is empty. Enjoy ☕',
     'js.pager' => ':from–:to of :total', 'js.prev' => 'Previous page', 'js.next' => 'Next page', 'js.selected_count' => ':n selected', 'js.from' => 'From', 'js.to' => 'To',
     'js.date' => 'Date', 'js.size' => 'Size', 'js.download' => 'Download', 'js.n_attachments' => ':n attachment(s) · :size',
-    'js.images_blocked' => ':n remote image(s) blocked to protect your privacy.', 'js.show_images' => 'Display images', 'js.always_show_images' => 'Always display',
+    'js.images_blocked' => ':n picture(s) not fetched yet. They will be downloaded and cleaned by the server: the sender will not know you opened this message.', 'js.show_images' => 'Display images', 'js.always_show_images' => 'Always display',
     'js.images_always' => 'Images will now always be displayed.', 'js.newsletter_hint' => 'This message comes from a mailing list.', 'js.unsubscribe' => 'Unsubscribe',
     'js.unsubscribe_confirm' => 'Ask the sender to stop emailing you?', 'js.unsubscribed' => 'Unsubscribe request sent.', 'js.reply' => 'Reply', 'js.reply_all' => 'Reply all',
     'js.forward' => 'Forward', 'js.forward_attachment' => 'Forward as attachment', 'js.edit_as_new' => 'Edit as new', 'js.mark_unread_from_here' => 'Mark as unread',
@@ -994,4 +994,8 @@ return [
     'js.fs_text_saved' => 'Saved',
     'js.fs_text_unsaved' => 'Unsaved changes',
     'js.fs_text_discard' => 'Close without saving your changes?',
+    'js.trackers_removed' => ':n tracker(s) removed: the sender will not know you read this message.',
+    'admin.image_proxy' => 'Message pictures fetched by the server',
+    'admin.image_proxy_desc' => 'Remote pictures are downloaded once by the server after delivery, then cleaned (resized, metadata and hidden content removed); tracking pixels are removed. The browser never contacts the sender.',
+    'admin.image_max_px' => 'Maximum picture width',
 ];

@@ -262,6 +262,7 @@ final class App
         // Shared file space
         $r->get('/files', [Controller\FilesController::class, 'index']);
         $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
+        $r->get('/api/messages/{id}/img/{asset}', [Controller\MailController::class, 'image']);
         $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
         $r->get('/api/files/file/{id}/text', [Controller\OfficeController::class, 'text']);
         $r->post('/api/files/file/{id}/text', [Controller\OfficeController::class, 'saveText']);

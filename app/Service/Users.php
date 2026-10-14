@@ -179,6 +179,7 @@ final class Users
         Files::deleteUser($id);
         Delegation::deleteUser($id);
         SharedMailboxes::deleteUser($id);
+        MailAssets::forgetUser($id);
         RemoteMailbox::delete($id);
         // A departing employee's mail stays recoverable by administrators for the retention period.
         if ((int) \M4W\Core\Settings::get('retention.on_account_delete', 1) === 1) {

@@ -546,5 +546,35 @@ static function (): void {
 ) {OPT}",
 "CREATE UNIQUE INDEX wopi_locks_file ON wopi_locks(file_id)",
 ],
+13 => [
+// Pictures of received messages, fetched once and cleaned server side (anti-tracking).
+// Stored once per content (checksum), referenced by message: no reference left, picture gone.
+"CREATE TABLE mail_assets (
+  id {PK},
+  sha256 VARCHAR(64) NOT NULL,
+  blob_id VARCHAR(64) NOT NULL DEFAULT '',
+  kind VARCHAR(10) NOT NULL DEFAULT 'image',
+  mime VARCHAR(40) NOT NULL DEFAULT '',
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  size INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mail_assets_sha ON mail_assets(sha256)",
+"CREATE TABLE mail_asset_refs (
+  id {PK},
+  message_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  ref_key VARCHAR(64) NOT NULL,
+  url {TEXT},
+  asset_id INTEGER NULL,
+  status VARCHAR(10) NOT NULL DEFAULT 'pending',
+  tries INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX mail_asset_refs_key ON mail_asset_refs(message_id, ref_key)",
+"CREATE INDEX mail_asset_refs_asset ON mail_asset_refs(asset_id)",
+"CREATE INDEX mail_asset_refs_status ON mail_asset_refs(status, created_at)",
+],
 ];
 
