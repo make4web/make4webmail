@@ -1283,4 +1283,6 @@ return [
     'admin.links_urlhaus_ok' => 'Flux URLhaus mis à jour : :n adresses.',
     'admin.links_block' => 'Domaines bloqués',
     'admin.links_block_desc' => 'Liens vers ces domaines (et leurs sous-domaines) toujours bloqués. Un par ligne.',
+    'deleg.folder_has_personal' => 'Ce dossier contient un dossier personnel du titulaire : vous ne pouvez pas le supprimer.',
+    'deleg.no_redirect' => 'En délégation, vous ne pouvez pas transférer ni rediriger le courrier du titulaire.',
 ];

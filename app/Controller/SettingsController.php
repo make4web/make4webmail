@@ -16,6 +16,7 @@ use M4W\Mail\HtmlSanitizer;
 use M4W\Service\SharedMailboxes;
 use M4W\Service\Fetcher;
 use M4W\Service\Folders;
+use M4W\Service\Mailbox;
 use M4W\Service\Forwarding;
 use M4W\Service\RuleEngine;
 use M4W\Service\Signatures;
@@ -108,6 +109,10 @@ final class SettingsController extends Controller
             $data = RuleEngine::normalize($uid, $in);
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
+        }
+        // A delegate cannot send the owner's mail elsewhere (personal mail included).
+        if (Mailbox::$privacy && str_contains((string) $data['actions'], '"redirect"')) {
+            return $this->fail(t('deleg.no_redirect'));
         }
         $id = (int) ($in['id'] ?? 0);
         $data['updated_at'] = time();
@@ -212,6 +217,9 @@ final class SettingsController extends Controller
     public function saveForwarding(): Response
     {
         $r = $this->req;
+        if (Mailbox::$privacy) {
+            return $this->back('/settings/forwarding', 'danger', t('deleg.no_redirect'));
+        }
         try {
             Forwarding::save($this->uid(), $r->bool('enabled'), preg_split('/[\s,;]+/', $r->str('addresses')) ?: [], $r->str('keep_copy', '1') === '1');
         } catch (\InvalidArgumentException $e) {
@@ -360,7 +368,7 @@ final class SettingsController extends Controller
     {
         $box = SharedMailboxes::open($this->actor(), $this->req->int('id'));
         $to = $this->req->str('to');
-        return Response::redirect(str_starts_with($to, '/') && !str_starts_with($to, '//') ? $to : '/mail');
+        return Response::redirect(AuthController::safePath($to) ?? '/mail');
     }
 
     // ---- External accounts -------------------------------------------------

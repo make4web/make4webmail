@@ -98,9 +98,13 @@ final class DocPreview
         if ($s === null || $s === '') {
             return null;
         }
+        // Office documents never carry a DTD: one is refused outright (no entity expansion
+        // "billion laughs", no external entity). No network, default libxml size limits.
+        if (stripos($s, '<!DOCTYPE') !== false || stripos($s, '<!ENTITY') !== false) {
+            return null;
+        }
         $d = new \DOMDocument();
-        // No network, no entity expansion.
-        if (!@$d->loadXML($s, LIBXML_NONET | LIBXML_COMPACT | LIBXML_PARSEHUGE)) {
+        if (!@$d->loadXML($s, LIBXML_NONET | LIBXML_COMPACT)) {
             return null;
         }
         return $d;

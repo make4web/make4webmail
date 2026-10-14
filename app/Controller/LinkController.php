@@ -20,7 +20,7 @@ final class LinkController extends Controller
         $href = (string) ($q['u'] ?? '');
         $text = (string) ($q['t'] ?? '');
         $mid = (int) ($q['m'] ?? 0);
-        if (!preg_match('#^https?://#i', $href) || !LinkGuard::verify($href, $text, $mid, (string) ($q['s'] ?? ''))) {
+        if (!preg_match('#^https?://#i', $href) || !LinkGuard::verify($href, $text, $mid, (int) $u['id'], (string) ($q['s'] ?? '')) || !\M4W\Service\Mailbox::get((int) $u['id'], $mid)) {
             // Not a link we signed: never redirect (no open redirect).
             return $this->page(['href' => '', 'host' => '', 'text' => '', 'problems' => [], 'threat' => 'INVALID'], 400);
         }

@@ -143,17 +143,21 @@ final class Folders
             throw new \InvalidArgumentException(t('folder.system_locked'));
         }
         $trash = self::byRole($userId, 'trash');
-        DB::transaction(function () use ($userId, $id, $trash) {
-            // Move messages of the folder and its sub-folders to trash.
-            $ids = [$id];
-            $queue = [$id];
-            while ($queue) {
-                $p = array_shift($queue);
-                foreach (DB::all('SELECT id FROM folders WHERE user_id = :u AND parent_id = :p', ['u' => $userId, 'p' => $p]) as $c) {
-                    $ids[] = (int) $c['id'];
-                    $queue[] = (int) $c['id'];
-                }
+        $ids = [$id];
+        $queue = [$id];
+        while ($queue) {
+            $p = array_shift($queue);
+            foreach (DB::all('SELECT id FROM folders WHERE user_id = :u AND parent_id = :p', ['u' => $userId, 'p' => $p]) as $c) {
+                $ids[] = (int) $c['id'];
+                $queue[] = (int) $c['id'];
             }
+        }
+        // A delegate cannot empty the owner's personal folders into the trash by deleting their parent.
+        if (Mailbox::$privacy && array_intersect($ids, self::personalIds($userId))) {
+            throw new \InvalidArgumentException(t('deleg.folder_has_personal'));
+        }
+        DB::transaction(function () use ($userId, $ids, $trash) {
+            // Move messages of the folder and its sub-folders to trash.
             [$in, $params] = DB::in('f', $ids);
             DB::run("UPDATE messages SET trashed_from = NULL, trashed_from_name = COALESCE((SELECT f.name FROM folders f WHERE f.id = messages.folder_id), ''), folder_id = :t WHERE user_id = :u AND folder_id IN $in", ['t' => $trash['id'], 'u' => $userId] + $params);
             DB::run("DELETE FROM folders WHERE user_id = :u AND id IN $in", ['u' => $userId] + $params);

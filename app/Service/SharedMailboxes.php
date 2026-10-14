@@ -86,8 +86,11 @@ final class SharedMailboxes
             }
             $box = $res['user'];
             if ((int) $box['totp_enabled']) {
+                if (\M4W\Core\Auth::twoFactorLocked($email)) {
+                    throw new \InvalidArgumentException(t('auth.locked', ['minutes' => max(1, (int) \M4W\Core\Settings::get('security.lockout_minutes', 15))]));
+                }
                 if (!self::checkTotp($box, $code)) {
-                    DB::insert('login_attempts', ['ip' => $req->ip(), 'email' => $email, 'success' => 0, 'created_at' => time()]);
+                    \M4W\Core\Auth::twoFactorFailed($email, $req->ip());
                     throw new \InvalidArgumentException($code === '' ? t('shared.need_code') : t('auth.2fa_invalid'));
                 }
             }

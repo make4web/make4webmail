@@ -68,6 +68,9 @@ final class ComposeController extends Controller
                     }
                 }
             }
+            // A draft can be written by a delegate or a co-member of a shared mailbox: it goes
+            // back into the editor of whoever opens it, so it is cleaned like received mail.
+            $out['html'] = (new \M4W\Mail\HtmlSanitizer(false, null, true, null, null, [url('api/upload/'), url('api/messages/')]))->sanitize((string) $out['html']);
             return $this->ok(['compose' => $out, 'signature' => Signatures::render($u, 'preview', $out['mode'] !== 'new')['html']]);
         }
 

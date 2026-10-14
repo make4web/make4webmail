@@ -305,7 +305,7 @@ final class RemoteMailbox
         $raw = str_replace(["\r\n", "\r"], "\n", $raw);
         if ($local === 'spam') {
             $spam = Folders::byRole((int) $user['id'], 'spam');
-            Mailbox::store((int) $user['id'], (int) $spam['id'], 'Delivered-To: ' . $user['email'] . "\n" . AttachmentGuard::process($raw)['raw']);
+            Mailbox::store((int) $user['id'], (int) $spam['id'], 'Delivered-To: ' . $user['email'] . "\n" . Delivery::sanitizeIncoming($raw));
             return;
         }
         // The provider's Return-Path is the envelope sender: "<>" marks bounces and

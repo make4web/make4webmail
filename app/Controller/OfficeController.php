@@ -188,17 +188,20 @@ final class OfficeController extends Controller
                 Office::setLock($fid, $want);
                 return new Response('', 200, ['X-WOPI-ItemVersion' => (string) $c['file']['version']]);
             case 'REFRESH_LOCK':
+            case 'UNLOCK':
+                // Only an editor may keep or release the lock (a viewer could break someone's session).
+                if (!$c['write']) {
+                    return new Response('', 401);
+                }
                 if ($current !== $want) {
                     return $conflict();
+                }
+                if ($op === 'UNLOCK') {
+                    Office::unlock($fid);
+                    return new Response('', 200, ['X-WOPI-ItemVersion' => (string) $c['file']['version']]);
                 }
                 Office::setLock($fid, $want);
                 return new Response('', 200);
-            case 'UNLOCK':
-                if ($current !== $want) {
-                    return $conflict();
-                }
-                Office::unlock($fid);
-                return new Response('', 200, ['X-WOPI-ItemVersion' => (string) $c['file']['version']]);
             default:
                 // PUT_RELATIVE, RENAME_FILE, DELETE…: not offered (UserCanNotWriteRelative).
                 return new Response('', 501);

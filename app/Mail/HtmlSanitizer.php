@@ -47,6 +47,7 @@ final class HtmlSanitizer
      * @param ?\Closure $remoteResolver fn(string $url): ?string -> local copy of a remote picture,
      *        '' to drop it (tracking pixel), null when not available (kept blocked)
      * @param ?\Closure $linkRewriter fn(string $href, string $text): string -> checked link (anti-phishing)
+     * @param string[] $localImages same-site path prefixes allowed as image sources (drafts: uploaded pictures)
      */
     public function __construct(
         private bool $blockRemote = true,
@@ -54,6 +55,7 @@ final class HtmlSanitizer
         private bool $keepStyleTags = true,
         private ?\Closure $remoteResolver = null,
         private ?\Closure $linkRewriter = null,
+        private array $localImages = [],
     ) {
     }
 
@@ -319,6 +321,11 @@ final class HtmlSanitizer
         }
         if (preg_match('#^data:image/(png|gif|jpe?g|webp);base64,#i', $value)) {
             return $value;
+        }
+        foreach ($this->localImages as $prefix) {
+            if ($prefix !== '' && str_starts_with($value, $prefix) && preg_match('#^/[\w/.%:\-]*(\?[\w=&%.\-]*)?$#', $value)) {
+                return $value;
+            }
         }
         if (preg_match('#^https?://#i', $value)) {
             if ($this->remoteResolver) {

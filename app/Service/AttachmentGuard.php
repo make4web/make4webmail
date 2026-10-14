@@ -19,6 +19,7 @@ final class AttachmentGuard
     public const HEADER = 'X-M4W-AV';
     private const MAX_DEPTH = 12;
 
+    private bool $scan = true;
     private int $infected = 0;
     private int $errors = 0;
     private int $scanned = 0;
@@ -30,12 +31,14 @@ final class AttachmentGuard
     {
         $raw = Delivery::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), self::HEADER);
         $raw = Delivery::stripHeader($raw, 'X-M4W-Removed');
-        if (!Antivirus::enabled()) {
-            return ['raw' => $raw, 'infected' => 0, 'errors' => 0, 'scanned' => 0, 'signatures' => []];
-        }
         $g = new self();
+        // Antivirus off: the tree is still walked, to drop part markers forged by the sender.
+        $g->scan = Antivirus::enabled();
         [$head, $body] = self::split($raw);
         $body = $g->entityBody($head, $body, 0);
+        if (!$g->scan) {
+            return ['raw' => $head . "\n\n" . $body, 'infected' => 0, 'errors' => 0, 'scanned' => 0, 'signatures' => []];
+        }
         $status = $g->infected ? 'infected=' . $g->infected : ($g->errors ? 'unscanned' : ($g->scanned ? 'clean' : 'none'));
         $out = self::HEADER . ': ' . $status . "\n" . $head . "\n\n" . $body;
         return ['raw' => $out, 'infected' => $g->infected, 'errors' => $g->errors, 'scanned' => $g->scanned, 'signatures' => $g->found];
@@ -107,7 +110,7 @@ final class AttachmentGuard
         $disp = strtolower(self::headerValue($head, 'Content-Disposition'));
         $isFile = str_starts_with($disp, 'attachment') || str_contains($disp, 'filename') || str_contains($ct, 'name=')
             || ($ct !== '' && !str_starts_with($ct, 'text/plain') && !str_starts_with($ct, 'text/html') && !str_starts_with($ct, 'multipart/'));
-        if (!$isFile) {
+        if (!$isFile || !$this->scan) {
             return $entity;
         }
         $p = MimeParser::parse($head . "\n\n" . $body);

@@ -703,20 +703,22 @@ test('antispam: people the user writes to are trusted a little more', function (
     Settings::set('spam.suspect', 5);
 });
 test('links: checked on click, real destination on hover', function () {
-    $s = new HtmlSanitizer(true, null, true, null, static fn(string $h, string $t) => M4W\Service\LinkGuard::wrap($h, $t, 42));
+    $s = new HtmlSanitizer(true, null, true, null, static fn(string $h, string $t) => M4W\Service\LinkGuard::wrap($h, $t, 42, 1));
     $out = $s->sanitize('<a href="https://evil.example.ru/x?a=1&amp;b=2">www.mabanque.fr</a> <a href="mailto:a@b.fr">mail</a>');
     ok(str_contains($out, 'title="https://evil.example.ru/x?a=1&amp;b=2"'), 'real address on hover');
     ok(preg_match('#href="[^"]*/go\?u=https%3A%2F%2Fevil\.example\.ru%2Fx%3Fa%3D1%26b%3D2&amp;t=www\.mabanque\.fr&amp;m=42&amp;s=[0-9a-f]{32}"#', $out) === 1, 'goes through /go');
     ok(str_contains($out, 'href="mailto:a@b.fr"'), 'mailto untouched');
-    $sig = M4W\Service\LinkGuard::sign('https://a.example/', 'x', 1);
-    ok(M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, $sig));
-    ok(!M4W\Service\LinkGuard::verify('https://evil.example/', 'x', 1, $sig), 'cannot reuse a signature for another address');
+    $sig = M4W\Service\LinkGuard::sign('https://a.example/', 'x', 1, 5);
+    ok(M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, 5, $sig));
+    ok(!M4W\Service\LinkGuard::verify('https://evil.example/', 'x', 1, 5, $sig), 'cannot reuse a signature for another address');
+    ok(!M4W\Service\LinkGuard::verify('https://a.example/', 'x', 1, 6, $sig), 'nor for another user');
 });
 test('links: /go redirects, warns or blocks', function () use ($bob) {
     \M4W\Core\Auth::setUser(Users::find((int) $bob['id']));
     $_SESSION = [];
-    $go = static function (string $href, string $text = '', ?string $sig = null) {
-        $q = ['u' => $href, 't' => $text, 'm' => 7, 's' => $sig ?? M4W\Service\LinkGuard::sign($href, $text, 7)];
+    $mid = (int) DB::value('SELECT id FROM messages WHERE user_id = :u ORDER BY id LIMIT 1', ['u' => $bob['id']]);
+    $go = static function (string $href, string $text = '', ?string $sig = null) use ($mid, $bob) {
+        $q = ['u' => $href, 't' => $text, 'm' => $mid, 's' => $sig ?? M4W\Service\LinkGuard::sign($href, $text, $mid, (int) $bob['id'])];
         return (new M4W\Controller\LinkController(new \M4W\Core\Request('GET', '/go', $q, [], [], [])))->go();
     };
     $r = $go('https://www.example.org/page', 'Lire la suite');
@@ -727,6 +729,10 @@ test('links: /go redirects, warns or blocks', function () use ($bob) {
     ok(str_contains($r->body, 'example.ru') && str_contains($r->body, 'href="https://secure-verif.example.ru/login"'), 'shows the real site, lets the user decide');
     $r = $go('https://evil.example/', '', 'forged');
     eq([$r->status, $r->getHeader('Location')], [400, null], 'not an open redirect');
+    // A link signed for someone else's message (minted by mailing oneself) does not work for Bob.
+    $other = (int) DB::value('SELECT id FROM messages WHERE user_id <> :u ORDER BY id LIMIT 1', ['u' => $bob['id']]);
+    $q = ['u' => 'https://evil.example/', 't' => '', 'm' => $other, 's' => M4W\Service\LinkGuard::sign('https://evil.example/', '', $other, (int) $bob['id'])];
+    eq((new M4W\Controller\LinkController(new \M4W\Core\Request('GET', '/go', $q, [], [], [])))->go()->status, 400, 'bound to the viewer\'s own messages');
     // URLhaus feed (no key needed).
     M4W\Service\LinkGuard::updateFeed("# URLhaus\n" . implode("\n", array_map(static fn($i) => "http://203.0.113.$i/bins/x.sh", range(1, 12))) . "\nhttps://malware.example.net/payload.exe\n");
     $r = $go('https://malware.example.net/payload.exe', 'Facture');
@@ -768,6 +774,41 @@ test('impersonation: colleague names and look-alike domains', function () use ($
     eq(SpamFilter::colleagueName($p), $bob['email']);
     ok(isset(SpamFilter::evaluate($p, null)['tests']['COLLEAGUE_NAME']));
     eq(SpamFilter::colleagueName(MimeParser::parse($sendTo('bob@test.local', 'x', 'client@ext.com'))), null);
+});
+test('security review: trust markers, 2FA lock, delegate privacy', function () use ($bob, $sendTo) {
+    // Our markers are dropped on every path, provider spam and antivirus off included.
+    $forged = "X-M4W-Auth: verdict=ok; spf=pass; dkim=pass@x; dmarc=pass; policy=reject\nX-M4W-Spam: score=0; level=ok; tests=\n" . $sendTo('bob@test.local', 'forge');
+    $clean = Delivery::sanitizeIncoming($forged);
+    ok(!str_contains($clean, 'X-M4W-Auth') && !str_contains($clean, 'X-M4W-Spam'));
+    $av = Settings::get('security.antivirus');
+    Settings::set('security.antivirus', 0);
+    $part = "From: a@ext.com\nSubject: x\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"B\"\n\n--B\nContent-Type: text/plain\n\nhi\n--B\nContent-Type: application/octet-stream; name=\"f.exe\"\nX-M4W-Removed: virus; name*=UTF-8''f.exe; signature*=UTF-8''Fake\n\nMZ\n--B--\n";
+    ok(!str_contains(M4W\Service\AttachmentGuard::process($part)['raw'], 'X-M4W-Removed'), 'part markers dropped, antivirus off');
+    Settings::set('security.antivirus', $av);
+    // Wrong passwords typed by a third party do not lock the owner out of the code step.
+    for ($i = 0; $i < 6; $i++) {
+        DB::insert('login_attempts', ['ip' => '198.51.100.9', 'email' => 'bob@test.local', 'success' => 0, 'created_at' => time()]);
+    }
+    ok(!\M4W\Core\Auth::twoFactorLocked('bob@test.local'));
+    for ($i = 0; $i < 5; $i++) {
+        \M4W\Core\Auth::twoFactorFailed('bob@test.local', '198.51.100.10');
+    }
+    ok(\M4W\Core\Auth::twoFactorLocked('bob@test.local'), 'wrong codes do lock');
+    DB::run("DELETE FROM login_attempts WHERE email LIKE '%bob@test.local'");
+    // Delegate: personal folders cannot be reached through their parent or through rules.
+    $uid = (int) $bob['id'];
+    $parent = Folders::create($uid, 'Projets');
+    $perso = Folders::create($uid, 'Perso', $parent);
+    Mailbox::$privacy = true;
+    $thrown = false;
+    try { Folders::delete($uid, $parent); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'parent of a personal folder not deleted');
+    $rule = ['conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'x']], 'match' => 'all', 'actions' => []];
+    $thrown = false;
+    try { RuleEngine::applyToFolder($uid, $rule, $perso); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'rules cannot probe a personal folder');
+    Mailbox::$privacy = false;
+    Folders::delete($uid, $parent);
 });
 test('SSRF guard rejects private and IPv6 loopback', function () {
     foreach (['127.0.0.1', '::1', '10.1.2.3', '169.254.169.254', '::ffff:127.0.0.1', 'localhost'] as $h) {
@@ -972,7 +1013,9 @@ test('files: office documents are previewed in the app, safely', function () use
     ok($thrown && !\M4W\Service\DocPreview::supports('ancien.doc'), 'unsupported formats are downloaded');
     // An entity bomb or external entity is never expanded.
     $evil = $mk('evil.docx', ['word/document.xml' => '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]>' . "<w:document $w><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>"]);
-    ok(!str_contains(\M4W\Service\DocPreview::render($evil, 'evil.docx'), 'root:'), 'no external entities');
+    $thrown = false;
+    try { $out = \M4W\Service\DocPreview::render($evil, 'evil.docx'); } catch (\InvalidArgumentException) { $thrown = true; $out = ''; }
+    ok($thrown && !str_contains($out, 'root:'), 'a document carrying a DTD is refused, nothing expanded');
 });
 test('files: every document expires; reminders, then archive and e-mail', function () use ($fsBob, $fsCarol, $fsAdmin, $fsFile) {
     $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];

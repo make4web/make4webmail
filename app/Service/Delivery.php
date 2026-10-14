@@ -19,10 +19,7 @@ final class Delivery
      */
     public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
-        $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
-        $raw = self::stripHeader($raw, SpamFilter::HEADER);
-        // Antivirus: infected attachments are replaced by a notice before anything else sees them.
-        $raw = AttachmentGuard::process($raw)['raw'];
+        $raw = self::sanitizeIncoming($raw);
         if ($auth !== null) {
             $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
         }
@@ -173,6 +170,18 @@ final class Delivery
     }
 
     /** Remove every occurrence of a header (with continuation lines) from a LF-normalized message. */
+    /**
+     * Every received message, whatever the path (SMTP, pipe, provider sync, provider spam):
+     * our own trust markers sent by outsiders are dropped, then the antivirus pass runs
+     * (infected attachments replaced by a notice before anything else sees them).
+     */
+    public static function sanitizeIncoming(string $raw): string
+    {
+        $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Auth');
+        $raw = self::stripHeader($raw, SpamFilter::HEADER);
+        return AttachmentGuard::process($raw)['raw'];
+    }
+
     public static function stripHeader(string $raw, string $name): string
     {
         $pos = strpos($raw, "\n\n");

@@ -1210,4 +1210,6 @@ return [
     'admin.links_urlhaus_ok' => 'URLhaus feed updated: :n addresses.',
     'admin.links_block' => 'Blocked domains',
     'admin.links_block_desc' => 'Links to these domains (and subdomains) always blocked. One per line.',
+    'deleg.folder_has_personal' => 'This folder holds a personal folder of the owner: you cannot delete it.',
+    'deleg.no_redirect' => 'As a delegate, you cannot forward or redirect the owner\'s mail.',
 ];

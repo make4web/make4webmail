@@ -71,6 +71,24 @@ final class Auth
      * Check credentials with brute-force protection.
      * @return array{ok:bool,error?:string,user?:array}
      */
+    /**
+     * Failed second factors are counted apart ("2fa:" + address): they can only come from
+     * someone who knew the password, so a third party typing wrong passwords cannot lock the
+     * owner out of the code step.
+     */
+    public static function twoFactorFailed(string $email, string $ip): void
+    {
+        Database::insert('login_attempts', ['ip' => $ip, 'email' => '2fa:' . mb_strtolower($email), 'success' => 0, 'created_at' => time()]);
+    }
+
+    public static function twoFactorLocked(string $email): bool
+    {
+        $window = max(1, (int) Settings::get('security.lockout_minutes', 15)) * 60;
+        $max = max(3, (int) Settings::get('security.max_attempts', 5));
+        return (int) Database::value('SELECT COUNT(*) FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :t',
+            ['e' => '2fa:' . mb_strtolower($email), 't' => time() - $window]) >= $max;
+    }
+
     public static function attempt(string $email, string $password, Request $req): array
     {
         $email = mb_strtolower(trim($email));

@@ -29,7 +29,10 @@ final class MailController extends Controller
     public function shell(): Response
     {
         // Link from a notification of one of "my other mailboxes": open that mailbox first.
-        if (isset($this->req->query['mbx'])) {
+        // Never on a link from another site (a crafted link must not switch the mailbox someone sends from).
+        $site = strtolower((string) $this->req->header('Sec-Fetch-Site'));
+        $dest = strtolower((string) $this->req->header('Sec-Fetch-Dest'));
+        if (isset($this->req->query['mbx']) && !in_array($site, ['cross-site', 'same-site'], true) && in_array($dest, ['', 'document'], true)) {
             $mbx = (int) $this->req->query['mbx'];
             $actor = $this->actor();
             if ($mbx === (int) $actor['id'] || \M4W\Service\SharedMailboxes::linked((int) $actor['id'], $mbx)) {
@@ -113,7 +116,8 @@ final class MailController extends Controller
 
     public function readAll(string $id): Response
     {
-        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u AND folder_id = :f', ['u' => $this->uid(), 'f' => (int) $id]);
+        // A delegate does not touch what the owner keeps personal.
+        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u AND folder_id = :f' . Mailbox::privacySql($this->uid()), ['u' => $this->uid(), 'f' => (int) $id]);
         return $this->ok(['folders' => Folders::listWithCounts($this->uid())]);
     }
 
@@ -284,7 +288,7 @@ final class MailController extends Controller
             \M4W\Service\MailAssets::processPending(40, $mid, 12.0);
         }
         // With the proxy, the browser never loads a remote picture: only the cleaned local copies.
-        $links = \M4W\Service\LinkGuard::enabled() ? static fn(string $href, string $text) => \M4W\Service\LinkGuard::wrap($href, $text, $mid) : null;
+        $links = \M4W\Service\LinkGuard::enabled() ? static fn(string $href, string $text) => \M4W\Service\LinkGuard::wrap($href, $text, $mid, (int) $u['id']) : null;
         $sanitizer = new HtmlSanitizer($proxy || !$allowImages, $resolver, true, $proxy ? $this->remoteResolver($mid) : null, $links);
         $allowImages = $allowImages && !$proxy;
         $html = $sanitizer->sanitize($parsed->html());
@@ -368,7 +372,7 @@ final class MailController extends Controller
         $mime = $p->type;
         $inline = !empty($this->req->query['inline']);
         // Programs and scripts (whatever their name says) are not handed out, unless the administration allows it.
-        if ($p->header('X-M4W-Removed') === null && (int) Settings::get('security.block_executables', 1) === 1) {
+        if ((int) Settings::get('security.block_executables', 1) === 1) {
             $ft = \M4W\Mail\FileType::classify($name, $content);
             if ($ft['risk'] === 'block') {
                 \M4W\Core\Audit::log('mail.attachment_blocked', $name, ['type' => $ft['type']], (int) $this->actor()['id']);
@@ -589,7 +593,7 @@ final class MailController extends Controller
         $since = (int) ($this->req->query['since'] ?? 0);
         $inbox = Folders::byRole((int) $u['id'], 'inbox');
         $new = DB::all(
-            'SELECT id, from_name, from_email, subject FROM messages WHERE user_id = :u AND folder_id = :f AND id > :s AND is_read = 0 ORDER BY id DESC LIMIT 5',
+            'SELECT id, from_name, from_email, subject FROM messages WHERE user_id = :u AND folder_id = :f AND id > :s AND is_read = 0' . Mailbox::privacySql((int) $u['id']) . ' ORDER BY id DESC LIMIT 5',
             ['u' => $u['id'], 'f' => $inbox['id'], 's' => $since]
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);

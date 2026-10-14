@@ -37,20 +37,21 @@ final class LinkGuard
 
     // ---- Signed redirect -------------------------------------------------------------
 
-    public static function wrap(string $href, string $text, int $messageId): string
+    /** Signed for the mailbox showing the message: a link minted by one user is worthless to another. */
+    public static function wrap(string $href, string $text, int $messageId, int $userId): string
     {
         $text = mb_substr(trim(preg_replace('/\s+/u', ' ', $text) ?? ''), 0, 200);
-        return url('go', ['u' => $href, 't' => $text, 'm' => $messageId, 's' => self::sign($href, $text, $messageId)]);
+        return url('go', ['u' => $href, 't' => $text, 'm' => $messageId, 's' => self::sign($href, $text, $messageId, $userId)]);
     }
 
-    public static function sign(string $href, string $text, int $messageId): string
+    public static function sign(string $href, string $text, int $messageId, int $userId): string
     {
-        return substr(Crypto::hmac($messageId . "\n" . $href . "\n" . $text, 'links'), 0, 32);
+        return substr(Crypto::hmac($userId . "\n" . $messageId . "\n" . $href . "\n" . $text, 'links'), 0, 32);
     }
 
-    public static function verify(string $href, string $text, int $messageId, string $sig): bool
+    public static function verify(string $href, string $text, int $messageId, int $userId, string $sig): bool
     {
-        return $sig !== '' && hash_equals(self::sign($href, $text, $messageId), $sig);
+        return $sig !== '' && hash_equals(self::sign($href, $text, $messageId, $userId), $sig);
     }
 
     // ---- Assessment ------------------------------------------------------------------
