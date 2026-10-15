@@ -1848,4 +1848,8 @@ Check in Administration › Security.',
     'health.dmarc_orgs' => 'Reports received from: :list',
     'health.dash' => 'Monitoring: :fail problem(s), :warn item(s) to watch.',
     'health.dash_open' => 'Open monitoring',
+    'settings.zoom' => 'Display size',
+    'settings.zoom_desc' => 'Like the browser zoom: smaller to see more, larger to read more comfortably.',
+    'mail.splitter' => 'List width',
+    'mail.splitter_hint' => 'Drag to adjust, double-click to reset',
 ];

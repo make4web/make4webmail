@@ -311,6 +311,8 @@ final class MailController extends Controller
             . 'blockquote{margin:8px 0 8px 4px;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569}'
             . '.m4w-blocked{background:#f1f5f9;outline:1px dashed #cbd5e1;min-width:16px;min-height:16px}'
             . ($dark ? 'html{filter:invert(1) hue-rotate(180deg);background:#fff}img,video,[style*="background-image"]{filter:invert(1) hue-rotate(180deg)}' : '')
+            // The display size chosen by the person applies to the message too.
+            . (($z = (int) ($u['prefs']['zoom'] ?? 100)) !== 100 && in_array($z, [80, 90, 110, 120], true) ? 'body{zoom:' . ($z / 100) . '}' : '')
             . '</style></head><body>' . $html . '</body></html>';
         $imgSrc = $allowImages ? "'self' data: https: http:" : "'self' data:";
         return new Response($doc, 200, [

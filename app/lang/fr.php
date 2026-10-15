@@ -1921,4 +1921,8 @@ Vérifiez dans Administration › Sécurité.',
     'health.dmarc_orgs' => 'Rapports reçus de : :list',
     'health.dash' => 'Supervision : :fail problème(s), :warn point(s) à surveiller.',
     'health.dash_open' => 'Ouvrir la supervision',
+    'settings.zoom' => 'Taille d\'affichage',
+    'settings.zoom_desc' => 'Comme le zoom du navigateur : plus petit pour en voir davantage, plus grand pour lire plus confortablement.',
+    'mail.splitter' => 'Largeur de la liste',
+    'mail.splitter_hint' => 'Glisser pour ajuster, double-clic pour revenir à la taille par défaut',
 ];

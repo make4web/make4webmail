@@ -63,6 +63,7 @@ final class SettingsController extends Controller
         Users::savePrefs((int) $u['id'], [
             'theme' => in_array($r->str('theme'), ['light', 'dark', 'auto'], true) ? $r->str('theme') : 'auto',
             'density' => $r->str('density') === 'compact' ? 'compact' : 'comfortable',
+            'zoom' => in_array($r->int('zoom', 100), [80, 90, 100, 110, 120], true) ? $r->int('zoom', 100) : 100,
             'reading_pane' => in_array($r->str('reading_pane'), ['right', 'bottom', 'off'], true) ? $r->str('reading_pane') : 'right',
             'page_size' => max(20, min(200, $r->int('page_size', 50))),
             'conversations' => $r->bool('conversations') ? 1 : 0,

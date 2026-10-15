@@ -939,7 +939,54 @@
     $(document).on('change', 'input[name=qs_density]', function () { $('body').attr('data-density', this.value); S.prefs.density = this.value; M4W.savePrefs({ density: this.value }); });
     $(document).on('change', 'input[name=qs_pane]', function () {
       $main.removeClass('pane-right pane-bottom pane-off').addClass('pane-' + this.value); S.prefs.reading_pane = this.value; M4W.savePrefs({ reading_pane: this.value });
+      applySplit();
     });
+
+    // Draggable border between the list and the reading pane, remembered on this device.
+    var $split = $('#m4w-splitter'), $mainEl = $('#m4w-main'), $listEl = $('#m4w-list');
+    function splitBottom() { return $mainEl.hasClass('pane-bottom'); }
+    function splitKey() { return 'm4w.split.' + (splitBottom() ? 'bottom' : 'right'); }
+    function splitLimits() {
+      var total = splitBottom() ? $mainEl.height() : $mainEl.width();
+      return { total: total, min: splitBottom() ? 160 : 280, max: total - (splitBottom() ? 180 : 380) };
+    }
+    function applySplit(px) {
+      if (px === undefined) { try { px = +localStorage.getItem(splitKey()) || 0; } catch (e) { px = 0; } }
+      var L = splitLimits();
+      if (px && !$mainEl.hasClass('pane-off') && L.max > L.min) {
+        px = Math.round(Math.max(L.min, Math.min(L.max, px)));
+        $mainEl.addClass('resized'); $listEl.css('flex', '0 0 ' + px + 'px');
+      } else {
+        $mainEl.removeClass('resized'); $listEl.css('flex', '');
+      }
+      var cur = splitBottom() ? $listEl.outerHeight() : $listEl.outerWidth();
+      $split.attr({ 'aria-orientation': splitBottom() ? 'horizontal' : 'vertical', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': L.total ? Math.round(cur / L.total * 100) : 50 });
+      return px;
+    }
+    function saveSplit(px) { try { if (px) localStorage.setItem(splitKey(), String(px)); else localStorage.removeItem(splitKey()); } catch (e) { /* storage unavailable */ } }
+    $split.on('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      var o = $listEl[0].getBoundingClientRect(), bottom = splitBottom(), px = 0;
+      $split.addClass('dragging'); $('body').addClass('m4w-resizing').toggleClass('m4w-resizing-v', bottom);
+      $(document).on('pointermove.split', function (m) { px = applySplit(bottom ? m.clientY - o.top : m.clientX - o.left); });
+      $(document).one('pointerup pointercancel', function () {
+        $(document).off('pointermove.split'); $split.removeClass('dragging'); $('body').removeClass('m4w-resizing m4w-resizing-v');
+        if (px) saveSplit(px);
+      });
+    });
+    $split.on('dblclick', function () { saveSplit(0); applySplit(0); });
+    $split.on('keydown', function (e) {
+      var step = e.shiftKey ? 80 : 24, cur = splitBottom() ? $listEl.outerHeight() : $listEl.outerWidth(), d = 0;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') d = -step;
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') d = step;
+      else if (e.key === 'Home') { saveSplit(0); applySplit(0); e.preventDefault(); return; }
+      else return;
+      e.preventDefault();
+      saveSplit(applySplit(cur + d));
+    });
+    $(window).on('resize', M4W.debounce(function () { applySplit(); }, 150));
+    applySplit();
     $(document).on('change', '#qs_threads', function () { S.prefs.conversations = this.checked ? 1 : 0; M4W.savePrefs({ conversations: S.prefs.conversations }); S.offset = 0; loadList(); });
   }
 

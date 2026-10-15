@@ -25,6 +25,7 @@ final class Users
         'reply_position' => 'top',
         'avatar'         => '',
         'accent'         => '',
+        'zoom'           => 100,         // display size, %
     ];
 
     /** Allowed values for enumerated preferences (null = free value). */
@@ -35,6 +36,7 @@ final class Users
             'density' => ['comfortable', 'compact'],
             'reading_pane' => ['right', 'bottom', 'off'],
             'reply_position' => ['top', 'bottom'],
+            'zoom' => [80, 90, 100, 110, 120],
             'compose_font' => array_keys(\M4W\Controller\SettingsController::fonts()),
             'compose_size' => ['12px', '13px', '14px', '16px', '18px'],
             'conversations', 'show_images', 'shortcuts', 'undo_send', 'notifications' => [0, 1],

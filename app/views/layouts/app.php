@@ -4,7 +4,7 @@ $path = $req->path;
 $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : (str_starts_with($path, '/help') ? 'help' : (str_starts_with($path, '/calendar') ? 'calendar' : 'settings'))));
 ?>
 <!DOCTYPE html>
-<html lang="<?= e(M4W\Core\I18n::language()) ?>">
+<html lang="<?= e(M4W\Core\I18n::language()) ?>" data-zoom="<?= (int) ($currentUser['prefs']['zoom'] ?? 100) ?>">
 <head>
 <?php include __DIR__ . '/../partials/head.php'; ?>
 </head>

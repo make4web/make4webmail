@@ -2882,6 +2882,13 @@ test('dmarc: aggregate reports about our domains are read (gzip / zip), others i
     eq((int) $sum['domains'][0]['messages'], 86);
 });
 
+test('html: a <meta charset> left in the content does not garble accents (Outlook)', function () {
+    $s = new HtmlSanitizer(true);
+    eq($s->sanitize('<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"></head><body><p>je l’ai créée à la RATP 😀 &amp;</p></body></html>'),
+        '<p>je l’ai créée à la RATP 😀 &amp;</p>');
+    eq($s->sanitize('<meta charset="iso-8859-1"><p>Envoyé : à</p>'), '<p>Envoyé : à</p>');
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);
