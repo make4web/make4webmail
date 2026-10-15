@@ -2001,4 +2001,6 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.att_send' => 'Send in a new message',
     'js.att_no_preview' => 'No preview for this type of file.',
     'js.zoom_hint' => 'Wheel to zoom, drag to move, double-click to reset',
+    'js.att_risk_block' => 'an attachment is blocked',
+    'js.att_risk_warn' => 'an attachment needs care',
 ];

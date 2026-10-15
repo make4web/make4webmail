@@ -192,7 +192,13 @@
     }
     var icons = '';
     if (m.priority < 3) icons += '<i class="bi bi-exclamation-circle-fill" title="' + esc(t('high_priority')) + '"></i>';
-    if (m.attachments) icons += '<span class="m4w-row-att" title="' + esc(m.att_count > 1 ? t('n_files_attached', { n: m.att_count }) : t('has_attachments')) + '"><i class="bi bi-paperclip" aria-hidden="true"></i>' + (m.att_count > 1 ? m.att_count : '') + '<span class="visually-hidden">' + esc(m.att_count > 1 ? t('n_files_attached', { n: m.att_count }) : t('has_attachments')) + '</span></span>';
+    if (m.attachments) {
+      // Red mark: a file is blocked (program, virus); yellow: one needs care before opening.
+      var attLabel = (m.att_count > 1 ? t('n_files_attached', { n: m.att_count }) : t('has_attachments')) + (m.att_risk ? ' — ' + t('att_risk_' + m.att_risk) : '');
+      icons += '<span class="m4w-row-att' + (m.att_risk ? ' risk-' + m.att_risk : '') + '" title="' + esc(attLabel) + '"><i class="bi bi-paperclip" aria-hidden="true"></i>'
+        + (m.att_risk ? '<i class="bi bi-exclamation-circle-fill m4w-row-att-risk" aria-hidden="true"></i>' : '')
+        + (m.att_count > 1 ? m.att_count : '') + '<span class="visually-hidden">' + esc(attLabel) + '</span></span>';
+    }
     if (m.answered) icons += '<i class="bi bi-reply" title="' + esc(t('answered')) + '"></i>';
     if (m.forwarded) icons += '<i class="bi bi-forward" title="' + esc(t('forwarded')) + '"></i>';
     var folderChip = (S.q && S.byId[m.folder_id] && S.byId[m.folder_id].role !== 'inbox') ? '<span class="m4w-chip-folder">' + esc(S.byId[m.folder_id].name) + '</span>' : '';

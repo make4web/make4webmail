@@ -2074,4 +2074,6 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.att_send' => 'Envoyer dans un nouveau message',
     'js.att_no_preview' => 'Pas d\'aperçu pour ce type de fichier.',
     'js.zoom_hint' => 'Molette pour zoomer, glisser pour déplacer, double-clic pour revenir',
+    'js.att_risk_block' => 'une pièce jointe est bloquée',
+    'js.att_risk_warn' => 'une pièce jointe demande de la vigilance',
 ];

@@ -1297,3 +1297,7 @@ body.m4w-editor-open { overflow: hidden; }
 .rounded-circle { border-radius: var(--m4w-radius-round) !important; }
 .form-check-input[type=checkbox] { border-radius: var(--m4w-radius-xs); }
 .btn-close { border-radius: var(--m4w-radius-sm); }
+.m4w-row-att { position: relative; }
+.m4w-row-att-risk { position: absolute; left: .55rem; top: -.3rem; font-size: .62rem !important; background: var(--m4w-surface); border-radius: var(--m4w-radius-round); line-height: 1; }
+.m4w-row-att.risk-block .m4w-row-att-risk { color: var(--m4w-danger); }
+.m4w-row-att.risk-warn .m4w-row-att-risk { color: #d97706; }

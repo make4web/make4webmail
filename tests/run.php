@@ -833,6 +833,23 @@ test('files handed out: sandboxed, except a PDF shown by the browser viewer (sti
         ok(str_contains(M4W\Core\Response::fileCsp($m), 'sandbox'), "sandboxed: $m");
     }
 });
+test('list: attachments marked when one is blocked (red) or needs care (yellow)', function () use ($alice) {
+    $uid = (int) $alice['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $mk = static function (string $name, string $mime, string $data) use ($uid, $inbox) {
+        $b = 'b' . bin2hex(random_bytes(4));
+        return Mailbox::store($uid, $inbox, "From: x@ext.com\r\nSubject: PJ $name\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"$b\"\r\n\r\n--$b\r\nContent-Type: text/plain\r\n\r\nx\r\n--$b\r\n"
+            . "Content-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . base64_encode($data) . "\r\n--$b--\r\n");
+    };
+    $ids = ['block' => $mk('facture.exe', 'application/octet-stream', "MZ\x90\0" . str_repeat("\0", 60)), 'warn' => $mk('rapport.pdf', 'application/pdf', 'bonjour'), '' => $mk('note.txt', 'text/plain', 'bonjour')];
+    $rows = [];
+    foreach (Mailbox::list($uid, ['folder' => $inbox, 'limit' => 200])['items'] as $it) { $rows[$it['id']] = $it['att_risk']; }
+    foreach ($ids as $risk => $id) { eq($rows[$id] ?? null, $risk, "row $risk"); }
+    $th = [];
+    foreach (Mailbox::list($uid, ['folder' => $inbox, 'limit' => 200, 'threads' => 1])['items'] as $it) { $th[$it['id']] = $it['att_risk']; }
+    eq($th[$ids['block']] ?? 'absent', 'block', 'conversation view too');
+    Mailbox::delete($uid, array_values($ids), true);
+});
 test('pinned messages stay at the top of their folder, not in search results', function () use ($alice) {
     $uid = (int) $alice['id'];
     $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
