@@ -14,9 +14,22 @@ if (is_dir($tmp)) {
 }
 mkdir($tmp . '/storage', 0777, true);
 $config = $tmp . '/config.php';
+// M4W_TEST_MYSQL=host:port/database/user/password runs the suite against MySQL / MariaDB
+// (the database is emptied first: use a dedicated one).
+$db = ['driver' => 'sqlite', 'path' => $tmp . '/storage/test.sqlite'];
+if (($my = getenv('M4W_TEST_MYSQL')) && preg_match('#^([^:/]+):(\d+)/([^/]+)/([^/]+)/(.*)$#', $my, $mm)) {
+    $db = ['driver' => 'mysql', 'host' => $mm[1], 'port' => (int) $mm[2], 'name' => $mm[3], 'user' => $mm[4], 'pass' => $mm[5]];
+    $pdo = new PDO("mysql:host={$mm[1]};port={$mm[2]};dbname={$mm[3]};charset=utf8mb4", $mm[4], $mm[5], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+    foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $tbl) {
+        $pdo->exec('DROP TABLE `' . str_replace('`', '', $tbl) . '`');
+    }
+    $pdo = null;
+    echo "Database: MySQL {$mm[1]}:{$mm[2]}/{$mm[3]}\n";
+}
 file_put_contents($config, "<?php return " . var_export([
     'debug' => true, 'timezone' => 'Europe/Paris', 'storage_path' => $tmp . '/storage',
-    'db' => ['driver' => 'sqlite', 'path' => $tmp . '/storage/test.sqlite'], 'app_key' => '', 'base_url' => '',
+    'db' => $db, 'app_key' => '', 'base_url' => '',
 ], true) . ';');
 putenv('M4W_CONFIG=' . $config);
 require dirname(__DIR__) . '/app/bootstrap.php';
@@ -35,6 +48,7 @@ use M4W\Mail\MimeParser;
 use M4W\Service\Composer;
 use M4W\Service\Bimi;
 use M4W\Service\Delivery;
+use M4W\Service\Search;
 use M4W\Service\Folders;
 use M4W\Service\Forwarding;
 use M4W\Service\Installer;
@@ -2131,6 +2145,115 @@ Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
 
 // ------------------------------------------------------------------ message pictures
+echo "\nSessions in the database\n";
+test('sessions: stored hashed, read back, refreshed sparingly, expired and purged', function () {
+    $h = new M4W\Core\DbSessionHandler();
+    $id = 'sessTEST' . bin2hex(random_bytes(16));
+    eq($h->validateId($id), false, 'unknown id refused (strict mode)');
+    eq($h->read($id), '', 'new session is empty');
+    $data = "user|i:5;bin|s:4:\"\x00\xff\n'\";csrf|s:3:\"abc\";";
+    ok($h->write($id, $data));
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => $id]), 0, 'raw id never stored');
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 1, 'stored under its hash');
+    eq((new M4W\Core\DbSessionHandler())->read($id), $data, 'binary-safe, read by another server');
+    ok($h->validateId($id));
+    ok($h->write($id, $data), 'rewriting the same data');
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 1, 'one row');
+    // Unchanged: time refreshed at most once a minute.
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - 30, 'i' => hash('sha256', $id)]);
+    $h->updateTimestamp($id, $data);
+    eq((int) DB::value('SELECT updated_at FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), time() - 30, 'not rewritten within a minute');
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - 90, 'i' => hash('sha256', $id)]);
+    $h->updateTimestamp($id, $data);
+    ok((int) DB::value('SELECT updated_at FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]) >= time() - 1, 'refreshed after a minute');
+    // Expired: no longer valid nor readable, then purged.
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - M4W\Core\DbSessionHandler::lifetime() - 10, 'i' => hash('sha256', $id)]);
+    eq([$h->validateId($id), $h->read($id)], [false, ''], 'expired');
+    ok(M4W\Core\DbSessionHandler::purge(M4W\Core\DbSessionHandler::lifetime()) >= 1);
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 0, 'purged');
+    $h->write($id, 'x|i:1;');
+    $h->destroy($id);
+    eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
+});
+
+echo "\nFull-text search\n";
+test('search: full-text index (accents, addresses, attachment names, operators), kept in step, never fewer results than before', function () {
+    $u = Users::find(Users::create(['email' => 'chercheur@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Cher']));
+    $uid = (int) $u['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $put = static function (string $from, string $subject, string $body, string $att = '') use ($uid, $inbox) {
+        $raw = "From: $from\nTo: chercheur@test.local\nSubject: $subject\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@s.test>\nDate: " . date('r') . "\n"
+            . ($att !== '' ? "MIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=b\n\n--b\nContent-Type: text/plain; charset=utf-8\n\n$body\n--b\nContent-Type: application/pdf; name=\"$att\"\nContent-Disposition: attachment; filename=\"$att\"\nContent-Transfer-Encoding: base64\n\nJVBERi0xLjQK\n--b--\n"
+            : "Content-Type: text/plain; charset=utf-8\n\n$body\n");
+        return Mailbox::store($uid, $inbox, $raw);
+    };
+    $ids = [
+        'eleve' => $put('Prof <prof@ecole.test>', 'Résultats de l\'élève', 'Bulletin du trimestre, très bien.'),
+        'facture' => $put('Compta <compta@fournisseur.test>', 'Facture 2026-114', 'Veuillez trouver la facturation de mars.', 'Facture_Mars_2026.pdf'),
+        'martin' => $put('Christophe Martin <christophe.martin@make4web.test>', 'Point projet', 'Rapport mensuel en pièce jointe.'),
+        'rapport' => $put('Bob <bob@test.local>', 'Porte d\'entrée', 'La porte du bureau ferme mal.'),
+        'pv' => $put('Syndic <syndic@immo.test>', 'PV AG', 'Le PV de l\'assemblée est disponible.'),
+        'the' => $put('News <news@en.test>', 'The weekly news', 'All the news that fits.'),
+    ];
+    $find = static function (string $q) use ($uid) {
+        $r = array_map(static fn($i) => (int) $i['id'], Mailbox::list($uid, ['q' => $q, 'limit' => 200])['items']);
+        sort($r);
+        return $r;
+    };
+    $queries = ['élève', 'facture', 'Facture_Mars_2026', 'christophe.martin@make4web.test', 'make4web', 'martin', 'rapport', 'porte', 'PV', 'the', 'news',
+        'from:compta facture', 'subject:projet rapport', '"rapport mensuel"', 'trimestre bulletin', 'inexistant'];
+    // Plain search first (no index), then the index: the same messages, and better on accents.
+    Search::dropIndex();
+    ok(!Search::ready());
+    $before = [];
+    foreach ($queries as $q) {
+        $before[$q] = $find($q);
+    }
+    ok(Search::ensureIndex(), 'index built (' . M4W\Core\Database::driver() . ')');
+    ok(Search::ready());
+    $pp = [];
+    ok(Search::condition('facture', 'x', $pp) !== null, 'the index answers words');
+    $pp = [];
+    eq(Search::condition('PV', 'x', $pp) === null, M4W\Core\Database::driver() === 'mysql', 'MySQL: words under its minimum length go through LIKE');
+    $pp = [];
+    eq(Search::condition('the', 'x', $pp) === null, M4W\Core\Database::driver() === 'mysql', 'MySQL: its stopwords go through LIKE');
+    foreach ($queries as $q) {
+        eq($find($q), $before[$q], 'same results with the index: ' . $q);
+    }
+    eq($find('eleve'), [$ids['eleve']], 'accents ignored: eleve finds élève');
+    eq($find('ÉLÈVE'), [$ids['eleve']], 'case and accents');
+    eq($find('factur'), [$ids['facture']], 'from the beginning of words (facture, facturation)');
+    eq($find('4web'), [$ids['martin']], 'a part of a word: plain search takes over');
+    eq($find('make4web.test'), [$ids['martin']], 'address pieces as a phrase');
+    // Kept in step: new, changed and deleted messages.
+    $new = $put('Neo <neo@x.test>', 'Zygomatique', 'Quinconce extraordinaire.');
+    eq($find('quinconce'), [$new], 'new message indexed at once');
+    M4W\Core\Database::update('messages', ['subject' => 'Brouillon renommé', 'body_text' => 'Hippocampe'], 'id = :id', ['id' => $new]);
+    eq([$find('hippocampe'), $find('zygomatique'), $find('quinconce')], [[$new], [], []], 'changed message re-indexed, old words gone');
+    Mailbox::move($uid, [$new], (int) Folders::byRole($uid, 'archive')['id']);
+    eq($find('hippocampe'), [$new], 'still found after a move');
+    M4W\Core\Database::delete('messages', 'id = :id', ['id' => $new]);
+    eq($find('hippocampe'), [], 'deleted message gone from the index');
+    // Nasty input: operators and quotes are words, never syntax.
+    foreach (['"', '+-*~<>()@', 'facture" OR 1=1 --', 'a* -b +c', "'; DROP TABLE messages; --", 'NEAR(a b)', 'col:val:"x'] as $q) {
+        $r = Mailbox::list($uid, ['q' => $q]);
+        ok(is_array($r['items']), 'no error for: ' . $q);
+    }
+    ok((int) M4W\Core\Database::value('SELECT COUNT(*) FROM messages') > 0, 'table intact');
+    // Other people's messages never come up.
+    $other = Users::find(Users::create(['email' => 'autre.chercheur@test.local', 'password' => 'Secret!Pass123']));
+    eq(Mailbox::list((int) $other['id'], ['q' => 'facture'])['items'], [], 'only one\'s own mail');
+    // A restored backup without the index: noticed, plain search meanwhile, rebuilt by the next run.
+    Search::dropIndex();
+    Settings::set('search.fts', M4W\Core\Database::driver());
+    $r = new ReflectionProperty(Search::class, 'ready');
+    $r->setValue(null, null);
+    ok(!Search::ready(), 'missing index detected');
+    eq($find('facture'), [$ids['facture']], 'plain search meanwhile');
+    ok(Search::ensureIndex());
+    eq($find('eleve'), [$ids['eleve']]);
+});
+
 echo "\nSender logos (BIMI)\n";
 test('bimi: the logo is reduced to drawing (no script, link, external reference)', function () {
     $evil = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10" onload="alert(1)">'

@@ -165,8 +165,16 @@ final class Mailbox
             $where[] = 'm.has_attachments = 1';
         }
 
+        $base = [$where, $params];
+        $usedFts = false;
         if ($q !== '') {
-            self::applySearch($q, $where, $params);
+            self::applySearch($q, $where, $params, true, $usedFts);
+            // Nothing through the index: the plain search, which also finds parts of words
+            // ("4web" in make4web), so a search that used to find something still does.
+            if ($usedFts && !(int) DB::value('SELECT COUNT(*) FROM messages m WHERE ' . implode(' AND ', $where) . self::privacySql($userId, 'm'), $params)) {
+                [$where, $params] = $base;
+                self::applySearch($q, $where, $params, false);
+            }
         }
         $whereSql = implode(' AND ', $where) . self::privacySql($userId, 'm');
         $limit = max(10, min(200, (int) ($opts['limit'] ?? 50)));
@@ -203,7 +211,7 @@ final class Mailbox
     }
 
     /** Gmail-like operators: from:, to:, subject:, has:attachment, is:unread, is:starred, before:, after:, larger: */
-    private static function applySearch(string $q, array &$where, array &$params): void
+    private static function applySearch(string $q, array &$where, array &$params, bool $fts = true, bool &$usedFts = false): void
     {
         $i = 0;
         preg_match_all('/(\w+):("[^"]*"|\S+)|"([^"]+)"|(\S+)/u', $q, $matches, PREG_SET_ORDER);
@@ -264,6 +272,12 @@ final class Mailbox
                     break;
                 default:
                     $term = $key !== '' ? $m[0] : $val;
+                    // Full-text index first (fast, accents ignored); LIKE for what it cannot answer.
+                    if ($fts && ($cond = Search::condition($term, $p, $params)) !== null) {
+                        $where[] = $cond;
+                        $usedFts = true;
+                        break;
+                    }
                     $params[$p] = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)) . '%';
                     $where[] = "(LOWER(m.subject) LIKE :$p ESCAPE '!' OR LOWER(m.from_name) LIKE :$p ESCAPE '!' OR LOWER(m.from_email) LIKE :$p ESCAPE '!'"
                         . " OR LOWER(m.to_list) LIKE :$p ESCAPE '!' OR LOWER(m.body_text) LIKE :$p ESCAPE '!' OR LOWER(m.attachments) LIKE :$p ESCAPE '!')";

@@ -887,4 +887,13 @@ static function (): void {
 ) {OPT}",
 "CREATE UNIQUE INDEX bimi_logos_domain ON bimi_logos(domain)",
 ],
+30 => [
+// PHP sessions in the database (shared by several web servers): the id is stored hashed.
+"CREATE TABLE php_sessions (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  data {TEXT},
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX php_sessions_updated ON php_sessions(updated_at)",
+],
 ];

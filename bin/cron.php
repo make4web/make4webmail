@@ -24,6 +24,10 @@ $out = static function (string $m) {
     }
 };
 M4W\Database\Migrator::migrate();
+// Full-text search index: built here, outside web requests (may take a while the first time).
+if (!M4W\Service\Search::ready()) {
+    $out('search index: ' . (M4W\Service\Search::ensureIndex() ? 'ready' : 'unavailable'));
+}
 $out('provider sync: ' . M4W\Service\RemoteMailbox::syncAll());
 $out('mail pictures: ' . M4W\Service\MailAssets::processPending(200));
 $out('spreadsheets saved: ' . M4W\Service\Sheet::housekeeping());
@@ -83,6 +87,7 @@ if ($hourly) {
             $out('URLhaus feed: update failed, ' . $e->getMessage());
         }
     }
+    $out('expired sessions: ' . M4W\Core\DbSessionHandler::purge());
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);
