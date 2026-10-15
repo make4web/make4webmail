@@ -304,6 +304,8 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Pour désactiver la double authentification, il faut votre mot de passe <em>et</em> un code de l'application.</p>
     <h3>Sessions et activité</h3>
     <p>La liste des appareils connectés permet de déconnecter un appareil perdu ou tous les autres. L'historique montre les dernières connexions réussies et échouées : si vous voyez une connexion inconnue, changez votre mot de passe et prévenez votre administrateur.</p>
+    <h3>Message frauduleux ?</h3>
+    <p>Un message vous demande vos identifiants, un paiement urgent, ou imite votre banque ou un collègue ? Ne cliquez sur rien et utilisez <?= $ui('shield-exclamation', 'Signaler un hameçonnage') ?> dans la barre du message : il disparaît de votre boîte et de celles de vos collègues, et l'administrateur est prévenu. Pour un simple message publicitaire, <?= $ui('exclamation-octagon', 'Indésirable') ?> suffit : le filtre apprend de vos choix.</p>
     <h3>Alertes automatiques</h3>
     <ul>
       <li>Une connexion depuis un <strong>réseau inhabituel</strong>, des <strong>mots de passe erronés</strong> à répétition, un <strong>transfert</strong> de vos messages vers une adresse extérieure ou un <strong>changement de mot de passe</strong> vous sont signalés par un message dans votre boîte (et une notification).</li>
@@ -574,6 +576,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Supprimé</strong> : le message n'est jamais distribué ; une copie reste consultable dans les <?= $go('admin/deleted', 'Messages supprimés') ?> pendant la durée de conservation.</li>
     </ul>
     <p>Les <strong>expéditeurs autorisés</strong> passent toujours (sauf usurpation), les <strong>bloqués</strong> sont toujours supprimés. Pour régler les seuils, collez la source d'un message dans « Tester un message » : le détail du score s'affiche.</p>
+    <p><strong>Apprentissage</strong> : chaque fois qu'un utilisateur déplace un message dans les Indésirables ou l'en sort (« Pas un spam »), le filtre apprend. Une fois assez d'exemples de chaque côté, il reconnaît les messages qui ressemblent à ce que l'organisation considère comme indésirable (jusqu'à +5 points) ou légitime (jusqu'à −3). Seules des empreintes de mots sont conservées.</p>
+    <p><strong>Signalements d'hameçonnage</strong> : le bouton <?= $ui('shield-exclamation', 'Signaler un hameçonnage') ?> du lecteur retire le message de toutes les boîtes qui l'ont reçu (copies conservées dans les <?= $go('admin/deleted?reason=phishing', 'Messages supprimés') ?>, restaurables), vous alerte et marque l'expéditeur (+6 points sur ses prochains messages ; la liste « Expéditeurs signalés » permet d'en retirer un). Si l'expéditeur est un collègue, c'est son compte qui est signalé comme peut-être piraté.</p>
   </section>
 
   <section id="a-backup" class="m4w-help-section admin">

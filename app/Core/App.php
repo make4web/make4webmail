@@ -236,6 +236,7 @@ final class App
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);
         $r->get('/api/messages/{id}/print', [Controller\MailController::class, 'printView']);
         $r->post('/api/messages/{id}/unsubscribe', [Controller\MailController::class, 'unsubscribe']);
+        $r->post('/api/messages/{id}/phishing', [Controller\MailController::class, 'phishing']);
         $r->get('/api/poll', [Controller\MailController::class, 'poll']);
         $r->post('/api/prefs', [Controller\MailController::class, 'prefs']);
 
@@ -427,6 +428,7 @@ final class App
         $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $admin);
         $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
         $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
+        $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
         $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $admin);

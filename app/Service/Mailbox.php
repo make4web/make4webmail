@@ -340,7 +340,16 @@ final class Mailbox
             return count($rows);
         }
         [$in, $params] = DB::in('i', $ids);
-        return DB::run("UPDATE messages SET folder_id = :f, trashed_from = NULL, trashed_from_name = '' WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId, 'f' => $folderId])->rowCount();
+        // Moving into or out of Junk teaches the antispam.
+        $spamId = (int) Folders::byRole($userId, 'spam')['id'];
+        $learn = $ids ? DB::all("SELECT id, folder_id, is_draft, bayes FROM messages WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId]) : [];
+        $n = DB::run("UPDATE messages SET folder_id = :f, trashed_from = NULL, trashed_from_name = '' WHERE user_id = :u AND id IN $in" . self::privacySql($userId), $params + ['u' => $userId, 'f' => $folderId])->rowCount();
+        if ($folderId === $spamId) {
+            Bayes::feedback($userId, array_filter($learn, static fn($r) => (int) $r['folder_id'] !== $spamId), true);
+        } else {
+            Bayes::feedback($userId, array_filter($learn, static fn($r) => (int) $r['folder_id'] === $spamId), false);
+        }
+        return $n;
     }
 
     /** Move to trash, or delete permanently if already in trash/spam. */

@@ -19,7 +19,7 @@ use M4W\Storage\Storage;
  */
 final class Retention
 {
-    public const REASONS = ['deleted', 'emptied', 'auto_purge', 'rule', 'account_deleted', 'spam', 'quarantine'];
+    public const REASONS = ['deleted', 'emptied', 'auto_purge', 'rule', 'account_deleted', 'spam', 'quarantine', 'phishing'];
 
     public static function enabled(): bool
     {

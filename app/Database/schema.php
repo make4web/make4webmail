@@ -755,5 +755,23 @@ static function (): void {
 "ALTER TABLE users ADD COLUMN send_blocked_until INTEGER NOT NULL DEFAULT 0",
 "ALTER TABLE users ADD COLUMN send_block_reason VARCHAR(255) NOT NULL DEFAULT ''",
 ],
+21 => [
+// Antispam that learns from what people mark as junk (or not): word statistics only, hashed.
+"CREATE TABLE bayes_tokens (
+  token VARCHAR(16) NOT NULL PRIMARY KEY,
+  spam INTEGER NOT NULL DEFAULT 0,
+  ham INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"ALTER TABLE messages ADD COLUMN bayes INTEGER NOT NULL DEFAULT 0",
+// Senders reported for phishing by someone of the organisation.
+"CREATE TABLE reported_senders (
+  address VARCHAR(190) NOT NULL PRIMARY KEY,
+  reports INTEGER NOT NULL DEFAULT 1,
+  first_at INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX messages_msgid_all ON messages(message_id)",
+],
 ];
 

@@ -533,6 +533,18 @@ final class MailController extends Controller
         return $this->fail(t('mail.unsub_failed'));
     }
 
+    /** "Report phishing" from the reader. */
+    public function phishing(string $id): Response
+    {
+        $u = $this->user();
+        $m = $this->message($id);
+        if ($m['is_draft']) {
+            return $this->fail('draft');
+        }
+        $r = \M4W\Service\PhishReport::report($u, $m);
+        return $this->ok($r + ['folders' => Folders::listWithCounts((int) $u['id'])]);
+    }
+
     public function action(): Response
     {
         $uid = $this->uid();

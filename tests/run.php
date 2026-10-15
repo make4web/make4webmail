@@ -2723,6 +2723,67 @@ test('guard: unusual sign-ins, repeated wrong passwords, forwarding to the outsi
     eq($notices(), 3);
 });
 
+echo "\nLearning antispam, phishing reports\n";
+test('bayes: learns from Junk / Not junk and recognises new messages', function () {
+    M4W\Service\Bayes::reset();
+    Settings::set('spam.bayes_min', 20);
+    $spamWords = ['bitcoin', 'gagnez', 'gratuit', 'offre', 'exclusive', 'cliquez', 'casino', 'bonus', 'urgent', 'millions', 'investissement', 'garanti', 'rolex', 'pilules', 'promotion'];
+    $hamWords = ['réunion', 'compte-rendu', 'projet', 'budget', 'planning', 'client', 'livraison', 'devis', 'équipe', 'dossier', 'facture', 'contrat', 'agenda', 'jeudi', 'validation'];
+    $mk = static function (array $words, string $from, int $seed): M4W\Mail\ParsedMessage {
+        mt_srand($seed);
+        $pick = static fn() => $words[mt_rand(0, count($words) - 1)];
+        $body = implode(' ', array_map(static fn() => $pick(), range(1, 40)));
+        return MimeParser::parse("From: $from\r\nTo: bob@test.local\r\nSubject: " . $pick() . ' ' . $pick() . "\r\nMessage-ID: <b$seed@x>\r\n\r\n$body\r\n");
+    };
+    for ($i = 0; $i < 20; $i++) {
+        M4W\Service\Bayes::learn($mk($spamWords, "promo$i@spam-$i.biz", $i), true);
+        M4W\Service\Bayes::learn($mk($hamWords, "collegue$i@partner.fr", 100 + $i), false);
+    }
+    $st = M4W\Service\Bayes::stats();
+    ok($st['ready'] && $st['spam'] === 20 && $st['ham'] === 20, 'trained');
+    $s = M4W\Service\Bayes::score($mk($spamWords, 'new@other.biz', 999));
+    $h = M4W\Service\Bayes::score($mk($hamWords, 'new@client.fr', 998));
+    ok($s !== null && $s > 0.9, 'spam recognised: ' . $s);
+    ok($h !== null && $h < 0.1, 'legitimate recognised: ' . $h);
+    $r = SpamFilter::evaluate($mk($spamWords, 'new@other.biz', 999), null);
+    ok(($r['tests']['BAYES_SPAM'] ?? 0) >= 3.5, 'weighs in the spam score');
+    // Feedback from the mailbox: moving to Junk and back.
+    $bob = Users::findByEmail('bob@test.local');
+    $raw = "From: x@promo-bitcoin.biz\r\nTo: bob@test.local\r\nSubject: bitcoin bonus\r\nMessage-ID: <fb1@x>\r\n\r\nbitcoin casino gratuit\r\n";
+    $id = Mailbox::store((int) $bob['id'], (int) Folders::byRole((int) $bob['id'], 'inbox')['id'], $raw);
+    Mailbox::move((int) $bob['id'], [$id], (int) Folders::byRole((int) $bob['id'], 'spam')['id']);
+    eq((int) DB::value('SELECT bayes FROM messages WHERE id = :id', ['id' => $id]), 1, 'learnt as junk');
+    eq(M4W\Service\Bayes::stats()['spam'], 21);
+    Mailbox::move((int) $bob['id'], [$id], (int) Folders::byRole((int) $bob['id'], 'inbox')['id']);
+    eq((int) DB::value('SELECT bayes FROM messages WHERE id = :id', ['id' => $id]), -1, 'unlearnt and learnt as legitimate');
+    eq([M4W\Service\Bayes::stats()['spam'], M4W\Service\Bayes::stats()['ham']], [20, 21]);
+    ok(!DB::value("SELECT COUNT(*) FROM bayes_tokens WHERE token = 'bitcoin'"), 'words are stored hashed');
+});
+test('phishing report: removed from every mailbox, sender marked, administrators alerted', function () {
+    $alice = Users::findByEmail('admin@test.local');
+    $bob = Users::findByEmail('bob@test.local');
+    $carol = Users::findByEmail('carol@test.local');
+    $raw = "From: Service client <securite@banque-verif.com>\r\nTo: admin@test.local, bob@test.local, carol@test.local\r\nSubject: Votre compte sera suspendu\r\nMessage-ID: <phish-1@banque-verif.com>\r\nContent-Type: text/html\r\n\r\n<p>Confirmez <a href=\"https://banque-verif.com/login\">ici</a></p>\r\n";
+    Delivery::deliver($raw, 'securite@banque-verif.com', ['admin@test.local', 'bob@test.local', 'carol@test.local']);
+    $mine = DB::one("SELECT * FROM messages WHERE user_id = :u AND message_id = 'phish-1@banque-verif.com'", ['u' => $alice['id']]);
+    ok($mine !== null, 'received');
+    $r = M4W\Service\PhishReport::report($alice, $mine);
+    eq($r['removed'], 2, 'copies of Bob and Carol');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE message_id = 'phish-1@banque-verif.com' AND user_id IN (:b, :c)", ['b' => $bob['id'], 'c' => $carol['id']]), 0);
+    eq((int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE reason = 'phishing'"), 2, 'kept in the administrators\' quarantine');
+    eq((int) DB::value('SELECT folder_id FROM messages WHERE id = :id', ['id' => $mine['id']]), (int) Folders::byRole((int) $alice['id'], 'spam')['id'], 'reporter\'s copy in Junk');
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE kind = 'phishing' AND severity = 'high'"), 'alert');
+    $next = SpamFilter::evaluate(MimeParser::parse(str_replace('phish-1', 'phish-2', $raw)), null);
+    ok(isset($next['tests']['REPORTED_SENDER']), 'next message from that sender scored');
+    // A colleague's account sending phishing: they are flagged, not their address.
+    $raw2 = "From: Bob <bob@test.local>\r\nTo: admin@test.local\r\nSubject: Facture urgente\r\nMessage-ID: <int-1@test.local>\r\n\r\nPayez ici\r\n";
+    $id = Mailbox::store((int) $alice['id'], (int) Folders::byRole((int) $alice['id'], 'inbox')['id'], $raw2);
+    $r = M4W\Service\PhishReport::report($alice, Mailbox::get((int) $alice['id'], $id));
+    ok($r['internal']);
+    ok(!DB::value("SELECT COUNT(*) FROM reported_senders WHERE address = 'bob@test.local'"));
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'reported_by_colleague'", ['u' => $bob['id']]));
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

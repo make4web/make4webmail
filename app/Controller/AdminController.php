@@ -789,9 +789,21 @@ final class AdminController extends Controller
         return $this->page('spam', ['stats' => $stats, 'test' => $test]);
     }
 
+    public function forgetReported(): Response
+    {
+        \M4W\Service\PhishReport::forgetSender($this->req->str('address'));
+        Audit::log('admin.reported_forgotten', $this->req->str('address'));
+        return $this->back('/admin/spam#reported', 'success', t('settings.saved'));
+    }
+
     public function saveSpam(): Response
     {
         $r = $this->req;
+        if ($r->bool('bayes_reset')) {
+            \M4W\Service\Bayes::reset();
+            Audit::log('admin.bayes_reset');
+            return $this->back('/admin/spam#bayes', 'success', t('bayes.reset_done'));
+        }
         $sus = max(1, min(100, (float) $r->str('suspect', '5')));
         $qua = (float) $r->str('quarantine', '10');
         $del = (float) $r->str('delete', '20');
@@ -814,6 +826,7 @@ final class AdminController extends Controller
             'spam.dnsbl' => implode("\n", array_slice(array_unique($zones), 0, 5)),
             'spam.keep_days' => max(1, min(365, $r->int('keep_days', 30))),
             'inbound.spam_header' => $r->bool('upstream') ? 1 : 0,
+            'spam.bayes' => $r->bool('bayes') ? 1 : 0,
         ]);
         Audit::log('admin.spam_saved');
         return $this->back('/admin/spam', 'success', t('settings.saved'));

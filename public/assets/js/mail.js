@@ -504,6 +504,7 @@
     var tb = '<button class="btn btn-ghost btn-icon" data-reader="back" title="' + esc(t('back')) + ' (U)"><i class="bi bi-arrow-left"></i></button>'
       + (folder.role !== 'archive' ? '<button class="btn btn-ghost btn-icon" data-reader="archive" title="' + esc(t('archive')) + ' (E)"><i class="bi bi-archive"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('move_inbox')) + '"><i class="bi bi-inbox"></i></button>')
       + (inSpam ? '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('not_spam')) + '"><i class="bi bi-shield-check"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="spam" title="' + esc(t('spam')) + ' (!)"><i class="bi bi-exclamation-octagon"></i></button>')
+      + (folder.role !== 'sent' && folder.role !== 'drafts' ? '<button class="btn btn-ghost btn-icon" data-reader="phish" title="' + esc(t('phish_report')) + '" aria-label="' + esc(t('phish_report')) + '"><i class="bi bi-shield-exclamation"></i></button>' : '')
       + '<button class="btn btn-ghost btn-icon" data-reader="delete" title="' + esc(inTrash ? t('delete_forever') : t('delete')) + ' (#)"><i class="bi bi-trash3"></i></button>'
       + '<span class="vr"></span>'
       + '<button class="btn btn-ghost btn-icon" data-reader="unread" title="' + esc(t('mark_unread')) + ' (Shift+U)"><i class="bi bi-envelope"></i></button>'
@@ -539,6 +540,19 @@
     renderMoveMenus();
     bindIframes($c);
     $c.find('[data-bs-toggle=dropdown]').each(function () { bootstrap.Dropdown.getOrCreateInstance(this, { popperConfig: { strategy: 'fixed' } }); });
+  }
+
+  /** One person reports, the whole organisation is protected. */
+  function reportPhishing(id) {
+    M4W.confirm(t('phish_confirm_title'), t('phish_confirm_text'), t('phish_report')).done(function () {
+      M4W.post('api/messages/' + id + '/phishing', {}).done(function (r) {
+        rowById(id).slideUp(120);
+        closeReader();
+        setFolders(r.folders);
+        loadList(true);
+        M4W.toast(r.internal ? t('phish_done_internal') : (r.removed ? t('phish_done_n', { n: r.removed }) : t('phish_done')), 'success');
+      });
+    });
   }
 
   // ------------------------------------------------------------- actions
@@ -845,6 +859,7 @@
       if (a === 'next') { moveCursor(1); return; }
       if (a === 'star') { toggleStar(id); return; }
       if (a === 'unread') { action('unread', [id], { thread: S.prefs.conversations && !isSentLike() }); closeReader(); return; }
+      if (a === 'phish') { reportPhishing(id); return; }
       bulk(a, [id]);
     });
     $reader.on('click', '[data-toggle-msg]', function (e) {

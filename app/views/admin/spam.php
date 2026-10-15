@@ -54,8 +54,30 @@ $levelBadge = ['ok' => 'success', 'suspect' => 'warning', 'quarantine' => 'dange
     <div class="m4w-setting-row"><div class="label"><?= te('admin.spam_dnsbl') ?><small><?= te('admin.spam_dnsbl_desc') ?></small></div><div><input class="form-control m4w-code" style="max-width:380px" name="dnsbl" aria-label="<?= te('admin.spam_dnsbl') ?>" placeholder="zen.spamhaus.org" value="<?= e(str_replace("\n", ' ', (string) S::get('spam.dnsbl'))) ?>"></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.spam_keep') ?><small><?= te('admin.spam_keep_desc') ?></small></div><div class="input-group" style="max-width:180px"><input class="form-control" type="number" min="1" max="365" name="keep_days" aria-label="<?= te('admin.spam_keep') ?>" value="<?= (int) S::get('spam.keep_days') ?>"><span class="input-group-text"><?= te('admin.files_days') ?></span></div></div>
   </div>
+  <div class="m4w-section" id="bayes">
+    <?php $bs = M4W\Service\Bayes::stats(); ?>
+    <div class="m4w-section-title"><i class="bi bi-mortarboard me-2 text-primary"></i><?= te('bayes.title') ?>
+      <span class="badge ms-2 <?= $bs['ready'] ? 'badge-soft-success' : 'badge-soft-warning' ?>"><?= $bs['ready'] ? te('bayes.ready') : te('bayes.learning', ['n' => M4W\Service\Bayes::minimum()]) ?></span></div>
+    <p class="small text-muted"><?= te('bayes.desc') ?></p>
+    <div class="m4w-setting-row"><div class="label"><?= te('bayes.enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="bayes" value="1" aria-label="<?= te('bayes.enable') ?>" <?= S::get('spam.bayes', 1) ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('bayes.learnt') ?></div><div class="small"><?= te('bayes.counts', ['spam' => $bs['spam'], 'ham' => $bs['ham'], 'tokens' => number_format($bs['tokens'], 0, ',', ' ')]) ?>
+      <button class="btn btn-light btn-sm ms-2" form="bayes-reset"><i class="bi bi-arrow-counterclockwise me-1"></i><?= te('bayes.reset') ?></button></div></div>
+  </div>
   <div class="m4w-sticky-actions"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button></div>
 </form>
+
+<form method="post" action="<?= e(url('admin/spam')) ?>" id="bayes-reset" data-confirm="<?= te('bayes.reset_confirm') ?>"><?= csrf_field() ?><input type="hidden" name="bayes_reset" value="1"></form>
+<div class="m4w-section mt-4" id="reported">
+  <div class="m4w-section-title"><i class="bi bi-shield-exclamation me-2 text-primary"></i><?= te('phish.reported_title') ?></div>
+  <p class="small text-muted"><?= te('phish.reported_desc') ?></p>
+  <?php $rs = M4W\Service\PhishReport::reportedSenders(); ?>
+  <?php if (!$rs): ?><p class="small text-muted mb-0"><?= te('phish.none') ?></p><?php else: ?>
+  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th><?= te('phish.sender') ?></th><th><?= te('phish.reports') ?></th><th><?= te('phish.last') ?></th><th></th></tr></thead><tbody>
+    <?php foreach ($rs as $r): ?><tr><td class="m4w-code"><?= e($r['address']) ?></td><td><?= (int) $r['reports'] ?></td><td class="small"><?= e(format_datetime((int) $r['last_at'])) ?></td>
+      <td class="text-end"><form method="post" action="<?= e(url('admin/spam/reported')) ?>"><?= csrf_field() ?><input type="hidden" name="address" value="<?= e($r['address']) ?>"><button class="btn btn-ghost btn-sm"><i class="bi bi-x-lg me-1"></i><?= te('phish.forget') ?></button></form></td></tr><?php endforeach; ?>
+  </tbody></table></div>
+  <?php endif; ?>
+</div>
 
 <div class="m4w-section mt-4" id="spam-test">
   <div class="m4w-section-title"><i class="bi bi-clipboard-check me-2 text-primary"></i><?= te('admin.spam_test') ?></div>
