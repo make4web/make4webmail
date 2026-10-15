@@ -872,4 +872,19 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX provider_copies_user ON provider_copies(user_id)",
 ],
+29 => [
+// BIMI: the sender's logo, kept per domain (cleaned SVG, mark certificate checked or not), and
+// the domain whose logo goes with each message ('' = initials).
+"ALTER TABLE messages ADD COLUMN bimi VARCHAR(190) NOT NULL DEFAULT ''",
+"CREATE TABLE bimi_logos (
+  id {PK},
+  domain VARCHAR(190) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'none',
+  file VARCHAR(80) NOT NULL DEFAULT '',
+  vmc INTEGER NOT NULL DEFAULT 0,
+  error VARCHAR(255) NOT NULL DEFAULT '',
+  checked_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX bimi_logos_domain ON bimi_logos(domain)",
+],
 ];

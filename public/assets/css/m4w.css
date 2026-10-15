@@ -244,6 +244,10 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
   align-items: center; justify-content: center; font-weight: 600; font-size: calc(var(--size) * .38); letter-spacing: .02em; user-select: none;
   background: var(--m4w-primary); text-transform: uppercase; overflow: hidden;
 }
+/* Sender's logo (BIMI): on white, like other mail apps; a green ring when a mark certificate backs it. */
+.m4w-avatar.has-logo { background: #fff; box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .12); }
+.m4w-avatar.has-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.m4w-avatar.has-logo.is-verified { box-shadow: 0 0 0 2px #16a34a; }
 .m4w-avatar.sm { --size: 28px; }
 .m4w-avatar.lg { --size: 44px; }
 .m4w-avatar.xl { --size: 72px; }

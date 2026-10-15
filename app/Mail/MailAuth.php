@@ -44,6 +44,12 @@ final class MailAuth
         return array_values(array_filter($out, static fn($v) => $v !== ''));
     }
 
+    /** TXT records of a name (same resolver as the checks, replaceable in tests). */
+    public static function txt(string $name): array
+    {
+        return self::dns('TXT', $name);
+    }
+
     // ---------------------------------------------------------------- SPF
 
     /** @return string pass|fail|softfail|neutral|none|permerror|temperror */

@@ -297,6 +297,7 @@ final class Mailbox
             'pinned'      => isset($m['pin_cnt']) ? (int) $m['pin_cnt'] > 0 : (bool) ($m['is_pinned'] ?? 0),
             'priority'    => (int) $m['priority'],
             'scheduled'   => (int) ($m['scheduled_at'] ?? 0),
+            'bimi'        => (string) ($m['bimi'] ?? ''),
         ];
     }
 

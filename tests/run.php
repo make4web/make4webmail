@@ -33,6 +33,7 @@ use M4W\Mail\HtmlSanitizer;
 use M4W\Mail\MimeBuilder;
 use M4W\Mail\MimeParser;
 use M4W\Service\Composer;
+use M4W\Service\Bimi;
 use M4W\Service\Delivery;
 use M4W\Service\Folders;
 use M4W\Service\Forwarding;
@@ -2130,6 +2131,109 @@ Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
 
 // ------------------------------------------------------------------ message pictures
+echo "\nSender logos (BIMI)\n";
+test('bimi: the logo is reduced to drawing (no script, link, external reference)', function () {
+    $evil = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10" onload="alert(1)">'
+        . '<script>alert(2)</script><defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs>'
+        . '<a href="https://evil.example/"><rect width="10" height="10" fill="url(#g)"/></a>'
+        . '<image href="https://track.example/p.png" width="1" height="1"/><foreignObject><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject>'
+        . '<use xlink:href="https://evil.example/s.svg#a"/><use href="#g"/><circle cx="5" cy="5" r="4" style="fill:url(https://track.example/x)" onclick="x()"/>'
+        . '<path d="M0 0L10 10" fill="javascript:alert(3)"/><!-- comment --><?pi x?></svg>';
+    $out = Bimi::sanitizeSvg($evil);
+    ok($out !== null && str_contains($out, '<rect') === false, 'a link and what it wraps are dropped');
+    foreach (['onload', 'script', 'alert', 'evil.example', 'track.example', 'foreignObject', '<image', 'comment', '<?pi', 'onclick', 'javascript'] as $bad) {
+        ok(!str_contains($out, $bad), 'removed: ' . $bad);
+    }
+    ok(str_contains($out, 'url(#g)') || str_contains($out, 'stop-color="#f00"'), 'gradients kept');
+    ok(str_contains($out, '<use href="#g"/>') && str_contains($out, '<circle'), 'internal reference and shapes kept');
+    eq(Bimi::sanitizeSvg('<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg>&x;</svg>'), null, 'entities refused');
+    eq(Bimi::sanitizeSvg('<html><body>x</body></html>'), null, 'not an SVG');
+});
+
+test('bimi: shown only for DMARC-enforcing domains that pass, never for look-alikes; served by our server', function () use (&$dns) {
+    $bob = Users::findByEmail('bob@test.local');
+    $saved = $dns;
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" baseProfile="tiny-ps"><title>Brand</title><circle cx="32" cy="32" r="30" fill="#0a58ca"/></svg>';
+    $fetched = [];
+    Bimi::$http = static function (string $url) use ($svg, &$fetched) {
+        $fetched[] = $url;
+        return $url === 'https://brand.test/logo.svg' || $url === 'https://cdn.loose.test/l.svg' ? ['status' => 200, 'body' => $svg, 'location' => ''] : null;
+    };
+    $dns['TXT _dmarc.brand.test'] = ['v=DMARC1; p=reject; rua=mailto:d@brand.test'];
+    $dns['TXT default._bimi.brand.test'] = ['v=BIMI1; l=https://brand.test/logo.svg; a='];
+    $dns['TXT _dmarc.loose.test'] = ['v=DMARC1; p=none'];
+    $dns['TXT default._bimi.loose.test'] = ['v=BIMI1; l=https://cdn.loose.test/l.svg'];
+    $dns['TXT _dmarc.half.test'] = ['v=DMARC1; p=quarantine; pct=50'];
+    try {
+        ok(Bimi::enforced('brand.test') && Bimi::enforced('mail.brand.test') && !Bimi::enforced('loose.test') && !Bimi::enforced('half.test'), 'p=reject (or quarantine) on all mail only');
+        $send = static function (string $from, string $id, string $dmarc) use ($bob) {
+            $raw = "From: News <$from>\nTo: bob@test.local\nSubject: Logo $id\nMessage-ID: <$id@x.test>\nDate: " . date('r') . "\n\nBonjour\n";
+            $auth = ['spf' => 'pass', 'spf_domain' => M4W\Mail\Address::domain($from), 'dkim' => [], 'dkim_summary' => 'none', 'dmarc' => $dmarc, 'policy' => 'reject',
+                'from_domain' => M4W\Mail\Address::domain($from), 'verdict' => $dmarc === 'pass' ? 'ok' : 'dmarc'];
+            Delivery::deliver($raw, $from, ['bob@test.local'], 'smtp', true, $auth);
+            return (string) DB::value('SELECT bimi FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $bob['id'], 'm' => "$id@x.test"]);
+        };
+        eq($send('news@brand.test', 'bimi-ok', 'pass'), 'brand.test', 'DMARC passes, policy enforced, logo published');
+        $file = Bimi::file('brand.test');
+        ok($file !== null && str_contains((string) file_get_contents($file), '<circle'), 'cleaned copy kept by the server');
+        $n = count($fetched);
+        eq($send('info@brand.test', 'bimi-ok2', 'pass'), 'brand.test');
+        eq(count($fetched), $n, 'fetched once per domain, not per message');
+        eq($send('news@brand.test', 'bimi-fail', 'fail'), '', 'DMARC fails: initials');
+        eq($send('news@loose.test', 'bimi-loose', 'pass'), '', 'domain not enforcing DMARC: initials');
+        eq($send('news@brаnd.test', 'bimi-idn', 'pass'), '', 'homograph domain: initials');
+        eq(Bimi::file('../../config'), null, 'only domain names');
+        $sum = M4W\Service\Mailbox::summary(DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $bob['id'], 'm' => 'bimi-ok@x.test']));
+        eq($sum['bimi'], 'brand.test', 'listed with its logo');
+        Settings::set('security.bimi', 'vmc');
+        eq($send('news@brand.test', 'bimi-vmc', 'pass'), '', 'certificate required and none: initials');
+        Settings::set('security.bimi', 'off');
+        eq($send('news@brand.test', 'bimi-off', 'pass'), '', 'turned off');
+    } finally {
+        Settings::set('security.bimi', 'dmarc');
+        Bimi::$http = null;
+        $dns = $saved;
+    }
+});
+
+test('bimi: a mark certificate is checked (authority, purpose, domain, dates) and its own logo used', function () {
+    $tmp = sys_get_temp_dir() . '/m4w-vmc-' . bin2hex(random_bytes(4));
+    mkdir($tmp);
+    $logo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#123456"/></svg>';
+    $make = static function (string $name, array $ext, $caKey = null, $caCert = null) use ($tmp) {
+        $cnf = "$tmp/$name.cnf";
+        file_put_contents($cnf, "[req]\ndistinguished_name=dn\n[dn]\n[ext]\n" . implode("\n", $ext) . "\n");
+        $key = openssl_pkey_new(['private_key_bits' => 2048]);
+        $csr = openssl_csr_new(['commonName' => $name], $key, ['config' => $cnf]);
+        $cert = openssl_csr_sign($csr, $caCert, $caKey ?? $key, 30, ['config' => $cnf, 'x509_extensions' => 'ext', 'digest_alg' => 'sha256'], random_int(1, PHP_INT_MAX));
+        openssl_x509_export($cert, $pem);
+        return [$key, $cert, $pem];
+    };
+    try {
+        [$rk, $rc, $rootPem] = $make('Test Mark Root', ['basicConstraints=critical,CA:TRUE', 'keyUsage=critical,keyCertSign,cRLSign']);
+        $logoExt = '1.3.6.1.5.5.7.1.12=ASN1:IA5STRING:data:image/svg+xml;base64,' . base64_encode(gzencode($logo));
+        [, , $leafPem] = $make('brand.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:brand.test', $logoExt], $rk, $rc);
+        [, , $otherPem] = $make('other.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:other.test', $logoExt], $rk, $rc);
+        [, , $tlsPem] = $make('brand.test', ['extendedKeyUsage=serverAuth', 'subjectAltName=DNS:brand.test', $logoExt], $rk, $rc);
+        [$sk, $sc] = $make('Self Root', ['basicConstraints=critical,CA:TRUE']);
+        [, , $selfPem] = $make('brand.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:brand.test', $logoExt], $sk, $sc);
+        Bimi::$roots = $rootPem;
+        [$svg, $why] = Bimi::checkVmcPem('brand.test', $leafPem . $rootPem);
+        eq([$svg, $why], [$logo, ''], 'valid: the logo comes from the certificate');
+        eq(Bimi::checkVmcPem('mail.brand.test', $leafPem)[1], '', 'a subdomain of the certified domain');
+        eq(Bimi::checkVmcPem('brand.test', $otherPem)[1], 'certificate issued for another domain');
+        eq(Bimi::checkVmcPem('brand.test', $tlsPem)[1], 'not a mark certificate');
+        eq(Bimi::checkVmcPem('brand.test', $selfPem)[1], 'certificate not issued by a trusted mark authority');
+        Bimi::$roots = '';
+        $bundled = Bimi::checkVmcPem('brand.test', $leafPem)[1];
+        eq($bundled, 'certificate not issued by a trusted mark authority', 'the bundled authorities do not trust a test root');
+    } finally {
+        Bimi::$roots = null;
+        array_map('unlink', glob("$tmp/*") ?: []);
+        @rmdir($tmp);
+    }
+});
+
 echo "\nMessage pictures (fetched and cleaned by the server)\n";
 use M4W\Service\MailAssets;
 $png = static function (int $w, int $h, bool $alpha = false): string {

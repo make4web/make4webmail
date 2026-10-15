@@ -205,7 +205,7 @@
     return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (m.pinned ? ' pinned' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
       + '<input type="checkbox" class="form-check-input m4w-check" ' + (S.selected[m.id] ? 'checked' : '') + ' aria-label="' + esc(t('select')) + '">'
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
-      + M4W.avatar(who, whoEmail)
+      + M4W.avatar(who, whoEmail, '', sent || m.draft ? '' : m.bimi)
       + '<div class="m4w-row-main"><div class="m4w-row-line1">'
       + (m.scheduled ? '<span class="badge badge-soft me-1" title="' + esc(M4W.date(m.scheduled, true)) + '"><i class="bi bi-clock"></i> ' + esc(new Date(m.scheduled * 1000).toLocaleString(document.documentElement.lang, { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</span>' : (m.draft ? '<span class="text-danger fw-semibold small me-1">' + esc(t('draft')) + '</span>' : ''))
       + (sent && !m.draft ? '<span class="text-muted small">' + esc(t('to_prefix')) + '</span>' : '')
@@ -481,7 +481,7 @@
       banner += '<div class="m4w-msg-banner"><i class="bi bi-envelope-slash text-muted"></i><span>' + esc(t('newsletter_hint')) + '</span><a href="#" data-unsubscribe="' + msg.id + '" class="fw-semibold">' + esc(t('unsubscribe')) + '</a></div>';
     }
     return '<article class="m4w-msg' + (expanded ? '' : ' collapsed') + '" data-msg="' + msg.id + '">'
-      + '<div class="m4w-msg-head" data-toggle-msg>' + M4W.avatar(from.name || from.email, from.email, 'lg')
+      + '<div class="m4w-msg-head" data-toggle-msg>' + M4W.avatar(from.name || from.email, from.email, 'lg', msg.bimi, msg.bimi_vmc)
       + '<div class="m4w-msg-who"><div><span class="m4w-msg-name">' + esc(from.name || from.email) + '</span> <span class="m4w-msg-email">&lt;' + esc(from.email) + '&gt;</span></div>'
       + rcpt + '<div class="m4w-msg-snippet">' + esc(msg.snippet) + '</div></div>'
       + '<div class="d-flex align-items-start gap-1"><div class="m4w-msg-date pt-1">' + (msg.attachments.some(function (a) { return !a.inline; }) ? '<i class="bi bi-paperclip me-1"></i>' : '') + esc(M4W.date(msg.date)) + '<div class="small-2 d-none d-md-block">' + esc(M4W.relative(msg.date)) + '</div></div>'

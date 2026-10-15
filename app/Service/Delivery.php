@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace M4W\Service;
 
+use M4W\Core\Database as DB;
 use M4W\Core\Settings;
 use M4W\Mail\Address;
 use M4W\Mail\MimeBuilder;
@@ -55,6 +56,8 @@ final class Delivery
         $spamBase = $source !== 'local' && SpamFilter::enabled() ? SpamFilter::evaluate($parsed, $auth, $envelopeFrom) : null;
         $results = [];
         $done = [];
+        // Sender's logo (BIMI): looked up once per message, shown only if DMARC vouches for it.
+        $bimi = $disposable === '' && !$suspicious ? Bimi::forMessage($parsed, $raw, $auth, $source) : '';
 
         foreach ($recipients as $rcpt) {
             $user = Users::resolveLocal($rcpt);
@@ -143,6 +146,9 @@ final class Delivery
 
             // 4. Store.
             $newId = Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            if ($bimi !== '' && $level === 'ok') {
+                DB::update('messages', ['bimi' => $bimi], 'id = :id', ['id' => $newId]);
+            }
             // Phone / desktop notification, like the in-page one: unread mail landing in the inbox.
             if (!$actions['read'] && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
                 try {
