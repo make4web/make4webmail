@@ -244,6 +244,10 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
   align-items: center; justify-content: center; font-weight: 600; font-size: calc(var(--size) * .38); letter-spacing: .02em; user-select: none;
   background: var(--m4w-primary); text-transform: uppercase; overflow: hidden;
 }
+/* Sender's logo (BIMI): on white, like other mail apps; a green ring when a mark certificate backs it. */
+.m4w-avatar.has-logo { background: #fff; box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .12); }
+.m4w-avatar.has-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.m4w-avatar.has-logo.is-verified { box-shadow: 0 0 0 2px #16a34a; }
 .m4w-avatar.sm { --size: 28px; }
 .m4w-avatar.lg { --size: 44px; }
 .m4w-avatar.xl { --size: 72px; }
@@ -604,7 +608,7 @@ textarea.m4w-code.m4w-code-short { min-height: 0; }
   background: radial-gradient(1200px 600px at -10% -20%, rgba(255, 255, 255, .18), transparent 60%), linear-gradient(135deg, var(--m4w-primary) 0%, var(--m4w-primary-active) 55%, #0b1220 130%);
   background-size: cover; background-position: center;
 }
-.m4w-auth-hero.has-image::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(2, 6, 23, .25), rgba(2, 6, 23, .7)); }
+.m4w-auth-hero.has-image::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(2, 6, 23, .35), rgba(2, 6, 23, 0) 22%, rgba(2, 6, 23, 0) 82%, rgba(2, 6, 23, .45)); }
 .m4w-auth-hero > * { position: relative; z-index: 1; }
 .m4w-auth-hero .orb { position: absolute; border-radius: 50%; filter: blur(2px); opacity: .5; z-index: 0; }
 .m4w-auth-hero .orb.o1 { width: 420px; height: 420px; right: -120px; top: -80px; background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .35), rgba(255, 255, 255, 0) 70%); }

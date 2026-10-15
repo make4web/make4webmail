@@ -12,16 +12,31 @@ use M4W\Mail\ParsedMessage;
  */
 final class Mailbox
 {
+    /**
+     * Store a message. With $flags['file'] (a file written by writeShared(), or the file of
+     * another message of the same delivery) nothing is written: the message points to that
+     * file, $raw being its content, and $flags['prefix'] holds this person's own header lines
+     * (Delivered-To, antispam verdict), kept in the database. One delivery to twenty colleagues
+     * is then one file, not twenty; each person's quota still counts the whole message.
+     */
     public static function store(int $userId, int $folderId, string $raw, array $flags = [], ?ParsedMessage $parsed = null): int
     {
         $raw = str_replace(["\r\n", "\r"], "\n", $raw);
-        $parsed ??= MimeParser::parse($raw);
-        $rel = sprintf('mail/%d/%s/%s.eml', $userId, date('Y/m'), bin2hex(random_bytes(12)));
-        $path = storage_path($rel);
-        if (!is_dir(dirname($path))) {
-            mkdir(dirname($path), 0750, true);
+        $prefix = str_replace(["\r\n", "\r"], "\n", (string) ($flags['prefix'] ?? ''));
+        $parsed ??= MimeParser::parse($prefix . $raw);
+        if (isset($flags['file']) && preg_match('#^mail/[\w/.-]+\.eml$#', (string) $flags['file']) && !str_contains((string) $flags['file'], '..')
+            && is_file(storage_path((string) $flags['file']))) {
+            $rel = (string) $flags['file'];
+        } else {
+            $rel = sprintf('mail/%d/%s/%s.eml', $userId, date('Y/m'), bin2hex(random_bytes(12)));
+            $path = storage_path($rel);
+            if (!is_dir(dirname($path))) {
+                mkdir(dirname($path), 0750, true);
+            }
+            file_put_contents($path, $prefix . $raw, LOCK_EX);
+            $prefix = '';
         }
-        file_put_contents($path, $raw, LOCK_EX);
+        $raw = $prefix . $raw;
 
         $from = $parsed->from();
         $msgId = $parsed->messageId();
@@ -59,6 +74,7 @@ final class Mailbox
             'is_draft'        => !empty($flags['draft']) ? 1 : 0,
             'priority'        => $parsed->priority(),
             'storage_path'    => $rel,
+            'raw_prefix'      => $prefix,
             'draft_meta'      => isset($flags['draft_meta']) ? json_encode($flags['draft_meta']) : '',
             'scheduled_at'    => max(0, (int) ($flags['draft_meta']['scheduled_at'] ?? 0)),
             'created_at'      => time(),
@@ -112,8 +128,37 @@ final class Mailbox
         return DB::one('SELECT * FROM messages WHERE id = :id AND user_id = :u' . self::privacySql($userId), ['id' => $id, 'u' => $userId]);
     }
 
+    /** The common part of a message delivered to several people, written once. Returns its path. */
+    public static function writeShared(string $raw): string
+    {
+        $rel = sprintf('mail/shared/%s/%s.eml', date('Y/m'), bin2hex(random_bytes(16)));
+        $path = storage_path($rel);
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0750, true);
+        }
+        file_put_contents($path, str_replace(["\r\n", "\r"], "\n", $raw), LOCK_EX);
+        return $rel;
+    }
+
+    /** Delete a message file once no message points to it any more. */
+    public static function releaseFile(string $rel): void
+    {
+        if ($rel === '' || DB::value('SELECT 1 FROM messages WHERE storage_path = :p LIMIT 1', ['p' => $rel])) {
+            return;
+        }
+        $path = storage_path($rel);
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    /** The whole message: this person's own header lines, then the stored file. */
     public static function raw(array $msg): string
     {
+        if (!array_key_exists('raw_prefix', $msg) && isset($msg['id'])) {
+            $msg['raw_prefix'] = (string) DB::value('SELECT raw_prefix FROM messages WHERE id = :id', ['id' => $msg['id']]);
+        }
+        $prefix = (string) ($msg['raw_prefix'] ?? '');
         $path = storage_path($msg['storage_path']);
         $real = realpath($path);
         $base = realpath(storage_path('mail'));
@@ -126,7 +171,7 @@ final class Mailbox
             error_log('[m4w] message ' . (int) ($msg['id'] ?? 0) . ': file not readable by this process (owner ' . $o . '): ' . $msg['storage_path']);
             return '';
         }
-        return (string) file_get_contents($real);
+        return $prefix . (string) file_get_contents($real);
     }
 
     public static function parsed(array $msg): ParsedMessage
@@ -165,8 +210,16 @@ final class Mailbox
             $where[] = 'm.has_attachments = 1';
         }
 
+        $base = [$where, $params];
+        $usedFts = false;
         if ($q !== '') {
-            self::applySearch($q, $where, $params);
+            self::applySearch($q, $where, $params, true, $usedFts);
+            // Nothing through the index: the plain search, which also finds parts of words
+            // ("4web" in make4web), so a search that used to find something still does.
+            if ($usedFts && !(int) DB::value('SELECT COUNT(*) FROM messages m WHERE ' . implode(' AND ', $where) . self::privacySql($userId, 'm'), $params)) {
+                [$where, $params] = $base;
+                self::applySearch($q, $where, $params, false);
+            }
         }
         $whereSql = implode(' AND ', $where) . self::privacySql($userId, 'm');
         $limit = max(10, min(200, (int) ($opts['limit'] ?? 50)));
@@ -203,7 +256,7 @@ final class Mailbox
     }
 
     /** Gmail-like operators: from:, to:, subject:, has:attachment, is:unread, is:starred, before:, after:, larger: */
-    private static function applySearch(string $q, array &$where, array &$params): void
+    private static function applySearch(string $q, array &$where, array &$params, bool $fts = true, bool &$usedFts = false): void
     {
         $i = 0;
         preg_match_all('/(\w+):("[^"]*"|\S+)|"([^"]+)"|(\S+)/u', $q, $matches, PREG_SET_ORDER);
@@ -264,6 +317,12 @@ final class Mailbox
                     break;
                 default:
                     $term = $key !== '' ? $m[0] : $val;
+                    // Full-text index first (fast, accents ignored); LIKE for what it cannot answer.
+                    if ($fts && ($cond = Search::condition($term, $p, $params)) !== null) {
+                        $where[] = $cond;
+                        $usedFts = true;
+                        break;
+                    }
                     $params[$p] = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)) . '%';
                     $where[] = "(LOWER(m.subject) LIKE :$p ESCAPE '!' OR LOWER(m.from_name) LIKE :$p ESCAPE '!' OR LOWER(m.from_email) LIKE :$p ESCAPE '!'"
                         . " OR LOWER(m.to_list) LIKE :$p ESCAPE '!' OR LOWER(m.body_text) LIKE :$p ESCAPE '!' OR LOWER(m.attachments) LIKE :$p ESCAPE '!')";
@@ -297,6 +356,7 @@ final class Mailbox
             'pinned'      => isset($m['pin_cnt']) ? (int) $m['pin_cnt'] > 0 : (bool) ($m['is_pinned'] ?? 0),
             'priority'    => (int) $m['priority'],
             'scheduled'   => (int) ($m['scheduled_at'] ?? 0),
+            'bimi'        => (string) ($m['bimi'] ?? ''),
         ];
     }
 
@@ -414,10 +474,8 @@ final class Mailbox
         }
         DB::delete('messages', 'id = :id AND user_id = :u', ['id' => $row['id'], 'u' => $userId]);
         MailAssets::forget([(int) $row['id']]);
-        $path = storage_path($row['storage_path']);
-        if ($row['storage_path'] !== '' && is_file($path)) {
-            @unlink($path);
-        }
+        // Shared by the other recipients of the same delivery (or a copy filed by a rule): kept for them.
+        self::releaseFile((string) $row['storage_path']);
         DB::run('UPDATE users SET used_bytes = CASE WHEN used_bytes > :s THEN used_bytes - :s2 ELSE 0 END WHERE id = :u',
             ['s' => (int) $row['size'], 's2' => (int) $row['size'], 'u' => $userId]);
     }

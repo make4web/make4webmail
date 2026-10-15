@@ -255,6 +255,8 @@ final class MailController extends Controller
             'fetched'     => self::fetchedFrom($parsed),
             'invitation'  => $m['has_attachments'] && !$m['is_draft'] ? self::invitation($u, $parsed) : null,
             'text'        => mb_substr($parsed->text(), 0, 50000),
+            'bimi'        => (string) ($m['bimi'] ?? ''),
+            'bimi_vmc'    => ($m['bimi'] ?? '') !== '' && \M4W\Service\Bimi::verified((string) $m['bimi']),
         ];
     }
 
@@ -378,6 +380,23 @@ final class MailController extends Controller
             'Content-Security-Policy' => "default-src 'none'; img-src $imgSrc; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox",
             'X-Frame-Options' => 'SAMEORIGIN',
             'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    /** Sender's logo (BIMI), cleaned and served by the server: the sender never sees who opens. */
+    public function bimi(string $domain): Response
+    {
+        $this->user();
+        Session::close();
+        $path = \M4W\Service\Bimi::file(strtolower($domain));
+        if ($path === null) {
+            return new Response('', 404);
+        }
+        return new Response((string) file_get_contents($path), 200, [
+            'Content-Type' => 'image/svg+xml',
+            'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, max-age=86400',
         ]);
     }
 

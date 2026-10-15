@@ -1012,6 +1012,7 @@ final class AdminController extends Controller
             'security.forward_whitelist' => mb_strtolower($r->str('forward_whitelist')),
             'security.block_remote_images' => $r->bool('block_remote_images') ? 1 : 0,
             'security.image_proxy' => $r->bool('image_proxy') ? 1 : 0,
+            'security.bimi' => in_array($r->str('bimi'), ['dmarc', 'vmc', 'off'], true) ? $r->str('bimi') : 'dmarc',
             'security.antivirus' => $r->bool('antivirus') ? 1 : 0,
             'security.clamd' => preg_match('#^(unix:///[\w./-]+|tcp://[a-z0-9.\-\[\]:]+:\d{1,5})$#i', $r->str('clamd')) ? $r->str('clamd') : 'unix:///var/run/clamav/clamd.ctl',
             'security.block_executables' => $r->bool('block_executables') ? 1 : 0,

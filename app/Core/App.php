@@ -230,6 +230,7 @@ final class App
         $r->post('/api/messages/action', [Controller\MailController::class, 'action']);
         $r->get('/api/messages/{id}', [Controller\MailController::class, 'show']);
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
+        $r->get('/api/bimi/{domain}', [Controller\MailController::class, 'bimi']);
         $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
         $r->get('/api/messages/{id}/part/{part}/preview', [Controller\MailController::class, 'partPreview']);

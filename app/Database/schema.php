@@ -872,4 +872,51 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX provider_copies_user ON provider_copies(user_id)",
 ],
+29 => [
+// BIMI: the sender's logo, kept per domain (cleaned SVG, mark certificate checked or not), and
+// the domain whose logo goes with each message ('' = initials).
+"ALTER TABLE messages ADD COLUMN bimi VARCHAR(190) NOT NULL DEFAULT ''",
+"CREATE TABLE bimi_logos (
+  id {PK},
+  domain VARCHAR(190) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'none',
+  file VARCHAR(80) NOT NULL DEFAULT '',
+  vmc INTEGER NOT NULL DEFAULT 0,
+  error VARCHAR(255) NOT NULL DEFAULT '',
+  checked_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX bimi_logos_domain ON bimi_logos(domain)",
+],
+30 => [
+// PHP sessions in the database (shared by several web servers): the id is stored hashed.
+"CREATE TABLE php_sessions (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  data {TEXT},
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX php_sessions_updated ON php_sessions(updated_at)",
+],
+31 => [
+// One file for all the recipients of a delivery: each message keeps its own header lines here,
+// and a file is deleted only when no message points to it any more.
+"ALTER TABLE messages ADD COLUMN raw_prefix {TEXT}",
+static function (): void {
+    try {
+        \M4W\Core\Database::pdo()->exec('CREATE INDEX messages_storage ON messages(storage_path)');
+    } catch (\PDOException $e) {
+        if (\M4W\Core\Database::driver() !== 'mysql') {
+            throw $e;
+        }
+        // Older MySQL (767-byte index keys): the beginning of the path is enough.
+        \M4W\Core\Database::pdo()->exec('CREATE INDEX messages_storage ON messages(storage_path(191))');
+    }
+},
+],
+32 => [
+// Files: the same content is stored once (by SHA-256) and removed when nothing uses it.
+"ALTER TABLE fs_blobs ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX fs_blobs_sha ON fs_blobs(sha256)",
+"CREATE INDEX fs_files_blob ON fs_files(blob_id)",
+"CREATE INDEX fs_versions_blob ON fs_versions(blob_id)",
+],
 ];

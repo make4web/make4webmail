@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace M4W\Service;
 
+use M4W\Core\Database as DB;
 use M4W\Core\Settings;
 use M4W\Mail\Address;
 use M4W\Mail\MimeBuilder;
@@ -55,6 +56,18 @@ final class Delivery
         $spamBase = $source !== 'local' && SpamFilter::enabled() ? SpamFilter::evaluate($parsed, $auth, $envelopeFrom) : null;
         $results = [];
         $done = [];
+        // Sender's logo (BIMI): looked up once per message, shown only if DMARC vouches for it.
+        $bimi = $disposable === '' && !$suspicious ? Bimi::forMessage($parsed, $raw, $auth, $source) : '';
+
+        // Several people of this server: the message is written once, each keeps its own header lines.
+        $people = [];
+        foreach ($recipients as $r) {
+            if ($u = Users::resolveLocal($r)) {
+                $people[(int) $u['id']] = true;
+            }
+        }
+        $shared = count($people) > 1;
+        $sharedFile = null;
 
         foreach ($recipients as $rcpt) {
             $user = Users::resolveLocal($rcpt);
@@ -73,7 +86,8 @@ final class Delivery
                 Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'rejected', 'quota');
                 continue;
             }
-            $userRaw = 'Delivered-To: ' . $user['email'] . "\n" . $raw;
+            $prefix = 'Delivered-To: ' . $user['email'] . "\n";
+            $userRaw = $prefix . $raw;
             $isLoop = in_array(mb_strtolower($user['email']), $loopHeaders, true);
 
             // Spam filter: inbox, Junk (suspect), administrators' quarantine, or deleted.
@@ -85,6 +99,7 @@ final class Delivery
             }
             if ($spam) {
                 $spam['level'] = $level;
+                $prefix = SpamFilter::header($spam) . $prefix;
                 $userRaw = SpamFilter::header($spam) . $userRaw;
             }
             if ($level === 'delete' || $level === 'quarantine') {
@@ -142,7 +157,16 @@ final class Delivery
             }
 
             // 4. Store.
-            $newId = Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            if ($shared) {
+                $sharedFile ??= Mailbox::writeShared($raw);
+                $newId = Mailbox::store($uid, $folderId, $raw, ['read' => $actions['read'], 'flagged' => $actions['flag'], 'file' => $sharedFile, 'prefix' => $prefix], $parsed);
+            } else {
+                $newId = Mailbox::store($uid, $folderId, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+            }
+            $stored = DB::one('SELECT storage_path, raw_prefix FROM messages WHERE id = :id', ['id' => $newId]);
+            if ($bimi !== '' && $level === 'ok') {
+                DB::update('messages', ['bimi' => $bimi], 'id = :id', ['id' => $newId]);
+            }
             // Phone / desktop notification, like the in-page one: unread mail landing in the inbox.
             if (!$actions['read'] && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
                 try {
@@ -159,7 +183,9 @@ final class Delivery
             $copyIds = [];
             foreach (array_unique($actions['copies']) as $copy) {
                 if ($copy !== $folderId) {
-                    $copyIds[] = Mailbox::store($uid, $copy, $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag']], $parsed);
+                    // Filed in a second folder by a rule: same file, no second copy on disk.
+                    $copyIds[] = Mailbox::store($uid, $copy, $shared ? $raw : $userRaw, ['read' => $actions['read'], 'flagged' => $actions['flag'],
+                        'file' => (string) $stored['storage_path'], 'prefix' => (string) $stored['raw_prefix']], $parsed);
                 }
             }
             // Remote pictures are fetched by the server soon after delivery, never at reading time.

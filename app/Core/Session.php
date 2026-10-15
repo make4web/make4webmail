@@ -16,17 +16,22 @@ final class Session
             }
             return;
         }
-        $dir = Config::storagePath('sessions');
-        if (!is_dir($dir)) {
-            mkdir($dir, 0700, true);
-        }
         ini_set('session.use_strict_mode', '1');
         ini_set('session.use_only_cookies', '1');
         ini_set('session.use_trans_sid', '0');
         ini_set('session.sid_length', '48');
         ini_set('session.sid_bits_per_character', '6');
         ini_set('session.gc_maxlifetime', (string) (max(60, (int) Settings::get('security.session_absolute', 720)) * 60));
-        session_save_path($dir);
+        if (Config::installed() && Config::get('session_store', 'database') !== 'files') {
+            // In the database: shared by every web server behind a load balancer.
+            session_set_save_handler(new DbSessionHandler(), true);
+        } else {
+            $dir = Config::storagePath('sessions');
+            if (!is_dir($dir)) {
+                mkdir($dir, 0700, true);
+            }
+            session_save_path($dir);
+        }
         session_name('m4w_sid');
         session_set_cookie_params([
             'lifetime' => 0,

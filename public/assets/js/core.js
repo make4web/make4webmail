@@ -40,9 +40,29 @@
     for (var i = 0; i < seed.length; i++) { h = ((h << 5) - h + seed.charCodeAt(i)) | 0; }
     return PALETTE[Math.abs(h) % PALETTE.length];
   };
-  M4W.avatar = function (name, email, cls) {
-    return '<span class="m4w-avatar ' + (cls || '') + '" style="background:' + M4W.color(email || name) + '" aria-hidden="true">' + M4W.esc(M4W.initials(name || email)) + '</span>';
+  /**
+   * Initials in a coloured circle, or the sender's logo (BIMI) when the server vouched for it:
+   * served by our server, never fetched from the sender. Back to initials if it does not load.
+   */
+  M4W.avatar = function (name, email, cls, logo, verified) {
+    var initials = M4W.esc(M4W.initials(name || email)), bg = M4W.color(email || name);
+    if (logo && /^[a-z0-9.-]{1,190}$/.test(logo)) {
+      var tip = M4W.t(verified ? 'bimi_vmc' : 'bimi_logo', { domain: logo });
+      return '<span class="m4w-avatar has-logo ' + (cls || '') + (verified ? ' is-verified' : '') + '" data-bg="' + bg + '" data-initials="' + initials + '" title="' + M4W.esc(tip) + '">'
+        + '<img src="' + M4W.esc(M4W.url('api/bimi/' + logo)) + '" alt="" loading="lazy" decoding="async"></span>';
+    }
+    return '<span class="m4w-avatar ' + (cls || '') + '" style="background:' + bg + '" aria-hidden="true">' + initials + '</span>';
   };
+  document.addEventListener('error', function (e) {
+    var img = e.target, box = img && img.parentNode;
+    if (img.tagName === 'IMG' && box && box.classList && box.classList.contains('has-logo')) {
+      box.classList.remove('has-logo', 'is-verified');
+      box.style.background = box.getAttribute('data-bg');
+      box.removeAttribute('title');
+      box.setAttribute('aria-hidden', 'true');
+      box.textContent = box.getAttribute('data-initials');
+    }
+  }, true);
   M4W.bytes = function (n) {
     var u = M4W.t('bytes_units').split(','), i = 0; n = +n || 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }

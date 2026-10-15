@@ -42,6 +42,9 @@
     <div class="m4w-section-title"><i class="bi bi-envelope-exclamation me-2 text-primary"></i><?= te('admin.mail_policy') ?></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.block_images') ?><small><?= te('admin.block_images_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="block_remote_images" value="1" <?= S::get('security.block_remote_images') ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.image_proxy') ?><small><?= te('admin.image_proxy_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="image_proxy" value="1" aria-label="<?= te('admin.image_proxy') ?>" <?= S::get('security.image_proxy') ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><label for="sec-bimi"><?= te('admin.bimi') ?></label><small><?= te('admin.bimi_desc') ?></small></div><div>
+      <select class="form-select" style="max-width:420px" id="sec-bimi" name="bimi"><?php $bm = M4W\Service\Bimi::mode(); foreach (['dmarc', 'vmc', 'off'] as $o): ?><option value="<?= $o ?>"<?= $bm === $o ? ' selected' : '' ?>><?= te('admin.bimi_' . $o) ?></option><?php endforeach; ?></select>
+    </div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.image_max_px') ?></div><div class="input-group" style="max-width:180px"><input class="form-control" type="number" min="200" max="4000" name="image_max_px" aria-label="<?= te('admin.image_max_px') ?>" value="<?= (int) S::get('security.image_max_px') ?>"><span class="input-group-text">px</span></div></div>
   </div>
   <div class="m4w-section" id="antivirus">

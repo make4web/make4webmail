@@ -165,6 +165,12 @@ final class Health
                         : (str_contains(preg_replace('/\s+/', '', $rec) ?? '', $pub) ? ['ok', t('health.dkim_ok', ['selector' => $selector])] : ['fail', t('health.dkim_mismatch')]);
                 }
             }
+            // BIMI (optional): the logo other mail apps may show next to our messages.
+            try {
+                $out['bimi:' . $d] = Bimi::check($d);
+            } catch (\Throwable $e) {
+                $out['bimi:' . $d] = ['warn', mb_substr($e->getMessage(), 0, 200)];
+            }
         }
         return $out;
     }

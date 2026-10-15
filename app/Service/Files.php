@@ -725,13 +725,25 @@ final class Files
         }
     }
 
-    /** Store a local file as a new blob; returns [id, size, sha256]. */
+    /**
+     * Store a local file; returns [blob id, size, sha256]. Content already stored (the same
+     * document uploaded by several people, a copy, a version brought back) is not stored again:
+     * the existing blob is used.
+     */
     private static function storeBlob(string $path): array
     {
         $size = (int) filesize($path);
+        // Checked on the full size even when the content is already stored: whether an upload
+        // passes must never tell that someone else holds the same file.
         self::checkQuota($size);
-        $id = bin2hex(random_bytes(16));
         $sha = (string) hash_file('sha256', $path);
+        $dup = DB::one('SELECT id, size FROM fs_blobs WHERE sha256 = :s AND size = :z ORDER BY created_at LIMIT 1', ['s' => $sha, 'z' => $size]);
+        if ($dup && Storage::store()->exists((string) $dup['id'])) {
+            // Marked as just used: a deletion happening at this very moment leaves it alone.
+            DB::update('fs_blobs', ['last_used_at' => time()], 'id = :id', ['id' => $dup['id']]);
+            return [(string) $dup['id'], (int) $dup['size'], $sha];
+        }
+        $id = bin2hex(random_bytes(16));
         $in = fopen($path, 'rb');
         if (!$in) {
             throw new \RuntimeException('Cannot read file');
@@ -748,10 +760,41 @@ final class Files
         return [$id, $size, $sha];
     }
 
-    private static function deleteBlob(string $id): void
+    /** Seconds a blob just reused by an upload is kept, even with nothing pointing to it yet. */
+    private const BLOB_GRACE = 600;
+
+    /**
+     * Called once the rows pointing to a blob are deleted: the content goes at once when no file
+     * and no version uses it any more (it may be shared since deduplication). A blob reused in
+     * the last minutes is left alone (an upload may be about to point to it): gcBlobs() takes it later.
+     */
+    private static function releaseBlob(string $id): void
     {
+        if ($id === '' || DB::value('SELECT 1 FROM fs_files WHERE blob_id = :b LIMIT 1', ['b' => $id])
+            || DB::value('SELECT 1 FROM fs_versions WHERE blob_id = :b LIMIT 1', ['b' => $id])
+            || (int) DB::value('SELECT last_used_at FROM fs_blobs WHERE id = :b', ['b' => $id]) > time() - self::BLOB_GRACE) {
+            return;
+        }
         Storage::store()->delete($id);
         DB::delete('fs_blobs', 'id = :id', ['id' => $id]);
+    }
+
+    /** Scheduled task: contents no file or version uses any more. */
+    public static function gcBlobs(): int
+    {
+        $n = 0;
+        $rows = DB::all('SELECT b.id FROM fs_blobs b WHERE b.last_used_at < :t AND b.created_at < :t2
+            AND NOT EXISTS (SELECT 1 FROM fs_files f WHERE f.blob_id = b.id) AND NOT EXISTS (SELECT 1 FROM fs_versions v WHERE v.blob_id = b.id) LIMIT 500',
+            ['t' => time() - self::BLOB_GRACE, 't2' => time() - self::BLOB_GRACE]);
+        foreach ($rows as $r) {
+            try {
+                self::releaseBlob((string) $r['id']);
+                $n++;
+            } catch (\Throwable $e) {
+                error_log('[m4w] files gc ' . $r['id'] . ': ' . $e->getMessage()); // the others still go
+            }
+        }
+        return $n;
     }
 
     public static function sniffMime(string $path, string $name): string
@@ -870,8 +913,8 @@ final class Files
         $keep = max(0, (int) Settings::get('files.versions', 10));
         $old = DB::all('SELECT id, blob_id FROM fs_versions WHERE file_id = :f ORDER BY version DESC', ['f' => $fileId]);
         foreach (array_slice($old, $keep) as $v) {
-            self::deleteBlob($v['blob_id']);
             DB::delete('fs_versions', 'id = :id', ['id' => $v['id']]);
+            self::releaseBlob((string) $v['blob_id']);
         }
     }
 
@@ -1298,13 +1341,15 @@ final class Files
         if (!$f) {
             return;
         }
-        foreach (DB::all('SELECT blob_id FROM fs_versions WHERE file_id = :f', ['f' => $id]) as $v) {
-            self::deleteBlob($v['blob_id']);
-        }
+        $blobs = array_column(DB::all('SELECT blob_id FROM fs_versions WHERE file_id = :f', ['f' => $id]), 'blob_id');
+        $blobs[] = $f['blob_id'];
         DB::delete('fs_versions', 'file_id = :f', ['f' => $id]);
         DB::delete('fs_file_acl', 'file_id = :f', ['f' => $id]);
-        self::deleteBlob($f['blob_id']);
         DB::delete('fs_files', 'id = :id', ['id' => $id]);
+        // Once nothing points to them: a blob may be shared with other files (same content).
+        foreach (array_unique($blobs) as $b) {
+            self::releaseBlob((string) $b);
+        }
     }
 
     public static function destroyFolder(int $id, int $depth = 0): void

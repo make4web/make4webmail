@@ -58,6 +58,7 @@ final class Installer
             }
         }
         Migrator::migrate();
+        Search::ensureIndex();
         Settings::flush();
         Settings::setMany([
             'brand.name' => $d['brand'] ?: 'Make4WebMail',

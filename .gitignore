@@ -9,3 +9,4 @@
 !/storage/**/.gitkeep
 /tests/_tmp/
 .DS_Store
+/storage/bimi/*

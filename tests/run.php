@@ -14,9 +14,22 @@ if (is_dir($tmp)) {
 }
 mkdir($tmp . '/storage', 0777, true);
 $config = $tmp . '/config.php';
+// M4W_TEST_MYSQL=host:port/database/user/password runs the suite against MySQL / MariaDB
+// (the database is emptied first: use a dedicated one).
+$db = ['driver' => 'sqlite', 'path' => $tmp . '/storage/test.sqlite'];
+if (($my = getenv('M4W_TEST_MYSQL')) && preg_match('#^([^:/]+):(\d+)/([^/]+)/([^/]+)/(.*)$#', $my, $mm)) {
+    $db = ['driver' => 'mysql', 'host' => $mm[1], 'port' => (int) $mm[2], 'name' => $mm[3], 'user' => $mm[4], 'pass' => $mm[5]];
+    $pdo = new PDO("mysql:host={$mm[1]};port={$mm[2]};dbname={$mm[3]};charset=utf8mb4", $mm[4], $mm[5], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+    foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $tbl) {
+        $pdo->exec('DROP TABLE `' . str_replace('`', '', $tbl) . '`');
+    }
+    $pdo = null;
+    echo "Database: MySQL {$mm[1]}:{$mm[2]}/{$mm[3]}\n";
+}
 file_put_contents($config, "<?php return " . var_export([
     'debug' => true, 'timezone' => 'Europe/Paris', 'storage_path' => $tmp . '/storage',
-    'db' => ['driver' => 'sqlite', 'path' => $tmp . '/storage/test.sqlite'], 'app_key' => '', 'base_url' => '',
+    'db' => $db, 'app_key' => '', 'base_url' => '',
 ], true) . ';');
 putenv('M4W_CONFIG=' . $config);
 require dirname(__DIR__) . '/app/bootstrap.php';
@@ -33,7 +46,10 @@ use M4W\Mail\HtmlSanitizer;
 use M4W\Mail\MimeBuilder;
 use M4W\Mail\MimeParser;
 use M4W\Service\Composer;
+use M4W\Service\Bimi;
 use M4W\Service\Delivery;
+use M4W\Storage\Storage;
+use M4W\Service\Search;
 use M4W\Service\Folders;
 use M4W\Service\Forwarding;
 use M4W\Service\Installer;
@@ -2130,6 +2146,389 @@ Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
 
 // ------------------------------------------------------------------ message pictures
+echo "\nSessions in the database\n";
+test('sessions: stored hashed, read back, refreshed sparingly, expired and purged', function () {
+    $h = new M4W\Core\DbSessionHandler();
+    $id = 'sessTEST' . bin2hex(random_bytes(16));
+    eq($h->validateId($id), false, 'unknown id refused (strict mode)');
+    eq($h->read($id), '', 'new session is empty');
+    $data = "user|i:5;bin|s:4:\"\x00\xff\n'\";csrf|s:3:\"abc\";";
+    ok($h->write($id, $data));
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => $id]), 0, 'raw id never stored');
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 1, 'stored under its hash');
+    eq((new M4W\Core\DbSessionHandler())->read($id), $data, 'binary-safe, read by another server');
+    ok($h->validateId($id));
+    ok($h->write($id, $data), 'rewriting the same data');
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 1, 'one row');
+    // Unchanged: time refreshed at most once a minute.
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - 30, 'i' => hash('sha256', $id)]);
+    $h->updateTimestamp($id, $data);
+    eq((int) DB::value('SELECT updated_at FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), time() - 30, 'not rewritten within a minute');
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - 90, 'i' => hash('sha256', $id)]);
+    $h->updateTimestamp($id, $data);
+    ok((int) DB::value('SELECT updated_at FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]) >= time() - 1, 'refreshed after a minute');
+    // Expired: no longer valid nor readable, then purged.
+    DB::run('UPDATE php_sessions SET updated_at = :t WHERE id = :i', ['t' => time() - M4W\Core\DbSessionHandler::lifetime() - 10, 'i' => hash('sha256', $id)]);
+    eq([$h->validateId($id), $h->read($id)], [false, ''], 'expired');
+    ok(M4W\Core\DbSessionHandler::purge(M4W\Core\DbSessionHandler::lifetime()) >= 1);
+    eq((int) DB::value('SELECT COUNT(*) FROM php_sessions WHERE id = :i', ['i' => hash('sha256', $id)]), 0, 'purged');
+    $h->write($id, 'x|i:1;');
+    $h->destroy($id);
+    eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
+});
+
+echo "\nFiles: same content stored once\n";
+test('files: identical contents stored once, kept while used, removed when nothing uses them', function () use ($fsFile) {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$p, $q] = [$mk('dd.p@test.local'), $mk('dd.q@test.local')];
+    $rootP = (int) Files::personalRoot((int) $p['id'])['id'];
+    $rootQ = (int) Files::personalRoot((int) $q['id'])['id'];
+    $big = random_bytes(200000);
+    $blobs = static fn() => (int) DB::value('SELECT COUNT(*) FROM fs_blobs');
+    $n0 = $blobs();
+    $u0 = Files::usage()['used'];
+    $fp = Files::addFromPath($p, $rootP, $fsFile($big), 'contrat.pdf');
+    $fq = Files::addFromPath($q, $rootQ, $fsFile($big), 'contrat (copie).pdf');
+    $bp = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fp['id']]);
+    $bq = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fq['id']]);
+    eq($bp, $bq, 'same content, one blob');
+    eq($blobs() - $n0, 1);
+    eq(Files::usage()['used'] - $u0, 200000, 'space used once');
+    eq([(int) $fp['size'], (int) $fq['size']], [200000, 200000], 'each file shows its full size');
+    $other = Files::addFromPath($q, $rootQ, $fsFile($big . 'x'), 'autre.pdf');
+    ok((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $other['id']]) !== $bp, 'a different content is a different blob');
+    // P deletes his for good: Q still reads hers, whole.
+    Files::destroyFile((int) $fp['id']);
+    ok(Storage::store()->exists($bp), 'kept while another file uses it');
+    eq(Files::contents($bq), $big, 'other file intact');
+    // Versions: back to an earlier content reuses its blob; pruning versions never takes it from the file.
+    $fv = Files::addFromPath($q, $rootQ, $fsFile('version A'), 'note.txt');
+    Files::putContent($q, (int) $fv['id'], $fsFile('version B'));
+    Files::putContent($q, (int) $fv['id'], $fsFile('version A'));
+    $cur = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fv['id']]);
+    ok((bool) DB::value('SELECT 1 FROM fs_versions WHERE file_id = :f AND blob_id = :b', ['f' => $fv['id'], 'b' => $cur]), 'version 1 and the current one share a blob');
+    Settings::set('files.versions', 0);
+    Files::putContent($q, (int) $fv['id'], $fsFile('version C'));
+    Settings::set('files.versions', 10);
+    eq(Files::contents((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fv['id']])), 'version C');
+    // Q deletes the shared one: kept for a while (an upload may be about to reuse it), then cleaned up.
+    Files::destroyFile((int) $fq['id']);
+    ok(Storage::store()->exists($bq), 'just used: kept for the grace period');
+    DB::run('UPDATE fs_blobs SET last_used_at = :t, created_at = :t2 WHERE id = :b', ['t' => time() - 3600, 't2' => time() - 3600, 'b' => $bq]);
+    ok(Files::gcBlobs() >= 1);
+    ok(!Storage::store()->exists($bq) && !DB::value('SELECT 1 FROM fs_blobs WHERE id = :b', ['b' => $bq]), 'nothing uses it any more: removed');
+    eq(Files::usage()['used'] - $u0 >= 0, true);
+    // The clean-up never takes a blob still used by a file or a version.
+    DB::run('UPDATE fs_blobs SET last_used_at = 0, created_at = 0');
+    Files::gcBlobs();
+    foreach (DB::all('SELECT blob_id FROM fs_files UNION SELECT blob_id FROM fs_versions') as $r) {
+        ok(Storage::store()->exists((string) $r['blob_id']), 'still there: ' . $r['blob_id']);
+    }
+    eq(Files::contents((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $other['id']])), $big . 'x');
+    // Quota full: refused even for a content already stored (no hint that someone holds it).
+    Settings::set('files.quota_gb', 1);
+    DB::insert('fs_blobs', ['id' => 'fake-full', 'size' => 1024 ** 3, 'sha256' => '', 'created_at' => time()]);
+    $thrown = false;
+    try { Files::addFromPath($q, $rootQ, $fsFile($big . 'x'), 'encore.pdf'); } catch (\InvalidArgumentException) { $thrown = true; }
+    DB::delete('fs_blobs', "id = 'fake-full'");
+    Settings::set('files.quota_gb', 0);
+    ok($thrown, 'quota checked on the full size');
+    // Same behaviour with contents kept as plain files on disk.
+    $dir = sys_get_temp_dir() . '/m4w-local-' . bin2hex(random_bytes(4));
+    Storage::use(new M4W\Storage\LocalStore($dir));
+    try {
+        $l1 = Files::addFromPath($p, $rootP, $fsFile('sur disque'), 'd1.txt');
+        $l2 = Files::addFromPath($q, $rootQ, $fsFile('sur disque'), 'd2.txt');
+        $lb = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $l1['id']]);
+        eq((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $l2['id']]), $lb, 'one blob on disk');
+        Files::destroyFile((int) $l1['id']);
+        eq(Files::contents($lb), 'sur disque', 'kept for the other file');
+        DB::run('UPDATE fs_blobs SET last_used_at = 0 WHERE id = :b', ['b' => $lb]);
+        Files::destroyFile((int) $l2['id']);
+        ok(!Storage::store()->exists($lb), 'removed from disk with the last file');
+    } finally {
+        Storage::use(null);
+        exec('rm -rf ' . escapeshellarg($dir));
+    }
+    Users::delete((int) $p['id']);
+    Users::delete((int) $q['id']);
+});
+
+echo "\nOne file per delivery\n";
+test('delivery to several people: one file, each keeps its own headers, the file goes with the last message', function () {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$a, $b, $c] = [$mk('dup.a@test.local'), $mk('dup.b@test.local'), $mk('dup.c@test.local')];
+    $proj = (int) DB::insert('folders', ['user_id' => $c['id'], 'name' => 'Projet partagé', 'role' => null, 'created_at' => time()]);
+    DB::insert('rules', RuleEngine::normalize((int) $c['id'], ['name' => 'Copie', 'enabled' => 1, 'match_type' => 'all',
+        'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'Budget']], 'actions' => [['type' => 'copy', 'folder' => $proj]]])
+        + ['user_id' => $c['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    $used = static fn(array $u) => (int) DB::value('SELECT used_bytes FROM users WHERE id = :u', ['u' => $u['id']]);
+    $before = [$used($a), $used($b), $used($c)];
+    $attach = base64_encode(random_bytes(30000));
+    $raw = "From: Boss <boss@ext.test>\nTo: dup.a@test.local, dup.b@test.local, dup.c@test.local\nSubject: Budget 2027\nMessage-ID: <dup-1@ext.test>\nDate: " . date('r')
+        . "\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=zz\n\n--zz\nContent-Type: text/plain; charset=utf-8\n\nVoici le budget.\n--zz\nContent-Type: application/pdf; name=b.pdf\nContent-Disposition: attachment; filename=b.pdf\nContent-Transfer-Encoding: base64\n\n"
+        . chunk_split($attach, 76, "\n") . "--zz--\n";
+    $res = Delivery::deliver($raw, 'boss@ext.test', ['dup.a@test.local', 'dup.b@test.local', 'dup.c@test.local'], 'local');
+    eq(array_values($res), ['ok', 'ok', 'ok']);
+    $rows = DB::all("SELECT * FROM messages WHERE message_id = 'dup-1@ext.test' ORDER BY user_id, folder_id");
+    eq(count($rows), 4, 'three people, one of them filed twice by a rule');
+    eq(count(array_unique(array_column($rows, 'storage_path'))), 1, 'one file for all');
+    ok(str_starts_with($rows[0]['storage_path'], 'mail/shared/'), 'outside any person\'s folder');
+    foreach ([$a, $b, $c] as $u) {
+        $m = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $u['id']]);
+        $r = Mailbox::raw($m);
+        ok(str_starts_with($r, 'Delivered-To: ' . $u['email'] . "\n"), 'own Delivered-To: ' . $u['email']);
+        eq(substr_count($r, 'Delivered-To:'), 1, 'and only it');
+        $p = Mailbox::parsed($m);
+        eq([$p->subject(), count($p->attachmentList())], ['Budget 2027', 1], 'whole message readable');
+        eq(Mailbox::raw(['id' => $m['id'], 'storage_path' => $m['storage_path']]), $r, 'partial row: own lines fetched');
+    }
+    // Each quota counts the whole message, as before.
+    $size = (int) $rows[0]['size'];
+    ok($size > 30000);
+    eq([$used($a) - $before[0], $used($b) - $before[1]], [(int) DB::value('SELECT size FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $a['id']]), (int) DB::value('SELECT size FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $b['id']])]);
+    $file = storage_path($rows[0]['storage_path']);
+    ok(is_file($file));
+    // Deleted by A for good: the others still have it.
+    $ma = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $a['id']]);
+    Mailbox::delete((int) $a['id'], [(int) $ma['id']], true);
+    ok(is_file($file), 'kept for the others');
+    $mb = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $b['id']]);
+    eq(Mailbox::parsed($mb)->subject(), 'Budget 2027');
+    // Retention keeps the person's own copy (with their Delivered-To).
+    Settings::set('retention.enabled', 1);
+    $kept = Retention::keep($mb, 'deleted');
+    ok($kept !== null, 'retained');
+    $kr = Retention::raw(Retention::find((int) $kept));
+    ok(str_starts_with($kr, 'Delivered-To: dup.b@test.local') && str_contains($kr, 'Voici le budget'), 'retained copy is the person\'s whole message');
+    // B leaves the company: C keeps the message (the file is not in B's folder).
+    Users::delete((int) $b['id']);
+    ok(is_file($file), 'a deleted account does not take the shared file');
+    $mcs = DB::all('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $c['id']]);
+    eq(count($mcs), 2);
+    Mailbox::delete((int) $c['id'], [(int) $mcs[0]['id']], true);
+    ok(is_file($file), 'one copy of C left');
+    eq(Mailbox::parsed(DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $mcs[1]['id']]))->subject(), 'Budget 2027');
+    Mailbox::delete((int) $c['id'], [(int) $mcs[1]['id']], true);
+    ok(!is_file($file), 'last message gone: file deleted');
+    // One person only: as before, in the person's folder, nothing apart.
+    Delivery::deliver(str_replace(['dup-1@', 'Budget 2027'], ['dup-2@', 'Seul'], $raw), 'boss@ext.test', ['dup.a@test.local'], 'local');
+    $one = DB::one("SELECT * FROM messages WHERE message_id = 'dup-2@ext.test'");
+    ok(str_starts_with($one['storage_path'], 'mail/' . $a['id'] . '/') && (string) $one['raw_prefix'] === '', 'single recipient unchanged');
+    ok(str_starts_with(Mailbox::raw($one), 'Delivered-To: dup.a@test.local'));
+    // Messages stored before this change (no own lines in the database) read as before.
+    DB::run('UPDATE messages SET raw_prefix = NULL WHERE id = :i', ['i' => $one['id']]);
+    ok(str_starts_with(Mailbox::raw(DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $one['id']])), 'Delivered-To: dup.a@test.local'));
+    // A file name from elsewhere is never taken as a message file.
+    $id = Mailbox::store((int) $a['id'], (int) Folders::byRole((int) $a['id'], 'inbox')['id'], "Subject: x\n\ny\n", ['file' => '../config/config.php', 'prefix' => 'X: 1\n']);
+    $row = DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $id]);
+    ok(str_starts_with($row['storage_path'], 'mail/' . $a['id'] . '/'), 'unknown file: a new one is written');
+    Users::delete((int) $a['id']);
+    Users::delete((int) $c['id']);
+});
+
+test('delivery to several people: each one\'s own junk verdict, one file', function () {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$x, $y] = [$mk('spam.x@test.local'), $mk('spam.y@test.local')];
+    M4W\Service\TrustedSenders::add((int) $y['id'], 'alertes@fournisseur-dup.com');
+    $raw = "From: Alertes <alertes@fournisseur-dup.com>\nTo: spam.x@test.local, spam.y@test.local\nSubject: URGENT VERIFIEZ VOTRE COMPTE!!!\nMessage-ID: <dup-spam@x.test>\nDate: " . date('r')
+        . "\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n<p>Votre compte est suspendu. V\u{e9}rifiez votre compte : <a href=\"https://secure-verif.example.ru/login\">www.mabanque.fr</a></p>\n";
+    Delivery::deliver($raw, 'alertes@fournisseur-dup.com', ['spam.x@test.local', 'spam.y@test.local'], 'smtp');
+    $mx = DB::one("SELECT * FROM messages WHERE message_id = 'dup-spam@x.test' AND user_id = :u", ['u' => $x['id']]);
+    $my = DB::one("SELECT * FROM messages WHERE message_id = 'dup-spam@x.test' AND user_id = :u", ['u' => $y['id']]);
+    eq($mx['storage_path'], $my['storage_path'], 'one file');
+    eq([(int) $mx['folder_id'], (int) $my['folder_id']], [(int) Folders::byRole((int) $x['id'], 'spam')['id'], (int) Folders::byRole((int) $y['id'], 'inbox')['id']], 'junk for one, inbox for the other');
+    $hx = (string) Mailbox::parsed($mx)->header(SpamFilter::HEADER);
+    $hy = (string) Mailbox::parsed($my)->header(SpamFilter::HEADER);
+    ok(!str_contains($hx, 'USER_TRUSTED') && str_contains($hy, 'USER_TRUSTED'), 'each one\'s own verdict');
+    ok(!str_contains((string) file_get_contents(storage_path($mx['storage_path'])), 'X-M4W-Spam'), 'no verdict in the shared file');
+    eq(substr_count(Mailbox::raw($mx), 'X-M4W-Spam:') + substr_count(Mailbox::raw($my), 'X-M4W-Spam:'), 2, 'one verdict each');
+    Users::delete((int) $x['id']);
+    Users::delete((int) $y['id']);
+    ok(!is_file(storage_path($mx['storage_path'])), 'both accounts gone: file gone');
+});
+
+echo "\nFull-text search\n";
+test('search: full-text index (accents, addresses, attachment names, operators), kept in step, never fewer results than before', function () {
+    $u = Users::find(Users::create(['email' => 'chercheur@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Cher']));
+    $uid = (int) $u['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $put = static function (string $from, string $subject, string $body, string $att = '') use ($uid, $inbox) {
+        $raw = "From: $from\nTo: chercheur@test.local\nSubject: $subject\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@s.test>\nDate: " . date('r') . "\n"
+            . ($att !== '' ? "MIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=b\n\n--b\nContent-Type: text/plain; charset=utf-8\n\n$body\n--b\nContent-Type: application/pdf; name=\"$att\"\nContent-Disposition: attachment; filename=\"$att\"\nContent-Transfer-Encoding: base64\n\nJVBERi0xLjQK\n--b--\n"
+            : "Content-Type: text/plain; charset=utf-8\n\n$body\n");
+        return Mailbox::store($uid, $inbox, $raw);
+    };
+    $ids = [
+        'eleve' => $put('Prof <prof@ecole.test>', 'Résultats de l\'élève', 'Bulletin du trimestre, très bien.'),
+        'facture' => $put('Compta <compta@fournisseur.test>', 'Facture 2026-114', 'Veuillez trouver la facturation de mars.', 'Facture_Mars_2026.pdf'),
+        'martin' => $put('Christophe Martin <christophe.martin@make4web.test>', 'Point projet', 'Rapport mensuel en pièce jointe.'),
+        'rapport' => $put('Bob <bob@test.local>', 'Porte d\'entrée', 'La porte du bureau ferme mal.'),
+        'pv' => $put('Syndic <syndic@immo.test>', 'PV AG', 'Le PV de l\'assemblée est disponible.'),
+        'the' => $put('News <news@en.test>', 'The weekly news', 'All the news that fits.'),
+    ];
+    $find = static function (string $q) use ($uid) {
+        $r = array_map(static fn($i) => (int) $i['id'], Mailbox::list($uid, ['q' => $q, 'limit' => 200])['items']);
+        sort($r);
+        return $r;
+    };
+    $queries = ['élève', 'facture', 'Facture_Mars_2026', 'christophe.martin@make4web.test', 'make4web', 'martin', 'rapport', 'porte', 'PV', 'the', 'news',
+        'from:compta facture', 'subject:projet rapport', '"rapport mensuel"', 'trimestre bulletin', 'inexistant'];
+    // Plain search first (no index), then the index: the same messages, and better on accents.
+    Search::dropIndex();
+    ok(!Search::ready());
+    $before = [];
+    foreach ($queries as $q) {
+        $before[$q] = $find($q);
+    }
+    ok(Search::ensureIndex(), 'index built (' . M4W\Core\Database::driver() . ')');
+    ok(Search::ready());
+    $pp = [];
+    ok(Search::condition('facture', 'x', $pp) !== null, 'the index answers words');
+    $pp = [];
+    eq(Search::condition('PV', 'x', $pp) === null, M4W\Core\Database::driver() === 'mysql', 'MySQL: words under its minimum length go through LIKE');
+    $pp = [];
+    eq(Search::condition('the', 'x', $pp) === null, M4W\Core\Database::driver() === 'mysql', 'MySQL: its stopwords go through LIKE');
+    foreach ($queries as $q) {
+        eq($find($q), $before[$q], 'same results with the index: ' . $q);
+    }
+    eq($find('eleve'), [$ids['eleve']], 'accents ignored: eleve finds élève');
+    eq($find('ÉLÈVE'), [$ids['eleve']], 'case and accents');
+    eq($find('factur'), [$ids['facture']], 'from the beginning of words (facture, facturation)');
+    eq($find('4web'), [$ids['martin']], 'a part of a word: plain search takes over');
+    eq($find('make4web.test'), [$ids['martin']], 'address pieces as a phrase');
+    // Kept in step: new, changed and deleted messages.
+    $new = $put('Neo <neo@x.test>', 'Zygomatique', 'Quinconce extraordinaire.');
+    eq($find('quinconce'), [$new], 'new message indexed at once');
+    M4W\Core\Database::update('messages', ['subject' => 'Brouillon renommé', 'body_text' => 'Hippocampe'], 'id = :id', ['id' => $new]);
+    eq([$find('hippocampe'), $find('zygomatique'), $find('quinconce')], [[$new], [], []], 'changed message re-indexed, old words gone');
+    Mailbox::move($uid, [$new], (int) Folders::byRole($uid, 'archive')['id']);
+    eq($find('hippocampe'), [$new], 'still found after a move');
+    M4W\Core\Database::delete('messages', 'id = :id', ['id' => $new]);
+    eq($find('hippocampe'), [], 'deleted message gone from the index');
+    // Nasty input: operators and quotes are words, never syntax.
+    foreach (['"', '+-*~<>()@', 'facture" OR 1=1 --', 'a* -b +c', "'; DROP TABLE messages; --", 'NEAR(a b)', 'col:val:"x'] as $q) {
+        $r = Mailbox::list($uid, ['q' => $q]);
+        ok(is_array($r['items']), 'no error for: ' . $q);
+    }
+    ok((int) M4W\Core\Database::value('SELECT COUNT(*) FROM messages') > 0, 'table intact');
+    // Other people's messages never come up.
+    $other = Users::find(Users::create(['email' => 'autre.chercheur@test.local', 'password' => 'Secret!Pass123']));
+    eq(Mailbox::list((int) $other['id'], ['q' => 'facture'])['items'], [], 'only one\'s own mail');
+    // A restored backup without the index: noticed, plain search meanwhile, rebuilt by the next run.
+    Search::dropIndex();
+    Settings::set('search.fts', M4W\Core\Database::driver());
+    $r = new ReflectionProperty(Search::class, 'ready');
+    $r->setValue(null, null);
+    ok(!Search::ready(), 'missing index detected');
+    eq($find('facture'), [$ids['facture']], 'plain search meanwhile');
+    ok(Search::ensureIndex());
+    eq($find('eleve'), [$ids['eleve']]);
+});
+
+echo "\nSender logos (BIMI)\n";
+test('bimi: the logo is reduced to drawing (no script, link, external reference)', function () {
+    $evil = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10" onload="alert(1)">'
+        . '<script>alert(2)</script><defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs>'
+        . '<a href="https://evil.example/"><rect width="10" height="10" fill="url(#g)"/></a>'
+        . '<image href="https://track.example/p.png" width="1" height="1"/><foreignObject><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject>'
+        . '<use xlink:href="https://evil.example/s.svg#a"/><use href="#g"/><circle cx="5" cy="5" r="4" style="fill:url(https://track.example/x)" onclick="x()"/>'
+        . '<path d="M0 0L10 10" fill="javascript:alert(3)"/><!-- comment --><?pi x?></svg>';
+    $out = Bimi::sanitizeSvg($evil);
+    ok($out !== null && str_contains($out, '<rect') === false, 'a link and what it wraps are dropped');
+    foreach (['onload', 'script', 'alert', 'evil.example', 'track.example', 'foreignObject', '<image', 'comment', '<?pi', 'onclick', 'javascript'] as $bad) {
+        ok(!str_contains($out, $bad), 'removed: ' . $bad);
+    }
+    ok(str_contains($out, 'url(#g)') || str_contains($out, 'stop-color="#f00"'), 'gradients kept');
+    ok(str_contains($out, '<use href="#g"/>') && str_contains($out, '<circle'), 'internal reference and shapes kept');
+    eq(Bimi::sanitizeSvg('<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg>&x;</svg>'), null, 'entities refused');
+    eq(Bimi::sanitizeSvg('<html><body>x</body></html>'), null, 'not an SVG');
+});
+
+test('bimi: shown only for DMARC-enforcing domains that pass, never for look-alikes; served by our server', function () use (&$dns) {
+    $bob = Users::findByEmail('bob@test.local');
+    $saved = $dns;
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" baseProfile="tiny-ps"><title>Brand</title><circle cx="32" cy="32" r="30" fill="#0a58ca"/></svg>';
+    $fetched = [];
+    Bimi::$http = static function (string $url) use ($svg, &$fetched) {
+        $fetched[] = $url;
+        return $url === 'https://brand.test/logo.svg' || $url === 'https://cdn.loose.test/l.svg' ? ['status' => 200, 'body' => $svg, 'location' => ''] : null;
+    };
+    $dns['TXT _dmarc.brand.test'] = ['v=DMARC1; p=reject; rua=mailto:d@brand.test'];
+    $dns['TXT default._bimi.brand.test'] = ['v=BIMI1; l=https://brand.test/logo.svg; a='];
+    $dns['TXT _dmarc.loose.test'] = ['v=DMARC1; p=none'];
+    $dns['TXT default._bimi.loose.test'] = ['v=BIMI1; l=https://cdn.loose.test/l.svg'];
+    $dns['TXT _dmarc.half.test'] = ['v=DMARC1; p=quarantine; pct=50'];
+    try {
+        ok(Bimi::enforced('brand.test') && Bimi::enforced('mail.brand.test') && !Bimi::enforced('loose.test') && !Bimi::enforced('half.test'), 'p=reject (or quarantine) on all mail only');
+        $send = static function (string $from, string $id, string $dmarc) use ($bob) {
+            $raw = "From: News <$from>\nTo: bob@test.local\nSubject: Logo $id\nMessage-ID: <$id@x.test>\nDate: " . date('r') . "\n\nBonjour\n";
+            $auth = ['spf' => 'pass', 'spf_domain' => M4W\Mail\Address::domain($from), 'dkim' => [], 'dkim_summary' => 'none', 'dmarc' => $dmarc, 'policy' => 'reject',
+                'from_domain' => M4W\Mail\Address::domain($from), 'verdict' => $dmarc === 'pass' ? 'ok' : 'dmarc'];
+            Delivery::deliver($raw, $from, ['bob@test.local'], 'smtp', true, $auth);
+            return (string) DB::value('SELECT bimi FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $bob['id'], 'm' => "$id@x.test"]);
+        };
+        eq($send('news@brand.test', 'bimi-ok', 'pass'), 'brand.test', 'DMARC passes, policy enforced, logo published');
+        $file = Bimi::file('brand.test');
+        ok($file !== null && str_contains((string) file_get_contents($file), '<circle'), 'cleaned copy kept by the server');
+        $n = count($fetched);
+        eq($send('info@brand.test', 'bimi-ok2', 'pass'), 'brand.test');
+        eq(count($fetched), $n, 'fetched once per domain, not per message');
+        eq($send('news@brand.test', 'bimi-fail', 'fail'), '', 'DMARC fails: initials');
+        eq($send('news@loose.test', 'bimi-loose', 'pass'), '', 'domain not enforcing DMARC: initials');
+        eq($send('news@brаnd.test', 'bimi-idn', 'pass'), '', 'homograph domain: initials');
+        eq(Bimi::file('../../config'), null, 'only domain names');
+        $sum = M4W\Service\Mailbox::summary(DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $bob['id'], 'm' => 'bimi-ok@x.test']));
+        eq($sum['bimi'], 'brand.test', 'listed with its logo');
+        Settings::set('security.bimi', 'vmc');
+        eq($send('news@brand.test', 'bimi-vmc', 'pass'), '', 'certificate required and none: initials');
+        Settings::set('security.bimi', 'off');
+        eq($send('news@brand.test', 'bimi-off', 'pass'), '', 'turned off');
+    } finally {
+        Settings::set('security.bimi', 'dmarc');
+        Bimi::$http = null;
+        $dns = $saved;
+    }
+});
+
+test('bimi: a mark certificate is checked (authority, purpose, domain, dates) and its own logo used', function () {
+    $tmp = sys_get_temp_dir() . '/m4w-vmc-' . bin2hex(random_bytes(4));
+    mkdir($tmp);
+    $logo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#123456"/></svg>';
+    $make = static function (string $name, array $ext, $caKey = null, $caCert = null) use ($tmp) {
+        $cnf = "$tmp/$name.cnf";
+        file_put_contents($cnf, "[req]\ndistinguished_name=dn\n[dn]\n[ext]\n" . implode("\n", $ext) . "\n");
+        $key = openssl_pkey_new(['private_key_bits' => 2048]);
+        $csr = openssl_csr_new(['commonName' => $name], $key, ['config' => $cnf]);
+        $cert = openssl_csr_sign($csr, $caCert, $caKey ?? $key, 30, ['config' => $cnf, 'x509_extensions' => 'ext', 'digest_alg' => 'sha256'], random_int(1, PHP_INT_MAX));
+        openssl_x509_export($cert, $pem);
+        return [$key, $cert, $pem];
+    };
+    try {
+        [$rk, $rc, $rootPem] = $make('Test Mark Root', ['basicConstraints=critical,CA:TRUE', 'keyUsage=critical,keyCertSign,cRLSign']);
+        $logoExt = '1.3.6.1.5.5.7.1.12=ASN1:IA5STRING:data:image/svg+xml;base64,' . base64_encode(gzencode($logo));
+        [, , $leafPem] = $make('brand.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:brand.test', $logoExt], $rk, $rc);
+        [, , $otherPem] = $make('other.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:other.test', $logoExt], $rk, $rc);
+        [, , $tlsPem] = $make('brand.test', ['extendedKeyUsage=serverAuth', 'subjectAltName=DNS:brand.test', $logoExt], $rk, $rc);
+        [$sk, $sc] = $make('Self Root', ['basicConstraints=critical,CA:TRUE']);
+        [, , $selfPem] = $make('brand.test', ['extendedKeyUsage=1.3.6.1.5.5.7.3.31', 'subjectAltName=DNS:brand.test', $logoExt], $sk, $sc);
+        Bimi::$roots = $rootPem;
+        [$svg, $why] = Bimi::checkVmcPem('brand.test', $leafPem . $rootPem);
+        eq([$svg, $why], [$logo, ''], 'valid: the logo comes from the certificate');
+        eq(Bimi::checkVmcPem('mail.brand.test', $leafPem)[1], '', 'a subdomain of the certified domain');
+        eq(Bimi::checkVmcPem('brand.test', $otherPem)[1], 'certificate issued for another domain');
+        eq(Bimi::checkVmcPem('brand.test', $tlsPem)[1], 'not a mark certificate');
+        eq(Bimi::checkVmcPem('brand.test', $selfPem)[1], 'certificate not issued by a trusted mark authority');
+        Bimi::$roots = '';
+        $bundled = Bimi::checkVmcPem('brand.test', $leafPem)[1];
+        eq($bundled, 'certificate not issued by a trusted mark authority', 'the bundled authorities do not trust a test root');
+    } finally {
+        Bimi::$roots = null;
+        array_map('unlink', glob("$tmp/*") ?: []);
+        @rmdir($tmp);
+    }
+});
+
 echo "\nMessage pictures (fetched and cleaned by the server)\n";
 use M4W\Service\MailAssets;
 $png = static function (int $w, int $h, bool $alpha = false): string {
