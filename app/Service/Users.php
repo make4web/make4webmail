@@ -200,6 +200,8 @@ final class Users
             DB::delete('calendars', 'id = :c', ['c' => $c['id']]);
         }
         DB::delete('calendar_acl', 'user_id = :u', ['u' => $id]);
+        // Files shared with the other recipients of a delivery live outside the person's folder.
+        $sharedFiles = array_column(DB::all("SELECT DISTINCT storage_path FROM messages WHERE user_id = :u AND storage_path LIKE 'mail/shared/%'", ['u' => $id]), 'storage_path');
         DB::transaction(function () use ($id) {
             foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases', 'push_subscriptions', 'collector_seen', 'app_passwords'] as $t) {
                 DB::delete($t, 'user_id = :u', ['u' => $id]);
@@ -210,6 +212,9 @@ final class Users
         });
         $dir = storage_path('mail/' . $id);
         self::rrmdir($dir);
+        foreach ($sharedFiles as $f) {
+            Mailbox::releaseFile((string) $f);
+        }
         Audit::log('user.deleted', (string) $id);
     }
 

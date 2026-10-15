@@ -896,4 +896,20 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX php_sessions_updated ON php_sessions(updated_at)",
 ],
+31 => [
+// One file for all the recipients of a delivery: each message keeps its own header lines here,
+// and a file is deleted only when no message points to it any more.
+"ALTER TABLE messages ADD COLUMN raw_prefix {TEXT}",
+static function (): void {
+    try {
+        \M4W\Core\Database::pdo()->exec('CREATE INDEX messages_storage ON messages(storage_path)');
+    } catch (\PDOException $e) {
+        if (\M4W\Core\Database::driver() !== 'mysql') {
+            throw $e;
+        }
+        // Older MySQL (767-byte index keys): the beginning of the path is enough.
+        \M4W\Core\Database::pdo()->exec('CREATE INDEX messages_storage ON messages(storage_path(191))');
+    }
+},
+],
 ];

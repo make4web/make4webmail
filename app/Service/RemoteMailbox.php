@@ -652,7 +652,7 @@ final class RemoteMailbox
                 continue;
             }
             try {
-                $client->append('INBOX', self::providerRaw((string) file_get_contents($path)),
+                $client->append('INBOX', self::providerRaw(Mailbox::raw($m)),
                     array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []), (int) ($m['date_received'] ?: time()));
                 DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
             } catch (\Throwable $e) {
@@ -751,7 +751,7 @@ final class RemoteMailbox
             }
             try {
                 // Our own lines (delivery, collection, antispam, antivirus) are not part of the message.
-                $raw = self::providerRaw((string) file_get_contents($path));
+                $raw = self::providerRaw(Mailbox::raw($m));
                 $flags = array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []);
                 $client->append($target, $raw, $flags, (int) ($m['date_received'] ?: $m['date_sent']));
                 $st['done']++;

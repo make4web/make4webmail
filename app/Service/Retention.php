@@ -41,11 +41,10 @@ final class Retention
             return null;
         }
         if ($raw === null) {
-            $path = storage_path((string) $row['storage_path']);
-            if ($row['storage_path'] === '' || !is_file($path)) {
+            $raw = $row['storage_path'] !== '' ? Mailbox::raw($row) : '';
+            if ($raw === '') {
                 return null;
             }
-            $raw = (string) file_get_contents($path);
         }
         return self::store($row, $raw, $reason, $folder);
     }

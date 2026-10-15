@@ -2176,6 +2176,100 @@ test('sessions: stored hashed, read back, refreshed sparingly, expired and purge
     eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
 });
 
+echo "\nOne file per delivery\n";
+test('delivery to several people: one file, each keeps its own headers, the file goes with the last message', function () {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$a, $b, $c] = [$mk('dup.a@test.local'), $mk('dup.b@test.local'), $mk('dup.c@test.local')];
+    $proj = (int) DB::insert('folders', ['user_id' => $c['id'], 'name' => 'Projet partagé', 'role' => null, 'created_at' => time()]);
+    DB::insert('rules', RuleEngine::normalize((int) $c['id'], ['name' => 'Copie', 'enabled' => 1, 'match_type' => 'all',
+        'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'Budget']], 'actions' => [['type' => 'copy', 'folder' => $proj]]])
+        + ['user_id' => $c['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    $used = static fn(array $u) => (int) DB::value('SELECT used_bytes FROM users WHERE id = :u', ['u' => $u['id']]);
+    $before = [$used($a), $used($b), $used($c)];
+    $attach = base64_encode(random_bytes(30000));
+    $raw = "From: Boss <boss@ext.test>\nTo: dup.a@test.local, dup.b@test.local, dup.c@test.local\nSubject: Budget 2027\nMessage-ID: <dup-1@ext.test>\nDate: " . date('r')
+        . "\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=zz\n\n--zz\nContent-Type: text/plain; charset=utf-8\n\nVoici le budget.\n--zz\nContent-Type: application/pdf; name=b.pdf\nContent-Disposition: attachment; filename=b.pdf\nContent-Transfer-Encoding: base64\n\n"
+        . chunk_split($attach, 76, "\n") . "--zz--\n";
+    $res = Delivery::deliver($raw, 'boss@ext.test', ['dup.a@test.local', 'dup.b@test.local', 'dup.c@test.local'], 'local');
+    eq(array_values($res), ['ok', 'ok', 'ok']);
+    $rows = DB::all("SELECT * FROM messages WHERE message_id = 'dup-1@ext.test' ORDER BY user_id, folder_id");
+    eq(count($rows), 4, 'three people, one of them filed twice by a rule');
+    eq(count(array_unique(array_column($rows, 'storage_path'))), 1, 'one file for all');
+    ok(str_starts_with($rows[0]['storage_path'], 'mail/shared/'), 'outside any person\'s folder');
+    foreach ([$a, $b, $c] as $u) {
+        $m = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $u['id']]);
+        $r = Mailbox::raw($m);
+        ok(str_starts_with($r, 'Delivered-To: ' . $u['email'] . "\n"), 'own Delivered-To: ' . $u['email']);
+        eq(substr_count($r, 'Delivered-To:'), 1, 'and only it');
+        $p = Mailbox::parsed($m);
+        eq([$p->subject(), count($p->attachmentList())], ['Budget 2027', 1], 'whole message readable');
+        eq(Mailbox::raw(['id' => $m['id'], 'storage_path' => $m['storage_path']]), $r, 'partial row: own lines fetched');
+    }
+    // Each quota counts the whole message, as before.
+    $size = (int) $rows[0]['size'];
+    ok($size > 30000);
+    eq([$used($a) - $before[0], $used($b) - $before[1]], [(int) DB::value('SELECT size FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $a['id']]), (int) DB::value('SELECT size FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $b['id']])]);
+    $file = storage_path($rows[0]['storage_path']);
+    ok(is_file($file));
+    // Deleted by A for good: the others still have it.
+    $ma = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $a['id']]);
+    Mailbox::delete((int) $a['id'], [(int) $ma['id']], true);
+    ok(is_file($file), 'kept for the others');
+    $mb = DB::one('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $b['id']]);
+    eq(Mailbox::parsed($mb)->subject(), 'Budget 2027');
+    // Retention keeps the person's own copy (with their Delivered-To).
+    Settings::set('retention.enabled', 1);
+    $kept = Retention::keep($mb, 'deleted');
+    ok($kept !== null, 'retained');
+    $kr = Retention::raw(Retention::find((int) $kept));
+    ok(str_starts_with($kr, 'Delivered-To: dup.b@test.local') && str_contains($kr, 'Voici le budget'), 'retained copy is the person\'s whole message');
+    // B leaves the company: C keeps the message (the file is not in B's folder).
+    Users::delete((int) $b['id']);
+    ok(is_file($file), 'a deleted account does not take the shared file');
+    $mcs = DB::all('SELECT * FROM messages WHERE message_id = :m AND user_id = :u', ['m' => 'dup-1@ext.test', 'u' => $c['id']]);
+    eq(count($mcs), 2);
+    Mailbox::delete((int) $c['id'], [(int) $mcs[0]['id']], true);
+    ok(is_file($file), 'one copy of C left');
+    eq(Mailbox::parsed(DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $mcs[1]['id']]))->subject(), 'Budget 2027');
+    Mailbox::delete((int) $c['id'], [(int) $mcs[1]['id']], true);
+    ok(!is_file($file), 'last message gone: file deleted');
+    // One person only: as before, in the person's folder, nothing apart.
+    Delivery::deliver(str_replace(['dup-1@', 'Budget 2027'], ['dup-2@', 'Seul'], $raw), 'boss@ext.test', ['dup.a@test.local'], 'local');
+    $one = DB::one("SELECT * FROM messages WHERE message_id = 'dup-2@ext.test'");
+    ok(str_starts_with($one['storage_path'], 'mail/' . $a['id'] . '/') && (string) $one['raw_prefix'] === '', 'single recipient unchanged');
+    ok(str_starts_with(Mailbox::raw($one), 'Delivered-To: dup.a@test.local'));
+    // Messages stored before this change (no own lines in the database) read as before.
+    DB::run('UPDATE messages SET raw_prefix = NULL WHERE id = :i', ['i' => $one['id']]);
+    ok(str_starts_with(Mailbox::raw(DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $one['id']])), 'Delivered-To: dup.a@test.local'));
+    // A file name from elsewhere is never taken as a message file.
+    $id = Mailbox::store((int) $a['id'], (int) Folders::byRole((int) $a['id'], 'inbox')['id'], "Subject: x\n\ny\n", ['file' => '../config/config.php', 'prefix' => 'X: 1\n']);
+    $row = DB::one('SELECT * FROM messages WHERE id = :i', ['i' => $id]);
+    ok(str_starts_with($row['storage_path'], 'mail/' . $a['id'] . '/'), 'unknown file: a new one is written');
+    Users::delete((int) $a['id']);
+    Users::delete((int) $c['id']);
+});
+
+test('delivery to several people: each one\'s own junk verdict, one file', function () {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$x, $y] = [$mk('spam.x@test.local'), $mk('spam.y@test.local')];
+    M4W\Service\TrustedSenders::add((int) $y['id'], 'alertes@fournisseur-dup.com');
+    $raw = "From: Alertes <alertes@fournisseur-dup.com>\nTo: spam.x@test.local, spam.y@test.local\nSubject: URGENT VERIFIEZ VOTRE COMPTE!!!\nMessage-ID: <dup-spam@x.test>\nDate: " . date('r')
+        . "\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n<p>Votre compte est suspendu. V\u{e9}rifiez votre compte : <a href=\"https://secure-verif.example.ru/login\">www.mabanque.fr</a></p>\n";
+    Delivery::deliver($raw, 'alertes@fournisseur-dup.com', ['spam.x@test.local', 'spam.y@test.local'], 'smtp');
+    $mx = DB::one("SELECT * FROM messages WHERE message_id = 'dup-spam@x.test' AND user_id = :u", ['u' => $x['id']]);
+    $my = DB::one("SELECT * FROM messages WHERE message_id = 'dup-spam@x.test' AND user_id = :u", ['u' => $y['id']]);
+    eq($mx['storage_path'], $my['storage_path'], 'one file');
+    eq([(int) $mx['folder_id'], (int) $my['folder_id']], [(int) Folders::byRole((int) $x['id'], 'spam')['id'], (int) Folders::byRole((int) $y['id'], 'inbox')['id']], 'junk for one, inbox for the other');
+    $hx = (string) Mailbox::parsed($mx)->header(SpamFilter::HEADER);
+    $hy = (string) Mailbox::parsed($my)->header(SpamFilter::HEADER);
+    ok(!str_contains($hx, 'USER_TRUSTED') && str_contains($hy, 'USER_TRUSTED'), 'each one\'s own verdict');
+    ok(!str_contains((string) file_get_contents(storage_path($mx['storage_path'])), 'X-M4W-Spam'), 'no verdict in the shared file');
+    eq(substr_count(Mailbox::raw($mx), 'X-M4W-Spam:') + substr_count(Mailbox::raw($my), 'X-M4W-Spam:'), 2, 'one verdict each');
+    Users::delete((int) $x['id']);
+    Users::delete((int) $y['id']);
+    ok(!is_file(storage_path($mx['storage_path'])), 'both accounts gone: file gone');
+});
+
 echo "\nFull-text search\n";
 test('search: full-text index (accents, addresses, attachment names, operators), kept in step, never fewer results than before', function () {
     $u = Users::find(Users::create(['email' => 'chercheur@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Cher']));
