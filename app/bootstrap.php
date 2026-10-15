@@ -36,6 +36,27 @@ date_default_timezone_set('UTC');
 
 M4W\Core\Config::load();
 
+// A command run as root (cron.php typed by hand, a pipe set up with the wrong user) would leave
+// messages and folders that the web server can no longer read: it takes the identity of the
+// owner of the storage directory first, before writing anything.
+if (PHP_SAPI === 'cli' && function_exists('posix_geteuid') && posix_geteuid() === 0) {
+    $st = @stat(M4W\Core\Config::storagePath());
+    if ($st && $st['uid'] !== 0) {
+        $pw = posix_getpwuid($st['uid']);
+        if ($pw && function_exists('posix_initgroups')) {
+            @posix_initgroups($pw['name'], $st['gid']);
+        }
+        if (!@posix_setgid($st['gid']) || !@posix_setuid($st['uid'])) {
+            fwrite(STDERR, "Make4WebMail: cannot switch to the owner of the storage directory; run this command as that user (e.g. sudo -u www-data).\n");
+            exit(1);
+        }
+        if ($pw) {
+            putenv('HOME=' . $pw['dir']);
+        }
+    }
+    unset($st, $pw);
+}
+
 $tz = M4W\Core\Config::get('timezone', 'Europe/Paris');
 if (is_string($tz) && in_array($tz, timezone_identifiers_list(), true)) {
     date_default_timezone_set($tz);

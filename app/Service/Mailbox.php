@@ -120,6 +120,12 @@ final class Mailbox
         if ($real === false || $base === false || !str_starts_with($real, $base . DIRECTORY_SEPARATOR)) {
             return '';
         }
+        if (!is_readable($real)) {
+            // Typically written by a command run as root: say so instead of showing an empty message.
+            $o = function_exists('posix_getpwuid') ? (posix_getpwuid((int) fileowner($real))['name'] ?? '?') : (string) fileowner($real);
+            error_log('[m4w] message ' . (int) ($msg['id'] ?? 0) . ': file not readable by this process (owner ' . $o . '): ' . $msg['storage_path']);
+            return '';
+        }
         return (string) file_get_contents($real);
     }
 
