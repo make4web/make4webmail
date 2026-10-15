@@ -40,6 +40,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
           </div>
         </div>
         <h2 class="m4w-folder-title" id="m4w-folder-title"></h2>
+        <span class="m4w-folder-box<?= !empty($other) ? ' is-other' : '' ?>" title="<?= te('mail.viewing_box') ?>"><?php if (!empty($other)): ?><i class="bi bi-inboxes me-1" aria-hidden="true"></i><?php endif; ?><span class="visually-hidden"><?= te('mail.viewing_box') ?> </span><?= e($user['email']) ?></span>
         <div class="m4w-sel-actions" id="m4w-sel-actions">
           <button class="btn btn-ghost btn-icon btn-sm" data-bulk="archive" title="<?= te('mail.archive') ?> (E)"><i class="bi bi-archive"></i></button>
           <button class="btn btn-ghost btn-icon btn-sm" data-bulk="spam" title="<?= te('mail.spam') ?> (!)"><i class="bi bi-exclamation-octagon"></i></button>

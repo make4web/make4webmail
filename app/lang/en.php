@@ -2091,4 +2091,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'own.deleted_none' => 'Make4WebMail never deleted a message from this mailbox.',
     'own.deleted_n' => 'Make4WebMail deleted :n message(s) from this mailbox (last time on :date).',
     'own.same_as_collector' => 'This mailbox is also the collector mailbox: its own keeping rule applies, the collector deletes nothing there. A dedicated collector mailbox is better.',
+    'mail.viewing_box' => 'Mailbox shown:',
 ];
