@@ -249,7 +249,7 @@ return [
     'admin.brand_images' => 'Logos & images', 'admin.brand_logo' => 'Logo', 'admin.brand_logo_hint' => 'PNG transparent conseillé, hauteur 80 px. Utilisé aussi dans les signatures.',
     'admin.brand_logo_dark' => 'Logo pour fond sombre', 'admin.brand_logo_dark_hint' => 'Facultatif : affiché en thème sombre et sur la page de connexion.',
     'admin.brand_favicon' => 'Favicon', 'admin.brand_favicon_hint' => 'Icône carrée 64×64 (PNG ou ICO).', 'admin.brand_login_bg' => 'Image de la page de connexion',
-    'admin.brand_login_bg_hint' => 'Grande image (1600 px de large). Laissez vide pour un dégradé aux couleurs de la marque.',
+    'admin.brand_login_bg_hint' => 'Grande image (1600 px de large), affichée seule : le titre et la présentation laissent la place à l\'image. Laissez vide pour un dégradé aux couleurs de la marque, avec la présentation.',
     'admin.brand_colors' => 'Couleurs & style', 'admin.brand_primary' => 'Couleur principale', 'admin.brand_accent' => 'Couleur secondaire',
     'admin.brand_sidebar' => 'Style du menu latéral', 'admin.sidebar_light' => 'Clair', 'admin.sidebar_dark' => 'Sombre', 'admin.sidebar_brand' => 'Couleur principale',
     'admin.brand_font' => 'Police', 'admin.font_system' => 'Police du système', 'admin.brand_radius' => 'Arrondi des angles',

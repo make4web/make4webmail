@@ -13,10 +13,13 @@ $logo = Branding::logoUrl();
 <body>
 <main class="m4w-auth">
   <section class="m4w-auth-hero<?= $bg !== '' ? ' has-image' : '' ?>"<?= $bg !== '' ? ' style="background-image:url(\'' . e(url('brand/' . $bg)) . '\')"' : '' ?>>
+<?php if ($bg === ''): ?>
     <span class="orb o1"></span><span class="orb o2"></span>
+<?php endif; ?>
     <div class="m4w-auth-logo" data-aos="fade-down">
       <?php if ($logo !== '' && Settings::get('brand.logo_dark', '') !== ''): ?><img src="<?= e(Branding::logoUrl(true)) ?>" alt="<?= e($brand) ?>"><?php elseif ($logo !== ''): ?><span class="m4w-logo-chip"><img src="<?= e($logo) ?>" alt="<?= e($brand) ?>"></span><?php else: ?><span class="m4w-brand-mark" style="background:rgba(255,255,255,.18);box-shadow:none"><i class="bi bi-envelope-paper-heart"></i></span><span><?= e($brand) ?></span><?php endif; ?>
     </div>
+<?php if ($bg === ''): /* With a picture, the picture speaks: no text over it. */ ?>
     <div>
       <h2 data-aos="fade-up"><?= e(Settings::get('brand.tagline', '') ?: t('auth.hero_title')) ?></h2>
       <p class="lead mb-4" data-aos="fade-up" data-aos-delay="80"><?= te('auth.hero_lead') ?></p>
@@ -26,6 +29,7 @@ $logo = Branding::logoUrl();
         <div class="m4w-auth-feature"><i class="bi bi-funnel"></i><div><b><?= te('auth.f3_title') ?></b><span><?= te('auth.f3_text') ?></span></div></div>
       </div>
     </div>
+<?php endif; ?>
     <div class="small opacity-75">© <?= date('Y') ?> <?= e(Settings::get('brand.company', '') ?: $brand) ?><?= Settings::get('brand.footer', '') !== '' ? ' · ' . e(Settings::get('brand.footer')) : '' ?></div>
   </section>
   <section class="m4w-auth-form">

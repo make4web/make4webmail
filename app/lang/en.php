@@ -195,7 +195,7 @@ return [
     'admin.brand_address' => 'Postal address', 'admin.brand_images' => 'Logos & images', 'admin.brand_logo' => 'Logo',
     'admin.brand_logo_hint' => 'Transparent PNG recommended, 80 px high. Also used in signatures.', 'admin.brand_logo_dark' => 'Logo for dark backgrounds',
     'admin.brand_logo_dark_hint' => 'Optional: shown in dark theme and on the sign-in page.', 'admin.brand_favicon' => 'Favicon', 'admin.brand_favicon_hint' => 'Square 64×64 icon (PNG or ICO).',
-    'admin.brand_login_bg' => 'Sign-in page image', 'admin.brand_login_bg_hint' => 'Large picture (1600 px wide). Leave empty for a brand-colored gradient.',
+    'admin.brand_login_bg' => 'Sign-in page image', 'admin.brand_login_bg_hint' => 'Large picture (1600 px wide), shown on its own: the title and introduction make room for it. Leave empty for a brand-colored gradient with the introduction.',
     'admin.brand_colors' => 'Colors & style', 'admin.brand_primary' => 'Primary color', 'admin.brand_accent' => 'Accent color', 'admin.brand_sidebar' => 'Sidebar style',
     'admin.sidebar_light' => 'Light', 'admin.sidebar_dark' => 'Dark', 'admin.sidebar_brand' => 'Primary colour', 'admin.brand_font' => 'Font', 'admin.font_system' => 'System font',
     'admin.brand_radius' => 'Corner radius', 'admin.brand_login' => 'Sign-in page', 'admin.brand_login_message' => 'Information message',
