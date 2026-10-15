@@ -2478,6 +2478,184 @@ test('backup: restored on another server (database, mail, configuration)', funct
     Settings::set('backup.zip_password', '');
 });
 
+
+echo "\nCalendar, invitations, phone sync (CalDAV / CardDAV)\n";
+$calA = Users::findByEmail('admin@test.local');
+$calB = Users::findByEmail('bob@test.local');
+$calC = Users::findByEmail('carol@test.local');
+$invites = static function (string $to, string $method = ''): array {
+    $out = [];
+    foreach (DB::all("SELECT * FROM mail_queue WHERE kind = 'invite' AND recipients LIKE :r ORDER BY id", ['r' => '%' . $to . '%']) as $q) {
+        $raw = (string) file_get_contents(Config::storagePath($q['raw_path']));
+        if ($method === '' || str_contains($raw, 'method=' . $method)) {
+            $out[] = $raw;
+        }
+    }
+    return $out;
+};
+test('calendar: weekly series across the clock change, all-day events, open-ended series', function () use ($calA) {
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Hebdo', 'start' => '2026-10-19 09:00', 'end' => '2026-10-19 09:30', 'repeat' => 'weekly', 'repeat_until' => '2026-11-09']);
+    M4W\Service\Calendar::put((int) $cal['id'], 'hebdo.ics', $v->serialize());
+    $occ = M4W\Service\Calendar::range([(int) $cal['id'] => $cal + ['level' => 'owner']], strtotime('2026-10-01'), strtotime('2026-12-01'));
+    eq(array_map(static fn($o) => date('Y-m-d H:i', $o['start']), $occ), ['2026-10-19 09:00', '2026-10-26 09:00', '2026-11-02 09:00', '2026-11-09 09:00'], 'local time kept after DST ends');
+    $row = M4W\Service\Calendar::object((int) $cal['id'], 'hebdo.ics');
+    eq((int) $row['last_occurrence'], strtotime('2026-11-09 09:30'), 'end of the last occurrence indexed');
+    $d = M4W\Service\Calendar::fromForm($calA, ['title' => 'Séminaire', 'all_day' => 1, 'start' => '2026-11-12', 'end' => '2026-11-13', 'repeat' => 'none']);
+    ok(str_contains($d->serialize(), 'DTEND;VALUE=DATE:20261114'), 'whole days: exclusive end');
+    $inf = M4W\Service\Calendar::fromForm($calA, ['title' => 'Stand-up', 'start' => '2026-10-20 09:00', 'end' => '2026-10-20 09:15', 'repeat' => 'weekdays']);
+    eq(M4W\Service\Calendar::describe($inf)['last'], M4W\Service\Calendar::NEVER, 'no end');
+    // Only this occurrence moves: exception with RECURRENCE-ID; deleting one adds EXDATE.
+    $one = M4W\Service\Calendar::fromForm($calA, ['title' => 'Hebdo déplacé', 'start' => '2026-10-27 11:00', 'end' => '2026-10-27 11:30'], $row['data'], 'one', strtotime('2026-10-26 09:00'));
+    $ex = M4W\Service\Calendar::withoutOccurrence($one->serialize(), strtotime('2026-11-02 09:00'));
+    M4W\Service\Calendar::put((int) $cal['id'], 'hebdo.ics', $ex->serialize());
+    $occ = M4W\Service\Calendar::range([(int) $cal['id'] => $cal + ['level' => 'owner']], strtotime('2026-10-01'), strtotime('2026-12-01'));
+    eq(array_map(static fn($o) => date('Y-m-d H:i', $o['start']) . ' ' . $o['title'], array_values(array_filter($occ, static fn($o) => $o['uri'] === 'hebdo.ics'))),
+        ['2026-10-19 09:00 Hebdo', '2026-10-27 11:00 Hebdo déplacé', '2026-11-09 09:00 Hebdo']);
+    eq(M4W\Service\Calendar::nextAlarm($v, strtotime('2026-10-01')), 0, 'no reminder asked');
+    $r = M4W\Service\Calendar::fromForm($calA, ['title' => 'R', 'start' => '2026-10-19 09:00', 'end' => '2026-10-19 10:00', 'repeat' => 'daily', 'reminder' => 15]);
+    eq(M4W\Service\Calendar::nextAlarm($r, strtotime('2026-10-20 09:00')), strtotime('2026-10-21 08:45'), 'next reminder of a series');
+});
+test('calendar: sharing (read, write), rooms for everyone, nobody else sees anything', function () use ($calA, $calB, $calC) {
+    $id = M4W\Service\Calendar::create($calA, 'Équipe', 'personal');
+    ok(!isset(M4W\Service\Calendar::forUser($calB)[$id]), 'private by default');
+    M4W\Service\Calendar::setAcl($calA, $id, [['user_id' => $calB['id'], 'level' => 'read'], ['user_id' => $calC['id'], 'level' => 'write']]);
+    eq(M4W\Service\Calendar::forUser($calB)[$id]['level'], 'read');
+    eq(M4W\Service\Calendar::forUser($calC)[$id]['level'], 'write');
+    $thrown = false;
+    try { M4W\Service\Calendar::require($calB, $id, 2); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'reader cannot write');
+    $thrown = false;
+    try { M4W\Service\Calendar::setAcl($calC, $id, []); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'only the owner shares');
+    $thrown = false;
+    try { M4W\Service\Calendar::create($calB, 'Salle', 'room'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'rooms are made by administrators');
+    $room = M4W\Service\Calendar::create($calA, 'Salle Jura', 'room');
+    eq(M4W\Service\Calendar::forUser($calB)[$room]['level'], 'write', 'everyone books a room');
+    $thrown = false;
+    try { M4W\Service\Calendar::delete($calA, (int) M4W\Service\Calendar::defaultFor((int) $calA['id'])['id']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'main calendar kept');
+});
+test('invitations: colleague gets the event at once, outsiders an iMIP e-mail, answers come back', function () use ($calA, $calB, $invites) {
+    DB::run("DELETE FROM mail_queue");
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Comité', 'location' => 'Salle Jura', 'start' => '2026-10-22 10:00', 'end' => '2026-10-22 11:00', 'repeat' => 'none',
+        'attendees' => [['email' => 'bob@test.local', 'name' => 'Bob'], ['email' => 'paul@ext.com', 'name' => 'Paul']]]);
+    $uid = (string) $v->VEVENT->UID;
+    M4W\Service\Calendar::put((int) $cal['id'], 'comite.ics', $v->serialize());
+    eq(M4W\Service\Scheduling::afterChange($calA, null, $v->serialize()), 2);
+    [, , $bobCopy] = M4W\Service\Scheduling::locate((int) $calB['id'], $uid);
+    ok($bobCopy !== null, 'in Bob\'s calendar straight away');
+    $ext = $invites('paul@ext.com', 'REQUEST');
+    eq(count($ext), 1);
+    ok(str_contains($ext[0], 'Content-Type: text/calendar; charset=UTF-8; method=REQUEST') && str_starts_with(MimeParser::parse($ext[0])->subject(), 'Invitation'), 'iMIP part');
+    // Bob answers from the message in his inbox.
+    $msg = MimeParser::parse($invites('bob@test.local', 'REQUEST')[0]);
+    $card = M4W\Service\Scheduling::card($calB, $msg);
+    ok($card['can_answer'] && $card['in_calendar'] && $card['partstat'] === 'NEEDS-ACTION');
+    M4W\Service\Scheduling::respond($calB, $msg, 'ACCEPTED');
+    $mine = M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics');
+    ok(preg_match('/PARTSTAT=ACCEPTED[^\n]*\n?[^\n]*bob@test\.local/', str_replace("\r\n ", '', $mine['data'])) === 1, 'organizer\'s copy updated');
+    eq(count($invites('admin@test.local', 'REPLY')), 1, 'reply e-mail to the organizer');
+    // Paul (outside) answers by e-mail: applied on delivery, but only from Paul himself.
+    $reply = static function (string $from, string $who) use ($uid): string {
+        $ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//X//Y//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:$uid\r\nDTSTAMP:20261016T080000Z\r\nDTSTART;TZID=Europe/Paris:20261022T100000\r\nSEQUENCE:0\r\nORGANIZER:mailto:admin@test.local\r\nATTENDEE;PARTSTAT=DECLINED:mailto:$who\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        return "From: $from\r\nTo: admin@test.local\r\nSubject: Refusé\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nNon.\r\n--b\r\nContent-Type: text/calendar; method=REPLY; charset=UTF-8\r\n\r\n$ics--b--\r\n";
+    };
+    Delivery::deliver($reply('mallory@evil.com', 'paul@ext.com'), 'mallory@evil.com', ['admin@test.local']);
+    ok(!str_contains(str_replace("\r\n ", '', M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data']), 'PARTSTAT=DECLINED'), 'someone else cannot answer for Paul');
+    Delivery::deliver($reply('paul@ext.com', 'paul@ext.com'), 'paul@ext.com', ['admin@test.local']);
+    ok(preg_match('/PARTSTAT=DECLINED[^\n]*paul@ext\.com/', str_replace("\r\n ", '', M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data'])) === 1, 'Paul\'s answer applied');
+    // The organizer cancels: Bob's copy is marked cancelled, Paul gets a CANCEL.
+    $old = M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data'];
+    M4W\Service\Calendar::remove((int) $cal['id'], 'comite.ics');
+    M4W\Service\Scheduling::afterChange($calA, $old, null);
+    [, , $bobCopy] = M4W\Service\Scheduling::locate((int) $calB['id'], $uid);
+    ok(str_contains($bobCopy['data'], 'STATUS:CANCELLED'), 'cancelled for Bob');
+    eq(count($invites('paul@ext.com', 'CANCEL')), 1);
+});
+test('invitations: one from outside waits for an answer; updates and cancellations apply to it', function () use ($calB) {
+    $ics = static fn(int $seq, string $start, string $method, string $status = '') => "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Outlook//EN\r\nMETHOD:$method\r\nBEGIN:VEVENT\r\nUID:ext-123@partner.com\r\nDTSTAMP:20261016T080000Z\r\nSEQUENCE:$seq\r\n"
+        . "DTSTART:{$start}Z\r\nDTEND:" . substr($start, 0, 9) . '15' . substr($start, 11) . "Z\r\nSUMMARY:Démo produit\r\n" . ($status ? "STATUS:$status\r\n" : '')
+        . "ORGANIZER;CN=Léa:mailto:lea@partner.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@test.local\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    $mail = static fn(string $ics, string $method) => "From: Léa <lea@partner.com>\r\nTo: bob@test.local\r\nSubject: Invitation\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@partner.com>\r\nMIME-Version: 1.0\r\n"
+        . "Content-Type: text/calendar; method=$method; charset=UTF-8\r\n\r\n" . $ics;
+    Delivery::deliver($mail($ics(0, '20261105T130000', 'REQUEST'), 'REQUEST'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok($row === null, 'not added before Bob answers');
+    $msg = MimeParser::parse($mail($ics(0, '20261105T130000', 'REQUEST'), 'REQUEST'));
+    M4W\Service\Scheduling::respond($calB, $msg, 'TENTATIVE');
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok($row && !str_contains($row['data'], 'METHOD:'), 'added on answer');
+    $reply = DB::one("SELECT * FROM mail_queue WHERE kind = 'invite' AND recipients LIKE '%lea@partner.com%' ORDER BY id DESC");
+    $parts = MimeParser::parse((string) file_get_contents(Config::storagePath($reply['raw_path'])))->attachmentParts();
+    ok(str_contains(str_replace("\r\n ", '', $parts[0]->decodedBody()), 'PARTSTAT=TENTATIVE'), 'reply to Léa');
+    Delivery::deliver($mail($ics(1, '20261105T150000', 'REQUEST'), 'REQUEST'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok(str_contains($row['data'], 'DTSTART:20261105T150000Z'), 'moved by the organizer');
+    Delivery::deliver($mail($ics(2, '20261105T150000', 'CANCEL', 'CANCELLED'), 'CANCEL'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok(str_contains($row['data'], 'STATUS:CANCELLED'), 'cancelled by the organizer');
+});
+test('reminders: notification on the devices of the calendar owner, next one scheduled', function () use ($calA) {
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Dentiste', 'start' => date('Y-m-d H:i', time() + 1200), 'end' => date('Y-m-d H:i', time() + 3000), 'repeat' => 'daily', 'reminder' => 15]);
+    M4W\Service\Calendar::put((int) $cal['id'], 'dentiste.ics', $v->serialize());
+    $row = M4W\Service\Calendar::object((int) $cal['id'], 'dentiste.ics');
+    ok((int) $row['next_alarm'] > time() && (int) $row['next_alarm'] <= time() + 360, 'reminder in about 5 minutes (15 min before)');
+    $sent = [];
+    \M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) { $sent[] = $ep; return 201; };
+    $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($k)['ec'];
+    \M4W\Service\WebPush::subscribe((int) $calA['id'], 'https://fcm.googleapis.com/fcm/send/cal', \M4W\Service\WebPush::b64u("\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT)), \M4W\Service\WebPush::b64u(random_bytes(16)), 'ua');
+    try {
+        eq(M4W\Service\Calendar::processAlarms(time() - 60), 0, 'not yet');
+        eq(M4W\Service\Calendar::processAlarms(time() + 400), 1);
+    } finally {
+        \M4W\Service\WebPush::$transport = null;
+        DB::run('DELETE FROM push_subscriptions WHERE user_id = :u', ['u' => $calA['id']]);
+    }
+    ok(in_array('https://fcm.googleapis.com/fcm/send/cal', $sent, true));
+    $next = (int) M4W\Service\Calendar::object((int) $cal['id'], 'dentiste.ics')['next_alarm'];
+    ok($next > time() + 80000, 'tomorrow\'s reminder scheduled');
+    eq(M4W\Service\Calendar::processAlarms(time() + 400), 0, 'not twice');
+});
+test('CalDAV / CardDAV: app passwords, own and shared calendars, read-only respected, phone contacts', function () use ($calA, $calB) {
+    $pw = M4W\Dav\AppPasswords::create((int) $calB['id'], 'iPhone');
+    ok(preg_match('/^[a-z2-9]{5}(-[a-z2-9]{5}){3}$/', $pw) === 1);
+    eq((int) M4W\Dav\AppPasswords::check('bob@test.local', $pw, '10.0.0.1')['id'], (int) $calB['id']);
+    ok(M4W\Dav\AppPasswords::check('bob@test.local', 'Secret!Pass123', '10.0.0.1') === null, 'account password refused');
+    ok(M4W\Dav\AppPasswords::check('admin@test.local', $pw, '10.0.0.1') === null, 'someone else\'s app password refused');
+    $dav = new M4W\Dav\CalDavBackend($calB);
+    $cals = $dav->getCalendarsForUser('principals/bob@test.local');
+    $byName = array_column($cals, null, '{DAV:}displayname');
+    ok(isset($byName['Équipe']) && $byName['Équipe']['{http://sabredav.org/ns}read-only'] === 1, 'shared calendar visible, read-only');
+    eq($dav->getCalendarsForUser('principals/admin@test.local'), [], 'not someone else\'s home');
+    $thrown = false;
+    try { $dav->createCalendarObject($byName['Équipe']['id'], 'x.ics', "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261101T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"); } catch (\Sabre\DAV\Exception\Forbidden) { $thrown = true; }
+    ok($thrown, 'no writing in a read-only calendar');
+    $own = (int) M4W\Service\Calendar::defaultFor((int) $calB['id'])['id'];
+    $dav->createCalendarObject($own, 'phone-1.ics', "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Apple//iOS//EN\r\nBEGIN:VEVENT\r\nUID:phone-1\r\nDTSTAMP:20261016T080000Z\r\nDTSTART:20261201T100000Z\r\nDTEND:20261201T110000Z\r\nSUMMARY:Depuis l'iPhone\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+    $q = $dav->calendarQuery($own, ['name' => 'VCALENDAR', 'prop-filters' => [], 'is-not-defined' => false, 'time-range' => null,
+        'comp-filters' => [['name' => 'VEVENT', 'is-not-defined' => false, 'comp-filters' => [], 'prop-filters' => [], 'time-range' => ['start' => new \DateTime('2026-12-01'), 'end' => new \DateTime('2026-12-02')]]]]);
+    eq($q, ['phone-1.ics'], 'time-range query');
+    $thrown = false;
+    try { $dav->getCalendarObjects((int) M4W\Service\Calendar::defaultFor((int) $calA['id'])['id']); } catch (\Sabre\DAV\Exception\NotFound) { $thrown = true; }
+    ok($thrown, 'another person\'s calendar is invisible');
+    $card = new M4W\Dav\CardDavBackend($calB);
+    $card->createCard(1, 'paul.vcf', "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:paul\r\nFN:Paul Dupont\r\nTEL;TYPE=CELL:+33600000000\r\nADR;TYPE=HOME:;;1 rue X;Paris;;75001;France\r\nEND:VCARD\r\n");
+    $c = DB::one("SELECT * FROM contacts WHERE user_id = :u AND uri = 'paul.vcf'", ['u' => $calB['id']]);
+    eq([$c['name'], $c['email'], $c['phone']], ['Paul Dupont', '', '+33600000000'], 'phone-only contact');
+    M4W\Service\Contacts::save((int) $calB['id'], ['name' => 'Paul Dupont', 'email' => 'paul@ext.com', 'phone' => '+33611111111'], (int) $c['id']);
+    $back = $card->getCard(1, 'paul.vcf')['carddata'];
+    ok(str_contains($back, 'ADR;TYPE=HOME') && str_contains($back, 'paul@ext.com') && str_contains($back, '+33611111111'), 'web edit kept the address from the phone');
+    ok(count($card->getCards(2)) >= 3, 'directory listed');
+    $thrown = false;
+    try { $card->createCard(2, 'x.vcf', "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:X\r\nEND:VCARD\r\n"); } catch (\Sabre\DAV\Exception\Forbidden) { $thrown = true; }
+    ok($thrown, 'directory read-only');
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

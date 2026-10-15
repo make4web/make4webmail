@@ -8,6 +8,7 @@ $items = [
     ['settings/folders', 'folder2-open', 'nav.folders', 'folders'],
     ['settings/security', 'shield-lock', 'nav.security', 'security'],
     ['settings/mailboxes', 'inboxes', 'nav.mailboxes', 'mailboxes'],
+    ['settings/sync', 'phone', 'nav.sync', 'sync'],
 ];
 if ((int) M4W\Core\Settings::get('features.fetch_accounts', 1)) {
     $items[] = ['settings/accounts', 'cloud-download', 'nav.accounts', 'accounts'];

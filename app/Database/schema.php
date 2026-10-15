@@ -660,5 +660,65 @@ static function (): void {
   published_at INTEGER NOT NULL DEFAULT 0
 ) {OPT}",
 ],
+19 => [
+// Calendars: personal, shared (members with read or write access) and rooms. Events are kept
+// as iCalendar objects (the CalDAV source of truth), with a few columns for range queries.
+"CREATE TABLE calendars (
+  id {PK},
+  owner_id INTEGER NULL,
+  kind VARCHAR(10) NOT NULL DEFAULT 'personal',
+  uri VARCHAR(190) NOT NULL,
+  name VARCHAR(190) NOT NULL DEFAULT '',
+  color VARCHAR(10) NOT NULL DEFAULT '#7c3aed',
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  ctag INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX calendars_owner ON calendars(owner_id, deleted_at)",
+"CREATE TABLE calendar_acl (
+  calendar_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  level VARCHAR(10) NOT NULL DEFAULT 'read',
+  PRIMARY KEY (calendar_id, user_id)
+) {OPT}",
+"CREATE TABLE cal_objects (
+  id {PK},
+  calendar_id INTEGER NOT NULL,
+  uri VARCHAR(190) NOT NULL,
+  uid VARCHAR(255) NOT NULL DEFAULT '',
+  etag VARCHAR(40) NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  data {TEXT},
+  component VARCHAR(10) NOT NULL DEFAULT 'VEVENT',
+  summary VARCHAR(255) NOT NULL DEFAULT '',
+  first_occurrence INTEGER NOT NULL DEFAULT 0,
+  last_occurrence INTEGER NOT NULL DEFAULT 0,
+  next_alarm INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX cal_objects_uri ON cal_objects(calendar_id, uri)",
+"CREATE INDEX cal_objects_uid ON cal_objects(calendar_id, uid)",
+"CREATE INDEX cal_objects_range ON cal_objects(calendar_id, first_occurrence, last_occurrence)",
+"CREATE INDEX cal_objects_alarm ON cal_objects(next_alarm)",
+// Passwords for phones and desktop apps (CalDAV / CardDAV): never the account password.
+"CREATE TABLE app_passwords (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  hash VARCHAR(255) NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX app_passwords_user ON app_passwords(user_id)",
+// Contacts synchronised with phones (CardDAV): the vCard keeps what the web form does not show.
+"ALTER TABLE contacts ADD COLUMN uri VARCHAR(190) NOT NULL DEFAULT ''",
+"ALTER TABLE contacts ADD COLUMN etag VARCHAR(40) NOT NULL DEFAULT ''",
+"ALTER TABLE contacts ADD COLUMN vcard {TEXT}",
+"ALTER TABLE contacts ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+],
 ];
 

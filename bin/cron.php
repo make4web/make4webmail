@@ -28,6 +28,7 @@ $out('provider sync: ' . M4W\Service\RemoteMailbox::syncAll());
 $out('mail pictures: ' . M4W\Service\MailAssets::processPending(200));
 $out('spreadsheets saved: ' . M4W\Service\Sheet::housekeeping());
 $out('documents saved: ' . M4W\Service\DocEdit::housekeeping());
+$out('calendar reminders: ' . M4W\Service\Calendar::processAlarms());
 $out('scheduled: ' . M4W\Service\Composer::processScheduled(100));
 $out('queue: ' . M4W\Service\Transport::processQueue(200));
 if ((int) Settings::get('features.fetch_accounts', 1)) {

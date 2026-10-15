@@ -18,6 +18,16 @@ final class App
     {
         $req = Request::fromGlobals();
         self::$request = $req;
+        // Calendar and contacts sync for phones: its own protocol, no session or CSRF token.
+        if (\M4W\Dav\Server::handles($req->path)) {
+            try {
+                \M4W\Dav\Server::run($req);
+            } catch (\Throwable $e) {
+                error_log('[m4w] dav: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+                http_response_code(500);
+            }
+            return;
+        }
         try {
             $res = self::handle($req);
         } catch (HttpException $e) {
@@ -329,6 +339,26 @@ final class App
         $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $admin);
         $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
         $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
+
+        // Calendar
+        $r->get('/calendar', [Controller\CalendarController::class, 'index']);
+        $r->get('/calendar/export/{id}', [Controller\CalendarController::class, 'export']);
+        $r->get('/api/calendar/events', [Controller\CalendarController::class, 'events']);
+        $r->get('/api/calendar/event', [Controller\CalendarController::class, 'event']);
+        $r->post('/api/calendar/event', [Controller\CalendarController::class, 'save']);
+        $r->post('/api/calendar/event/move', [Controller\CalendarController::class, 'move']);
+        $r->post('/api/calendar/event/delete', [Controller\CalendarController::class, 'delete']);
+        $r->post('/api/calendar/event/partstat', [Controller\CalendarController::class, 'partstat']);
+        $r->get('/api/calendar/busy', [Controller\CalendarController::class, 'busy']);
+        $r->post('/api/calendar/calendars', [Controller\CalendarController::class, 'createCalendar']);
+        $r->post('/api/calendar/calendars/{id}', [Controller\CalendarController::class, 'updateCalendar']);
+        $r->post('/api/calendar/calendars/{id}/delete', [Controller\CalendarController::class, 'deleteCalendar']);
+        $r->post('/api/calendar/import', [Controller\CalendarController::class, 'import']);
+        $r->post('/api/calendar/respond', [Controller\CalendarController::class, 'respond']);
+        $r->get('/settings/sync', [Controller\CalendarController::class, 'sync']);
+        $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
+        $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);
+        $r->get('/settings/sync/profile', [Controller\CalendarController::class, 'mobileconfig']);
 
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);

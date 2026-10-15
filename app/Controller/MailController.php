@@ -231,8 +231,19 @@ final class MailController extends Controller
             'reply_target' => self::replyTargetKind($parsed),
             'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
             'impersonation' => self::impersonation($parsed),
+            'invitation'  => $m['has_attachments'] && !$m['is_draft'] ? self::invitation($u, $parsed) : null,
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    private static function invitation(array $u, \M4W\Mail\ParsedMessage $p): ?array
+    {
+        try {
+            return \M4W\Service\Scheduling::card($u, $p);
+        } catch (\Throwable $e) {
+            error_log('[m4w] invitation card: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** An outside sender using a colleague's name, or a domain imitating ours. */

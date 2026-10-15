@@ -22,6 +22,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <nav class="m4w-help-cards" aria-label="Accès rapide">
     <a href="#compose" class="m4w-help-card"><i class="bi bi-pencil-square"></i><span>Écrire un message</span></a>
     <a href="#vacation" class="m4w-help-card"><i class="bi bi-airplane"></i><span>Prévenir de mon absence</span></a>
+    <a href="#calendar" class="m4w-help-card"><i class="bi bi-calendar3"></i><span>Organiser une réunion</span></a>
     <a href="#files" class="m4w-help-card"><i class="bi bi-folder2-open"></i><span>Partager des fichiers</span></a>
     <a href="#mobile" class="m4w-help-card"><i class="bi bi-phone"></i><span>Installer sur mon téléphone</span></a>
     <a href="#security" class="m4w-help-card"><i class="bi bi-shield-lock"></i><span>Sécuriser mon compte</span></a>
@@ -175,11 +176,38 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     </ul>
   </section>
 
+  <section id="calendar" class="m4w-help-section">
+    <h2><i class="bi bi-calendar3"></i>Agenda et invitations</h2>
+    <p>L'<?= $go('calendar', 'Agenda') ?> (menu <?= $ui('grid-3x3-gap', '') ?>) affiche vos rendez-vous par jour, semaine, mois ou en liste. Raccourcis : <?= $kbd('J') ?> jour, <?= $kbd('S') ?> semaine, <?= $kbd('M') ?> mois, <?= $kbd('L') ?> liste, <?= $kbd('T') ?> aujourd'hui, <?= $kbd('N') ?> nouvel événement, <?= $kbd('←') ?> <?= $kbd('→') ?> pour avancer ou reculer.</p>
+    <h3>Créer et modifier</h3>
+    <ul>
+      <li>Cliquez sur un créneau (ou sur <?= $ui('plus-lg', 'Nouvel événement') ?>) : titre, horaires, répétition (tous les jours, du lundi au vendredi, chaque semaine…), lieu ou salle, rappel.</li>
+      <li><strong>Glissez</strong> un événement pour le déplacer, tirez son bord inférieur pour changer sa durée. Pour un événement qui se répète, on vous demande si le changement vaut pour cette fois seulement ou pour toute la série.</li>
+      <li>Les <strong>rappels</strong> arrivent en notification sur les appareils où vous les avez activées (voir « Sur téléphone et notifications »).</li>
+    </ul>
+    <h3>Inviter des participants</h3>
+    <ul>
+      <li>Ajoutez des personnes dans « Inviter des participants » : vos collègues voient aussitôt l'événement dans leur agenda (« à répondre »), et tout le monde, y compris à l'extérieur, reçoit une invitation par e-mail que Outlook, Gmail, Apple ou Thunderbird savent accepter.</li>
+      <li>Si un collègue est déjà occupé à ce moment, un avertissement l'indique avant l'envoi.</li>
+      <li>Les réponses mettent à jour votre événement (coche verte : accepté, croix rouge : refusé). Déplacer ou supprimer l'événement prévient automatiquement les participants.</li>
+      <li>Une invitation reçue s'affiche en tête du message avec <?= $ui('check-lg', 'Accepter') ?> <?= $ui('question-lg', 'Peut-être') ?> <?= $ui('x-lg', 'Refuser') ?> ; votre réponse part à l'organisateur et l'événement s'ajoute à votre agenda. Les conflits avec vos autres rendez-vous sont signalés.</li>
+    </ul>
+    <h3>Partager un agenda, réserver une salle</h3>
+    <ul>
+      <li><?= $ui('plus-circle', 'Nouvel agenda') ?> crée un agenda supplémentaire (projet, équipe…). Le menu <?= $ui('three-dots', '') ?> d'un agenda permet de le partager avec des collègues ou toute l'organisation, en <strong>lecture</strong> ou en <strong>modification</strong>, de l'exporter (.ics) ou d'importer un fichier .ics.</li>
+      <li>Les <strong>salles</strong> (créées par l'administrateur) sont visibles de tous : indiquez la salle comme lieu de la réunion ou créez l'événement dans son agenda. Une salle ne peut pas être réservée deux fois sur le même créneau.</li>
+      <li>Décochez un agenda dans la colonne de gauche pour le masquer.</li>
+    </ul>
+    <h3>Sur le téléphone et dans Thunderbird</h3>
+    <p>Dans <?= $go('settings/sync', 'Paramètres → Téléphone et agenda') ?>, créez un <strong>mot de passe d'application</strong> pour chaque appareil, puis suivez les instructions (profil à installer en un geste sur iPhone, DAVx⁵ sur Android, Thunderbird). Agenda, contacts et annuaire de l'entreprise se synchronisent dans les deux sens. Un appareil perdu se révoque en un clic, sans changer votre mot de passe.</p>
+  </section>
+
   <section id="contacts" class="m4w-help-section">
     <h2><i class="bi bi-people"></i>Contacts et annuaire</h2>
     <ul>
       <li><?= $go('contacts', 'Mes contacts') ?> : vos contacts personnels. Les personnes à qui vous écrivez y sont ajoutées automatiquement (mention « auto »). Ajoutez, modifiez, mettez en favori ou supprimez-les.</li>
       <li><strong>Importer / exporter</strong> : au format vCard (.vcf) ou CSV, depuis le bouton <?= $ui('arrow-down-up', 'Importer / exporter') ?>.</li>
+      <li><strong>Sur le téléphone</strong> : vos contacts et l'annuaire se synchronisent avec le carnet d'adresses du téléphone (voir « Agenda et invitations »).</li>
       <li><?= $go('contacts?tab=directory', 'Annuaire') ?> : tous les collaborateurs de l'organisation, avec leur fonction, leur service et leurs téléphones. <?= $ui('envelope', 'Écrire') ?> ouvre directement un message.</li>
     </ul>
   </section>
@@ -420,6 +448,15 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <h2><i class="bi bi-palette"></i>Personnalisation</h2>
     <p>Dans <?= $go('admin/branding', 'Personnalisation') ?>, avec aperçu en direct : nom et accroche, logo clair et logo pour le thème sombre, favicon, image de la page de connexion, image de fond du volet de lecture (affichée quand aucun message n'est ouvert : remplir, centrer ou motif répété), nom de l'entreprise à côté du logo, couleurs principale et secondaire, style du menu latéral (clair, sombre, couleur de marque), arrondi des angles, police, message d'accueil de la page de connexion, et CSS personnalisé pour les besoins avancés.</p>
     <div class="m4w-help-note tip"><i class="bi bi-lightbulb"></i><div>Fournissez un logo en PNG ou SVG sur fond transparent, et une variante claire pour le thème sombre. La couleur du texte posé sur vos couleurs (boutons, menu) s'adapte automatiquement pour rester lisible.</div></div>
+  </section>
+
+  <section id="a-calendar" class="m4w-help-section admin">
+    <h2><i class="bi bi-calendar3"></i>Agenda : salles et synchronisation</h2>
+    <ul>
+      <li><strong>Salles</strong> : dans l'<?= $go('calendar', 'Agenda') ?>, <?= $ui('door-open', 'Nouvelle salle') ?> crée l'agenda d'une salle de réunion (ou d'un véhicule, d'un vidéoprojecteur…). Tout le monde peut y réserver un créneau ; les doubles réservations sont refusées. Seuls les administrateurs renomment ou suppriment une salle.</li>
+      <li><strong>CalDAV / CardDAV</strong> : les téléphones et Thunderbird se connectent à <code>/dav/</code> (découverte automatique par <code>/.well-known/caldav</code> et <code>/.well-known/carddav</code>) avec un mot de passe d'application, uniquement en HTTPS. Avec Apache, l'en-tête <code>Authorization</code> est transmis par le <code>.htaccess</code> fourni ; avec nginx, rien à faire.</li>
+      <li>Les invitations sont envoyées par le serveur (même depuis un téléphone) et suivent les règles d'envoi habituelles (DKIM, file d'attente, limites).</li>
+    </ul>
   </section>
 
   <section id="a-files" class="m4w-help-section admin">

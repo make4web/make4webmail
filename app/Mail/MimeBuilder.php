@@ -27,6 +27,8 @@ final class MimeBuilder
     public array $inline = [];
     /** @var array<string,string> */
     public array $extraHeaders = [];
+    /** iTIP invitation (iMIP): ['method' => REQUEST|REPLY|CANCEL, 'ics' => iCalendar text] */
+    public array $calendar = [];
     public ?int $date = null;
 
     public static function newMessageId(string $domain): string
@@ -96,6 +98,7 @@ final class MimeBuilder
                 "Content-Type: multipart/alternative;\r\n boundary=\"$b\"",
                 "--$b\r\n" . $this->textPart($text, 'text/plain')
                 . "\r\n--$b\r\n" . $this->textPart($this->wrapHtml($this->html), 'text/html')
+                . ($this->calendar ? "\r\n--$b\r\n" . $this->textPart($this->calendar['ics'], 'text/calendar', $this->calendar['method']) : '')
                 . "\r\n--$b--\r\n",
             ];
         } else {
@@ -114,10 +117,13 @@ final class MimeBuilder
             $body .= "\r\n--$b--\r\n";
             $current = ["Content-Type: multipart/related;\r\n type=\"multipart/alternative\";\r\n boundary=\"$b\"", $body];
         }
-        if ($this->attachments) {
+        // The invitation travels as the text/calendar alternative (RFC 6047): Outlook, Gmail,
+        // Apple Mail and Thunderbird all read it there.
+        $attachments = $this->attachments;
+        if ($attachments) {
             $b = self::boundary('mix');
             $body = "This is a multi-part message in MIME format.\r\n\r\n--$b\r\n" . $current[0] . "\r\n\r\n" . $current[1];
-            foreach ($this->attachments as $att) {
+            foreach ($attachments as $att) {
                 $body .= "\r\n--$b\r\n";
                 if (($att['mime'] ?? '') === 'message/rfc822') {
                     $body .= 'Content-Type: message/rfc822; name="' . $this->paramValue($att['name']) . "\"\r\n"
@@ -143,11 +149,12 @@ final class MimeBuilder
             . $html . "</body></html>";
     }
 
-    private function textPart(string $content, string $type): string
+    private function textPart(string $content, string $type, string $method = ''): string
     {
         $content = str_replace(["\r\n", "\r"], "\n", $content);
         $encoded = quoted_printable_encode(str_replace("\n", "\r\n", $content));
-        return "Content-Type: $type; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n" . $encoded;
+        $method = $method !== '' ? '; method=' . preg_replace('/[^A-Z]/', '', strtoupper($method)) : '';
+        return "Content-Type: $type; charset=UTF-8$method\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n" . $encoded;
     }
 
     private function binaryPart(string $content, string $mime, string $name, string $disposition, string $cid = ''): string

@@ -77,6 +77,12 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Stockage en base de données (blocs de 1 Mo) derrière une interface `BlobStore` : passer sur disque local se fait dans `config/config.php` (`'files' => ['storage' => 'local', 'path' => '/srv/files']`), et un stockage S3 ne demande qu'une nouvelle classe.
 - Administration : taille maximale, quota total, nombre de versions conservées, durée de la corbeille, création d'espaces par les utilisateurs.
 
+### Agenda, invitations et synchronisation des téléphones
+- Agenda jour / semaine / mois / liste, glisser-déposer pour déplacer ou allonger un événement, répétitions (quotidienne, jours ouvrés, hebdomadaire, mensuelle, annuelle, avec date de fin), « cette occurrence ou toute la série », rappels envoyés en notification sur les appareils.
+- Agendas multiples, **partagés** en lecture ou en modification avec des collègues ou toute l'organisation ; **salles** réservables par tous, sans double réservation ; import / export `.ics`.
+- **Invitations** au standard iTIP / iMIP : les collègues trouvent l'événement directement dans leur agenda, les personnes extérieures reçoivent un e-mail qu'Outlook, Gmail, Apple et Thunderbird savent accepter ; les réponses, modifications et annulations sont appliquées automatiquement (expéditeur vérifié). Une invitation reçue s'affiche en tête du message avec Accepter / Peut-être / Refuser et les conflits d'horaire ; disponibilité des collègues vérifiée avant l'envoi.
+- **CalDAV / CardDAV** (`/dav/`, découverte `/.well-known/caldav`) : agenda, contacts et annuaire de l'entreprise synchronisés dans les deux sens avec iPhone (profil à installer en un geste), Android (DAVx⁵), Thunderbird. Connexion par **mots de passe d'application** (un par appareil, révocables), HTTPS obligatoire.
+
 ### Délégation des boîtes aux lettres
 Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisation : en cas d'absence ou d'urgence, il faut pouvoir les gérer.
 - **Par défaut, les administrateurs peuvent ouvrir n'importe quelle boîte**, depuis la liste des utilisateurs ou la fiche d'un utilisateur. L'administrateur reste connecté sous son identité : seuls les écrans de messagerie passent sur la boîte ouverte (bandeau « Boîte de … » et bouton « Quitter » dans la barre du haut).
@@ -202,7 +208,7 @@ En mode boîte collectrice :
 
 ## Licences tierces
 - Navigateur (`public/assets/vendor/`) : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator), OFL (police Inter).
-- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache, phpseclib pour le SFTP, paragonie/constant_time_encoding) et **LGPL-3.0 pour PHPWord**.
+- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache, phpseclib pour le SFTP, paragonie/constant_time_encoding), BSD-3-Clause (sabre/dav, sabre/vobject, sabre/http, sabre/xml, sabre/event, sabre/uri pour l'agenda et CalDAV / CardDAV), MIT (psr/log) et **LGPL-3.0 pour PHPWord**.
 
 La LGPL autorise l'usage de PHPWord dans un produit propriétaire ou un SaaS, à condition de le livrer sans modification, avec sa licence, et de laisser l'utilisateur le remplacer par une autre version (c'est le cas : ses sources sont dans `app/vendor/phpoffice/phpword`). Le webmail peut donc être distribué ou exploité sous licence propriétaire en conservant les fichiers de licence (`public/assets/vendor/*/LICENSE*`, `app/vendor/*/*/LICENSE*`).
 
@@ -295,7 +301,7 @@ Publiez-le ensuite derrière votre proxy HTTPS (par ex. `https://office.exemple.
 
 ## Tests
 ```bash
-php tests/run.php   # 118 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 154 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -307,8 +313,10 @@ app/
   Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
                Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
+               Calendar (agendas, occurrences, rappels), Scheduling (invitations iTIP / iMIP),
                Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille), RemoteMailbox (mode webmail)
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
+  Dav/         serveur CalDAV / CardDAV (sabre/dav) : principaux, agendas, carnets d'adresses, mots de passe d'application
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Calendar, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)
