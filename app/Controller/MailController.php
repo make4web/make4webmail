@@ -269,9 +269,12 @@ final class MailController extends Controller
     /** Why a message is in the Junk folder: score and the tests that weighed most. */
     private static function spamInfo(\M4W\Mail\ParsedMessage $p, int $folderId): ?array
     {
-        $r = \M4W\Service\SpamFilter::parse($p->header(\M4W\Service\SpamFilter::HEADER));
-        if (!$r || \M4W\Core\Database::value('SELECT role FROM folders WHERE id = :id', ['id' => $folderId]) !== 'spam') {
+        if (\M4W\Core\Database::value('SELECT role FROM folders WHERE id = :id', ['id' => $folderId]) !== 'spam') {
             return null;
+        }
+        $r = \M4W\Service\SpamFilter::parse($p->header(\M4W\Service\SpamFilter::HEADER));
+        if (!$r) {
+            return ['score' => null, 'reasons' => []]; // put there by hand or by the provider
         }
         $tests = array_filter($r['tests'], static fn($w) => $w > 0);
         arsort($tests);
@@ -627,11 +630,23 @@ final class MailController extends Controller
                     $n = Mailbox::move($uid, $ids, $this->req->int('folder'));
                     break;
                 case 'archive':
+                case 'not_spam':
+                    // Detected wrongly: back to the inbox, the filter learns, the sender is trusted.
+                    $r = \M4W\Service\TrustedSenders::notJunk($uid, $ids, (int) $this->actor()['id']);
+                    $n = $r['count'];
+                    $extra = ['trusted' => $r['senders']];
+                    break;
                 case 'spam':
                 case 'inbox':
                     $n = Mailbox::move($uid, $ids, (int) Folders::byRole($uid, $action)['id']);
                     if ($action === 'spam') {
                         Mailbox::setFlags($uid, $ids, ['is_read' => 1]);
+                        // Junk after all: a sender trusted earlier is not any more.
+                        foreach ($ids as $sid) {
+                            if ($sm = Mailbox::get($uid, (int) $sid)) {
+                                \M4W\Service\TrustedSenders::remove($uid, (string) $sm['from_email']);
+                            }
+                        }
                     }
                     break;
                 case 'delete':
@@ -646,7 +661,7 @@ final class MailController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
-        return $this->ok(['count' => $n, 'ids' => $ids, 'folders' => Folders::listWithCounts($uid)]);
+        return $this->ok(['count' => $n, 'ids' => $ids, 'folders' => Folders::listWithCounts($uid)] + ($extra ?? []));
     }
 
     private function threadInFolder(int $uid, array $m): array

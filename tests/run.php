@@ -718,6 +718,34 @@ test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendT
     eq(SpamFilter::level(4.5), 'ok');
     eq(SpamFilter::level(20), 'delete');
 });
+test('antispam: "not junk" puts the message back, teaches the filter and trusts the sender', function () use ($bob, $sendTo) {
+    $uid = (int) $bob['id'];
+    $spamId = (int) Folders::byRole($uid, 'spam')['id'];
+    $inboxId = (int) Folders::byRole($uid, 'inbox')['id'];
+    $body = '<p>Votre compte est suspendu. Vérifiez votre compte : <a href="https://secure-verif.example.ru/login">www.mabanque.fr</a></p>';
+    $one = static function (string $subject) use ($sendTo, $body) {
+        Delivery::deliver($sendTo('bob@test.local', $subject, 'alertes@fournisseur-ext.com', [], $body), 'alertes@fournisseur-ext.com', ['bob@test.local']);
+        return DB::one('SELECT * FROM messages WHERE subject = :s ORDER BY id DESC', ['s' => $subject]);
+    };
+    $m = $one('URGENT VERIFIEZ VOTRE COMPTE!!!');
+    eq((int) $m['folder_id'], $spamId, 'filed as junk');
+    $r = M4W\Service\TrustedSenders::notJunk($uid, [(int) $m['id']], $uid);
+    eq([$r['count'], $r['senders']], [1, ['alertes@fournisseur-ext.com']]);
+    $m = DB::one('SELECT * FROM messages WHERE id = :id', ['id' => $m['id']]);
+    eq([(int) $m['folder_id'], (int) $m['bayes']], [$inboxId, -1], 'back in the inbox, learnt as not junk');
+    ok((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'spam.false_positive'") > 0, 'false positive recorded');
+    // Next one from the same sender: inbox.
+    $m2 = $one('URGENT VERIFIEZ VOTRE COMPTE ENCORE!!!');
+    eq((int) $m2['folder_id'], $inboxId, 'trusted sender reaches the inbox');
+    ok(str_contains((string) Mailbox::parsed($m2)->header(SpamFilter::HEADER), 'USER_TRUSTED'), 'reason recorded');
+    // Not for someone else.
+    ok(!M4W\Service\TrustedSenders::has((int) DB::value("SELECT id FROM users WHERE email = 'alice@test.local'"), 'alertes@fournisseur-ext.com'), 'per person');
+    // Junk after all: trust withdrawn.
+    M4W\Service\TrustedSenders::remove($uid, 'alertes@fournisseur-ext.com');
+    eq(M4W\Service\TrustedSenders::list($uid), [], 'removed');
+    // An address of our own domains is never trusted this way.
+    eq(M4W\Service\TrustedSenders::notJunk($uid, [], $uid)['senders'], [], 'nothing to trust');
+});
 test('antispam: people the user writes to are trusted a little more', function () use ($bob, $sendTo) {
     $body = '<p>Voir <a href="https://bit.ly/abc">le lien</a></p>';
     $mk = static fn(string $s) => $sendTo('bob@test.local', $s, 'ami@ext-ami.com', [], $body);
