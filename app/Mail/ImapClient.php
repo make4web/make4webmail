@@ -95,6 +95,61 @@ final class ImapClient
         return $res['literals'][0] ?? null;
     }
 
+    /**
+     * The message with what the provider knows about it: flags (\\Seen, \\Flagged…) and the
+     * date it arrived in the mailbox (INTERNALDATE).
+     * @return ?array{raw:string,flags:string[],date:int}
+     */
+    public function fetchMessage(int $uid): ?array
+    {
+        $res = $this->command('UID FETCH ' . $uid . ' (FLAGS INTERNALDATE BODY.PEEK[])');
+        if (!isset($res['literals'][0])) {
+            return null;
+        }
+        $meta = implode(' ', $res['lines']);
+        return ['raw' => $res['literals'][0], 'flags' => self::flags($meta), 'date' => self::internalDate($meta)];
+    }
+
+    /**
+     * Flags of every message of the selected folder, by Message-ID.
+     * @return array<string,string[]>
+     */
+    public function flagsByMessageId(int $max = 20000): array
+    {
+        $out = [];
+        $uids = array_slice($this->searchUidsAbove(0), -$max);
+        foreach (array_chunk($uids, 300) as $chunk) {
+            $res = $this->command('UID FETCH ' . implode(',', $chunk) . ' (FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])');
+            // Each response line announcing a literal goes with the next literal.
+            $i = 0;
+            foreach ($res['lines'] as $line) {
+                if (!preg_match('/\{\d+\}$/', $line)) {
+                    continue;
+                }
+                $hdr = $res['literals'][$i++] ?? '';
+                if (preg_match('/Message-ID:\s*<([^>]+)>/i', $hdr, $m)) {
+                    $out[$m[1]] = self::flags($line);
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** @return string[] */
+    private static function flags(string $meta): array
+    {
+        return preg_match('/FLAGS \(([^)]*)\)/i', $meta, $m) ? array_filter(explode(' ', strtolower($m[1]))) : [];
+    }
+
+    private static function internalDate(string $meta): int
+    {
+        if (preg_match('/INTERNALDATE "([^"]+)"/i', $meta, $m)) {
+            $t = strtotime(trim($m[1]));
+            return $t !== false ? $t : 0;
+        }
+        return 0;
+    }
+
     public function markDeleted(int $uid): void
     {
         $this->command('UID STORE ' . $uid . ' +FLAGS.SILENT (\\Deleted)');

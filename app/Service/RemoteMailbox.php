@@ -359,6 +359,13 @@ final class RemoteMailbox
         $client = null;
         try {
             $client = self::imap($acc);
+            if ($user !== null) {
+                try {
+                    self::repairHistory($client, $acc);
+                } catch (\Throwable $e) {
+                    error_log('[m4w] webmail repair: ' . $e->getMessage());
+                }
+            }
             $fetched += self::pullFolder($client, $acc, $user, 'INBOX', 'inbox', $max);
             $spam = trim((string) Settings::get('webmail.spam_folder', ''));
             if ($spam !== '') {
@@ -392,10 +399,18 @@ final class RemoteMailbox
             return 0;
         }
         $n = 0;
-        foreach (array_slice($client->searchUidsAbove($last), 0, $max) as $uid) {
-            $raw = $client->fetchRaw($uid);
-            if ($raw !== null) {
-                self::import($user, $raw, $local);
+        // What is already in the folder when it is first linked is history, not new mail,
+        // even when it takes several passes to bring it all in.
+        $uids = $client->searchUidsAbove($last);
+        $boundaryKey = 'webmail.history.' . (int) $acc['id'] . '.' . $local;
+        if ($last === 0 && (int) $acc[$valCol] === 0) {
+            Settings::set($boundaryKey, $uids ? max($uids) : 0);
+        }
+        $boundary = (int) Settings::get($boundaryKey, 0);
+        foreach (array_slice($uids, 0, $max) as $uid) {
+            $msg = $client->fetchMessage($uid);
+            if ($msg !== null) {
+                self::import($user, $msg['raw'], $local, $msg, $uid <= $boundary);
                 DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time()]);
                 $n++;
             }
@@ -408,13 +423,21 @@ final class RemoteMailbox
     }
 
     /** Local delivery of a pulled message: same pipeline as mail received by our own server. */
-    private static function import(?array $user, string $raw, string $local): void
+    private static function import(?array $user, string $raw, string $local, array $meta = [], bool $history = false): void
     {
         if ($user === null) {
             Collector::dispatch($raw, $local);
             return;
         }
         $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+        $arrived = (int) ($meta['date'] ?? 0);
+        // Mail already in the mailbox when it was linked, or older than two days: history.
+        // It keeps its date and read state, and triggers nothing (no notification, rule,
+        // forwarding or out-of-office reply to someone who wrote months ago).
+        if ($history || ($arrived > 0 && $arrived < time() - 2 * 86400)) {
+            self::importHistory($user, $raw, $local, $meta);
+            return;
+        }
         // An own mailbox next to another way in (our MX, a colleague in copy…): one copy only.
         if (!self::active()) {
             $mid = MimeParser::parse($raw)->messageId();
@@ -437,6 +460,55 @@ final class RemoteMailbox
             $envelope = '';
         }
         Delivery::deliver($raw, $envelope, [$user['email']], 'sync');
+    }
+
+    private static function importHistory(array $user, string $raw, string $local, array $meta): void
+    {
+        $uid = (int) $user['id'];
+        $raw = Delivery::sanitizeIncoming($raw);
+        $p = MimeParser::parse($raw);
+        $mid = $p->messageId();
+        if ($mid !== '' && DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $uid, 'm' => $mid])) {
+            return;
+        }
+        $flags = (array) ($meta['flags'] ?? []);
+        $folder = Folders::byRole($uid, $local === 'spam' ? 'spam' : 'inbox');
+        $date = (int) ($meta['date'] ?? 0) ?: ($p->date() ?: time());
+        Mailbox::store($uid, (int) $folder['id'], 'Delivered-To: ' . $user['email'] . "\n" . $raw,
+            ['read' => in_array('\\seen', $flags, true), 'flagged' => in_array('\\flagged', $flags, true), 'date_received' => min($date, time())], $p);
+    }
+
+    /**
+     * Mailboxes linked before history import existed: every message was dated "now" and unread.
+     * Once per account, put back the real dates and the provider's read state.
+     */
+    private static function repairHistory(ImapClient $client, array $acc): void
+    {
+        $key = 'webmail.repaired.' . (int) $acc['id'];
+        if ($acc['user_id'] === null || (int) Settings::get($key, 0) || !DB::value('SELECT COUNT(*) FROM remote_uids WHERE account_id = :a', ['a' => $acc['id']])) {
+            Settings::set($key, 1);
+            return;
+        }
+        $uid = (int) $acc['user_id'];
+        $since = (int) DB::value('SELECT MIN(imported_at) FROM remote_uids WHERE account_id = :a', ['a' => $acc['id']]);
+        $client->select('INBOX');
+        $flags = $client->flagsByMessageId();
+        $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+        foreach (DB::all('SELECT id, message_id, date_sent, date_received FROM messages WHERE user_id = :u AND folder_id = :f AND date_received >= :t',
+            ['u' => $uid, 'f' => $inbox, 't' => $since - 60]) as $m) {
+            $set = [];
+            if ((int) $m['date_sent'] > 0 && (int) $m['date_sent'] < (int) $m['date_received'] - 2 * 86400) {
+                $set['date_received'] = (int) $m['date_sent'];
+            }
+            if (isset($flags[$m['message_id']])) {
+                $set['is_read'] = in_array('\\seen', $flags[$m['message_id']], true) ? 1 : 0;
+                $set['is_flagged'] = in_array('\\flagged', $flags[$m['message_id']], true) ? 1 : 0;
+            }
+            if ($set) {
+                DB::update('messages', $set, 'id = :id', ['id' => $m['id']]);
+            }
+        }
+        Settings::set($key, 1);
     }
 
     /** Remove imported messages from the provider after the configured delay. */

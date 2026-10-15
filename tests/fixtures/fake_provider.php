@@ -72,7 +72,8 @@ while (true) {
                         foreach ($f['msgs'] as $i => $msg) {
                             if ($msg['uid'] === (int) $m[1]) {
                                 $raw = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $msg['raw']));
-                                fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' BODY[] {' . strlen($raw) . "}\r\n" . $raw . ")\r\n");
+                                $meta = 'FLAGS (' . implode(' ', $msg['flags'] ?? []) . ') INTERNALDATE "' . date('d-M-Y H:i:s O', $msg['date'] ?? time()) . '" ';
+                                fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' ' . $meta . 'BODY[] {' . strlen($raw) . "}\r\n" . $raw . ")\r\n");
                             }
                         }
                         $out("$tag OK fetch done");
