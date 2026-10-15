@@ -675,6 +675,10 @@ final class MailController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
+        // Followed both ways with the provider: the phone sees it at the next minute.
+        if (in_array($action, ['read', 'unread', 'flag', 'unflag', 'move', 'archive', 'spam', 'not_spam', 'inbox', 'delete', 'purge'], true)) {
+            \M4W\Core\Database::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u AND two_way = 1 AND enabled = 1', ['u' => $uid]);
+        }
         return $this->ok(['count' => $n, 'ids' => $ids, 'folders' => Folders::listWithCounts($uid)] + ($extra ?? []));
     }
 

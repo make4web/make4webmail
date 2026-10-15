@@ -1981,6 +1981,53 @@ test('own mailbox: its own clean-up rule, sent copies, copy back to the provider
     eq(RemoteMailbox::test($uid)['smtp'], '', 'sender accepted');
     eq(RemoteMailbox::envelopeFor(['login' => 'boite@ext.com'] + RemoteMailbox::find($uid), $uid, 'paul@test.local'), 'boite@ext.com', 'the mailbox login as envelope sender');
 });
+test('two-way: deleted, archived, read or flagged on the phone or here, both sides agree', function () use ($paul, $colState, $colMsg, $wm) {
+    $uid = (int) $paul['id'];
+    $box = static fn(string $f) => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'][$f]['msgs'] ?? [];
+    $has = static fn(string $f, string $id) => (bool) array_filter($box($f), static fn($m) => str_contains($m['raw'], "<$id@ext.com>"));
+    $local = static fn(string $id) => DB::one('SELECT m.*, f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.message_id = :m', ['u' => $uid, 'm' => "$id@ext.com"]);
+    $sync = static function () use ($uid) { DB::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u', ['u' => $uid]); return RemoteMailbox::sync(RemoteMailbox::find($uid))['error']; };
+    $colState(static function (array &$st) use ($colMsg) {
+        $st['boxes']['paul@test.local']['Corbeille'] = ['validity' => 1, 'msgs' => []];
+        $st['boxes']['paul@test.local']['Archives'] = ['validity' => 1, 'msgs' => []];
+        $st['special']['paul@test.local'] = ['Corbeille' => '\\Trash', 'Archives' => '\\Archive'];
+        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch'] as $k => $id) {
+            $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 3000 + $k, 'raw' => $colMsg("To: paul@test.local\r\n", "Deux sens $id", $id), 'flags' => []];
+        }
+    });
+    eq($sync(), '');
+    ok($local('tw-del') && $local('tw-del')['role'] === 'inbox', 'collected');
+    // On the phone: one deleted (to its Trash), one archived, one read.
+    $colState(static function (array &$st) {
+        $in = &$st['boxes']['paul@test.local']['INBOX']['msgs'];
+        foreach ($in as $k => $m) {
+            if (str_contains($m['raw'], '<tw-del@')) { $st['boxes']['paul@test.local']['Corbeille']['msgs'][] = ['uid' => 1] + $m; unset($in[$k]); }
+            elseif (str_contains($m['raw'], '<tw-arch@')) { $st['boxes']['paul@test.local']['Archives']['msgs'][] = ['uid' => 1] + $m; unset($in[$k]); }
+            elseif (str_contains($m['raw'], '<tw-read@')) { $in[$k]['flags'] = ['\\Seen']; }
+        }
+        $in = array_values($in);
+    });
+    eq($sync(), '');
+    eq([$local('tw-del')['role'], $local('tw-arch')['role'], (int) $local('tw-read')['is_read']], ['trash', 'archive', 1], 'deleted → Trash, archived → Archives, read → read');
+    // Here: one deleted, one flagged, one archived.
+    Mailbox::move($uid, [(int) $local('tw-here-del')['id']], (int) Folders::byRole($uid, 'trash')['id']);
+    Mailbox::move($uid, [(int) $local('tw-here-arch')['id']], (int) Folders::byRole($uid, 'archive')['id']);
+    Mailbox::setFlags($uid, [(int) $local('tw-here-flag')['id']], ['is_flagged' => true]);
+    eq($sync(), '');
+    ok(!$has('INBOX', 'tw-here-del') && $has('Corbeille', 'tw-here-del'), 'deleted here → in the provider Trash, not erased');
+    ok(!$has('INBOX', 'tw-here-arch') && $has('Archives', 'tw-here-arch'), 'archived here → provider Archives');
+    $flag = array_values(array_filter($box('INBOX'), static fn($m) => str_contains($m['raw'], '<tw-here-flag@')))[0];
+    ok(in_array('\\Flagged', $flag['flags'], true), 'flagged here → flagged there');
+    // Nothing comes back, nothing is imported twice, and a further pass changes nothing.
+    eq($sync(), '');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %'", ['u' => $uid]), 6, 'no duplicate');
+    eq([$local('tw-del')['role'], $local('tw-here-del')['role']], ['trash', 'trash']);
+    // The webmail's own clean-up is not taken for a deletion on the phone.
+    RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => 0, 'save_sent' => 1], 1);
+    eq($sync(), '');
+    eq($local('tw-read')['role'], 'inbox', 'cleaned up at the provider by us: kept in the inbox here');
+    RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => -1, 'save_sent' => 1], 1);
+});
 test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
     Settings::set('mail.mode', 'server');
     $n = count($wmSmtp());

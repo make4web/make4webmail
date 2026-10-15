@@ -848,5 +848,17 @@ static function (): void {
 ) {OPT}",
 "CREATE UNIQUE INDEX spam_trusted_ua ON spam_trusted(user_id, address)",
 ],
+27 => [
+// Two-way synchronisation with the provider mailbox: what each collected message is, and the
+// read / flagged state both sides last agreed on.
+"ALTER TABLE remote_uids ADD COLUMN msgid VARCHAR(255) NOT NULL DEFAULT ''",
+"ALTER TABLE remote_uids ADD COLUMN seen INTEGER NOT NULL DEFAULT -1",
+"ALTER TABLE remote_uids ADD COLUMN flagged INTEGER NOT NULL DEFAULT -1",
+"CREATE INDEX remote_uids_msgid ON remote_uids(account_id, msgid)",
+"ALTER TABLE remote_accounts ADD COLUMN two_way INTEGER NOT NULL DEFAULT 1",
+"ALTER TABLE remote_accounts ADD COLUMN trash_folder VARCHAR(190) NOT NULL DEFAULT ''",
+"ALTER TABLE remote_accounts ADD COLUMN archive_folder VARCHAR(190) NOT NULL DEFAULT ''",
+"ALTER TABLE remote_accounts ADD COLUMN empty_streak INTEGER NOT NULL DEFAULT 0",
+],
 ];
 

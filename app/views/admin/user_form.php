@@ -46,6 +46,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <?php if ($rm): ?>
           <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="remote_enabled" value="1" id="rm-en" <?= (int) $rm['enabled'] ? 'checked' : '' ?>><label class="form-check-label" for="rm-en"><?= te('wm.enabled') ?></label></div>
           <?php endif; ?>
+          <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="remote_two_way" value="1" id="rm-two" <?= !$rm || (int) ($rm['two_way'] ?? 1) ? 'checked' : '' ?>><label class="form-check-label" for="rm-two"><?= te('wm.two_way') ?></label><div class="form-text"><?= te('wm.two_way_hint') ?></div></div>
           <details class="mt-3"<?= !$wm && M4W\Core\Settings::get('webmail.imap_host', '') === '' ? ' open' : '' ?>><summary class="small fw-semibold"><?= te('wm.override') ?></summary>
             <p class="small text-muted mt-2"><?= te($wm || M4W\Core\Settings::get('webmail.imap_host', '') !== '' ? 'wm.override_hint' : 'own.servers_hint') ?></p>
             <div class="row g-2">

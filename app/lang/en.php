@@ -2099,4 +2099,6 @@ Approve or decline in Calendar › Rooms and bookings.',
     'admin.sidebar_color' => 'Menu colour',
     'admin.sidebar_image_hint' => 'PNG, JPEG, WebP. The text colour (light or dark) follows the picture\'s brightness, with a light veil to stay readable.',
     'admin.sidebar_main' => 'Extend behind the work area',
+    'wm.two_way' => 'Two-way synchronisation with the mailbox',
+    'wm.two_way_hint' => 'What is deleted, archived, read or flagged on the phone is too here, and the other way round. A deleted message always goes to the trash (never erased at once).',
 ];
