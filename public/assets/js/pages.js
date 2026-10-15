@@ -73,6 +73,12 @@
     $(document).on('change', '[data-own-toggle]', function () {
       $('[data-own-fields]').toggleClass('d-none', !this.checked);
     });
+    // "Test again": a real reload (the link alone would only jump to the anchor of the same page).
+    $(document).on('click', '[data-av-retest]', function (e) {
+      e.preventDefault();
+      $(this).addClass('disabled').attr('aria-disabled', 'true').find('.bi').replaceWith('<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>');
+      window.location.reload();
+    });
     // Antivirus diagnostic: use the address where a daemon answers (saved with the form).
     $(document).on('click', '[data-av-use]', function () { $('[data-av-input]').val($(this).attr('data-av-use')).trigger('focus'); M4W.toast(t('av_use_save'), 'info'); });
     $(document).on('click', '[data-remote-action]', function () {

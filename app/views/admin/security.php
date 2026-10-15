@@ -60,7 +60,7 @@ sudo systemctl stop clamav-freshclam &amp;&amp; sudo freshclam &amp;&amp; sudo s
 sudo systemctl enable --now clamav-daemon
 sudo systemctl status clamav-daemon
 ls -l /var/run/clamav/</pre></details>
-      <a class="btn btn-sm btn-warning mt-2" href="<?= e(url('admin/security')) ?>#antivirus"><i class="bi bi-arrow-repeat me-1"></i><?= te('av.retest') ?></a>
+      <a class="btn btn-sm btn-warning mt-2" href="<?= e(url('admin/security', ['retest' => time()])) ?>#antivirus" data-av-retest><i class="bi bi-arrow-repeat me-1"></i><?= te('av.retest') ?></a>
     </div></div>
     <?php endif; ?>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.av_enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="antivirus" value="1" aria-label="<?= te('admin.av_enable') ?>" <?= S::get('security.antivirus') ? 'checked' : '' ?>></div></div>
