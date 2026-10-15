@@ -150,6 +150,71 @@ final class ImapClient
         return 0;
     }
 
+    /**
+     * Put a message into a folder (IMAP APPEND), with its flags and its original date.
+     * @param string[] $flags e.g. ['\\Seen']
+     */
+    public function append(string $folder, string $raw, array $flags = [], int $date = 0): void
+    {
+        $raw = str_replace(["\r\n", "\r", "\n"], ["\n", "\n", "\r\n"], $raw);
+        $flags = array_values(array_filter($flags, static fn($f) => preg_match('/^\\\\?[A-Za-z$]+$/', $f) === 1));
+        $tag = 'A' . (++$this->tag);
+        $cmd = $tag . ' APPEND ' . self::quote($folder) . ($flags ? ' (' . implode(' ', $flags) . ')' : '')
+            . ($date > 0 ? ' "' . date('d-M-Y H:i:s O', $date) . '"' : '') . ' {' . strlen($raw) . '}';
+        fwrite($this->sock, $cmd . "\r\n");
+        // The server answers "+" before it takes the message.
+        while (true) {
+            $line = $this->readLine();
+            if (str_starts_with($line, '+')) {
+                break;
+            }
+            if (str_starts_with($line, $tag . ' ')) {
+                throw new \RuntimeException('IMAP: ' . substr($line, strlen($tag) + 1));
+            }
+        }
+        fwrite($this->sock, $raw . "\r\n");
+        while (true) {
+            $line = $this->readLine();
+            if (str_starts_with($line, $tag . ' ')) {
+                if (strtoupper(substr($line, strlen($tag) + 1, 2)) !== 'OK') {
+                    throw new \RuntimeException('IMAP: ' . substr($line, strlen($tag) + 1));
+                }
+                return;
+            }
+        }
+    }
+
+    /**
+     * The folder the provider uses for sent mail (special-use \Sent, else a usual name).
+     */
+    public function sentFolder(): string
+    {
+        $res = $this->command('LIST "" "*"');
+        $names = [];
+        foreach ($res['lines'] as $l) {
+            if (!preg_match('/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (.+)$/i', $l, $m)) {
+                continue;
+            }
+            $name = trim($m[2]);
+            if (str_starts_with($name, '"')) {
+                $name = stripcslashes(substr($name, 1, -1));
+            }
+            if (stripos($m[1], '\\Sent') !== false) {
+                return $name;
+            }
+            $names[] = $name;
+        }
+        // Names as the server lists them (modified UTF-7), as APPEND expects them.
+        foreach (['Sent', 'INBOX.Sent', 'Sent Items', 'Sent Messages', 'Envoy&AOk-s', 'INBOX.Envoy&AOk-s', '&AMk-l&AOk-ments envoy&AOk-s'] as $guess) {
+            foreach ($names as $n) {
+                if (strcasecmp($n, $guess) === 0) {
+                    return $n;
+                }
+            }
+        }
+        return '';
+    }
+
     public function markDeleted(int $uid): void
     {
         $this->command('UID STORE ' . $uid . ' +FLAGS.SILENT (\\Deleted)');

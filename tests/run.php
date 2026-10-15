@@ -1757,6 +1757,55 @@ test('own mailbox imposed in collector mode: fetched from it, sent through it, o
     Transport::processQueue();
     ok(in_array(['paul@test.local', ['e@ext.com']], array_map(static fn($t) => [$t['auth'], $t['rcpt']], array_slice($wmSmtp(), $n)), true), 'leaves by his box later');
 });
+test('own mailbox: its own clean-up rule, sent copies, copy back to the provider', function () use ($paul, $fsAdmin, $colState, $colMsg, $wm) {
+    $uid = (int) $paul['id'];
+    $box = static fn(string $f) => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'][$f]['msgs'] ?? [];
+    // The collector empties its box at once; Paul's own box keeps everything (its default).
+    $prevLeave = Settings::get('webmail.leave_days', -1);
+    Settings::set('webmail.leave_days', 0);
+    $colState(static function (array &$st) use ($colMsg) {
+        $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 1001, 'raw' => $colMsg("To: paul@test.local\r\n", 'Garde-moi', 'own-keep')];
+        $st['boxes']['paul@test.local']['Sent'] = ['validity' => 1, 'msgs' => []];
+    });
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0, blocked_until = 0, overflow = 0');
+    eq(RemoteMailbox::sync(RemoteMailbox::find($uid))['error'], '');
+    eq((int) RemoteMailbox::find($uid)['leave_days'], -1, 'never emptied by default');
+    ok(count($box('INBOX')) >= 2, 'his box is not emptied by the collector rule');
+    // His own rule applies when chosen.
+    RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => 0, 'save_sent' => 1], (int) $fsAdmin['id']);
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0');
+    RemoteMailbox::sync(RemoteMailbox::find($uid));
+    eq(count($box('INBOX')), 0, 'emptied when he chose it');
+    Settings::set('webmail.leave_days', $prevLeave);
+    // Sent from the webmail: a copy lands in the Sent folder of his box, read.
+    Composer::send(Users::find($uid), ['to' => 'g@ext.com', 'subject' => 'Copie du message', 'html' => '<p>x</p>']);
+    $sent = $box('Sent');
+    eq(count($sent), 1, 'copied to Sent');
+    ok(str_contains($sent[0]['raw'], 'Subject: Copie du message') && in_array('\\Seen', $sent[0]['flags'], true), 'the message, marked read');
+    eq(RemoteMailbox::find($uid)['sent_folder'], 'Sent', 'folder found and remembered');
+    // Copy the webmail back into the emptied box: inbox and sent, without duplicates.
+    RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => -1, 'save_sent' => 1], (int) $fsAdmin['id']);
+    $inbox = (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND folder_id = :f', ['u' => $uid, 'f' => Folders::byRole($uid, 'inbox')['id']]);
+    $sentHere = (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND folder_id = :f', ['u' => $uid, 'f' => Folders::byRole($uid, 'sent')['id']]);
+    eq(RemoteMailbox::startRestore($uid, ['inbox', 'sent'], (int) $fsAdmin['id']), $inbox + $sentHere);
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0');
+    RemoteMailbox::sync(RemoteMailbox::find($uid));
+    $rs = RemoteMailbox::restoreState(RemoteMailbox::find($uid));
+    ok($rs['finished'] > 0 && $rs['failed'] === 0, 'finished');
+    eq([$rs['done'], $rs['skipped']], [$inbox + $sentHere - 1, 1], 'the sent copy already there is skipped');
+    eq(count($box('INBOX')), $inbox, 'inbox back at the provider');
+    ok(!str_starts_with($box('INBOX')[0]['raw'], 'Delivered-To:'), 'without our delivery line');
+    // The next synchronisation sees them as new UIDs: nothing comes in twice.
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0');
+    RemoteMailbox::sync(RemoteMailbox::find($uid));
+    eq((int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND folder_id = :f', ['u' => $uid, 'f' => Folders::byRole($uid, 'inbox')['id']]), $inbox, 'no duplicate');
+    // Only an own mailbox can be copied back; the sending check passes for his box.
+    $thrown = false;
+    try { RemoteMailbox::startRestore((int) $fsAdmin['id'], ['inbox'], 1); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'no own mailbox');
+    eq(RemoteMailbox::test($uid)['smtp'], '', 'sender accepted');
+    eq(RemoteMailbox::envelopeFor(['login' => 'boite@ext.com'] + RemoteMailbox::find($uid), $uid, 'paul@test.local'), 'boite@ext.com', 'the mailbox login as envelope sender');
+});
 test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
     Settings::set('mail.mode', 'server');
     $n = count($wmSmtp());
@@ -2964,7 +3013,7 @@ test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their AP
     Settings::setSecret('meet.teams_secret', 'ts');
     eq(array_keys($M::available($bob)), ['jitsi', 'teams', 'zoom'], 'Meet offered only with a personal link');
     $j = $M::create($bob, 'jitsi', 'Point', time(), time() + 3600);
-    ok(preg_match('#^https://visio\.test\.local/M4W-[A-Za-z0-9]{20}$#', $j['url']) === 1, 'unguessable Jitsi room');
+    ok(preg_match('#^https://visio\.test\.local/M4W-[a-f0-9]{20}$#', $j['url']) === 1, 'unguessable Jitsi room');
     $calls = [];
     $M::$transport = function (string $method, string $url, array $h, string $body) use (&$calls) {
         $calls[] = [$method, $url, $body, $h];

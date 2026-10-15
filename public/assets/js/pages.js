@@ -74,7 +74,12 @@
       $('[data-own-fields]').toggleClass('d-none', !this.checked);
     });
     $(document).on('click', '[data-remote-action]', function () {
-      var $b = $(this), $r = $b.siblings('[data-remote-result]');
+      var $b = $(this);
+      if ($b.data('remote-confirm') && !$b.data('confirmed')) {
+        M4W.confirm($b.data('remote-confirm'), '', $b.text().trim()).done(function () { $b.data('confirmed', 1).trigger('click').removeData('confirmed'); });
+        return;
+      }
+      var $r = $b.siblings('[data-remote-result]');
       if (!$r.length) $r = $b.closest('.card-body, .m4w-setting-row, .m4w-section').find('[data-remote-result]').first();
       $b.prop('disabled', true);
       $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');

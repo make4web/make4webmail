@@ -13,7 +13,7 @@
   try { S.view = localStorage.getItem('m4w.fs.view') || 'list'; } catch (e) { /* storage unavailable */ }
 
   var LEVEL = { none: 0, read: 1, write: 2, manage: 3 };
-  var PREVIEW_IMG = /^image\/(png|jpeg|gif|webp|bmp)$/;
+  var PREVIEW_IMG = /^image\/(png|jpeg|gif|webp|bmp|svg\+xml)$/;
   var OFFICE_EDIT = ($('#fs-app').data('office-edit') || '').split(',').filter(Boolean);
   var OFFICE_VIEW = ($('#fs-app').data('office-view') || '').split(',').filter(Boolean);
   var TEXT_EDIT = ['txt', 'md', 'log', 'json', 'xml', 'ini', 'conf', 'yml', 'yaml'];
@@ -36,7 +36,7 @@
     else if (mode === 'text') textEditor(f);
   }
   var DOCPREVIEW = /^(docx|xlsx|pptx|odt|csv|tsv|txt|log|md|json|xml|ini|conf|ya?ml|sql|eml)$/;
-  var PREVIEW = /^(image\/(png|jpeg|gif|webp|bmp)|application\/pdf|text\/plain|audio\/(mpeg|ogg|wav)|video\/(mp4|webm))$/;
+  var PREVIEW = /^(image\/(png|jpeg|gif|webp|bmp|svg\+xml)|application\/pdf|text\/plain|audio\/(mpeg|ogg|wav)|video\/(mp4|webm))$/;
 
   function can(level) { return LEVEL[S.level] >= LEVEL[level]; }
   function fileUrl(f, inline, version) {

@@ -826,5 +826,13 @@ static function (): void {
 "CREATE INDEX room_bookings_room ON room_bookings(room_id, status)",
 "CREATE INDEX room_bookings_uid ON room_bookings(uid)",
 ],
+24 => [
+// An own mailbox (imposed by the administrator) has its own rules: never emptied unless
+// chosen, sent mail copied to its Sent folder, and mail can be copied back into it.
+"ALTER TABLE remote_accounts ADD COLUMN leave_days INTEGER NOT NULL DEFAULT -1",
+"ALTER TABLE remote_accounts ADD COLUMN save_sent INTEGER NOT NULL DEFAULT 1",
+"ALTER TABLE remote_accounts ADD COLUMN sent_folder VARCHAR(190) NOT NULL DEFAULT ''",
+"ALTER TABLE remote_accounts ADD COLUMN restore_state {TEXT}",
+],
 ];
 

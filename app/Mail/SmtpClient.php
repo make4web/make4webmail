@@ -147,6 +147,29 @@ final class SmtpClient
         return $rejected;
     }
 
+    /**
+     * Would the server take mail from this sender (after authentication)? MAIL FROM and
+     * RCPT TO, then RSET: nothing is sent. Returns '' or the server's refusal.
+     */
+    public function probe(string $from, string $rcpt): string
+    {
+        if (!$this->sock) {
+            $this->connect();
+        }
+        try {
+            $this->command('MAIL FROM:<' . Address::asciiEmail($from) . '>', [250]);
+            $this->command('RCPT TO:<' . Address::asciiEmail($rcpt) . '>', [250, 251]);
+            return '';
+        } catch (SmtpException $e) {
+            return $e->getMessage();
+        } finally {
+            try {
+                $this->command('RSET', [250]);
+            } catch (\Throwable) {
+            }
+        }
+    }
+
     public function quit(): void
     {
         if ($this->sock) {
