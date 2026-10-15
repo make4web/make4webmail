@@ -192,23 +192,25 @@
     }
     var icons = '';
     if (m.priority < 3) icons += '<i class="bi bi-exclamation-circle-fill" title="' + esc(t('high_priority')) + '"></i>';
-    if (m.attachments) icons += '<i class="bi bi-paperclip" title="' + esc(t('has_attachments')) + '"></i>';
+    if (m.attachments) icons += '<span class="m4w-row-att" title="' + esc(m.att_count > 1 ? t('n_files_attached', { n: m.att_count }) : t('has_attachments')) + '"><i class="bi bi-paperclip" aria-hidden="true"></i>' + (m.att_count > 1 ? m.att_count : '') + '<span class="visually-hidden">' + esc(m.att_count > 1 ? t('n_files_attached', { n: m.att_count }) : t('has_attachments')) + '</span></span>';
     if (m.answered) icons += '<i class="bi bi-reply" title="' + esc(t('answered')) + '"></i>';
     if (m.forwarded) icons += '<i class="bi bi-forward" title="' + esc(t('forwarded')) + '"></i>';
     var folderChip = (S.q && S.byId[m.folder_id] && S.byId[m.folder_id].role !== 'inbox') ? '<span class="m4w-chip-folder">' + esc(S.byId[m.folder_id].name) + '</span>' : '';
-    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
+    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (m.pinned ? ' pinned' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
       + '<input type="checkbox" class="form-check-input m4w-check" ' + (S.selected[m.id] ? 'checked' : '') + ' aria-label="' + esc(t('select')) + '">'
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
       + M4W.avatar(who, whoEmail)
       + '<div class="m4w-row-main"><div class="m4w-row-line1">'
       + (m.scheduled ? '<span class="badge badge-soft me-1" title="' + esc(M4W.date(m.scheduled, true)) + '"><i class="bi bi-clock"></i> ' + esc(new Date(m.scheduled * 1000).toLocaleString(document.documentElement.lang, { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</span>' : (m.draft ? '<span class="text-danger fw-semibold small me-1">' + esc(t('draft')) + '</span>' : ''))
       + (sent && !m.draft ? '<span class="text-muted small">' + esc(t('to_prefix')) + '</span>' : '')
+      + (m.pinned ? '<i class="bi bi-pin-angle-fill m4w-row-pin" role="img" title="' + esc(t('pinned')) + '" aria-label="' + esc(t('pinned')) + '"></i>' : '')
       + '<span class="m4w-row-from">' + esc(who) + '</span>'
       + (m.thread_count > 1 ? '<span class="m4w-row-count">' + m.thread_count + '</span>' : '')
       + '</div><div class="m4w-row-subject">' + folderChip + ' ' + esc(m.subject || t('no_subject')) + '</div>'
       + '<div class="m4w-row-snippet">' + esc(m.snippet || '') + '</div></div>'
       + '<div class="m4w-row-meta"><span class="m4w-row-date" title="' + esc(M4W.date(m.date, true)) + '">' + esc(M4W.date(m.date)) + '</span><span class="m4w-row-icons">' + icons + '</span></div>'
       + '<div class="m4w-row-hover">'
+      + '<button class="btn btn-ghost btn-icon" data-row-act="' + (m.pinned ? 'unpin' : 'pin') + '" title="' + esc(m.pinned ? t('unpin') : t('pin')) + '" aria-label="' + esc(m.pinned ? t('unpin') : t('pin')) + '"><i class="bi bi-pin-angle' + (m.pinned ? '-fill' : '') + '"></i></button>'
       + '<button class="btn btn-ghost btn-icon" data-row-act="archive" title="' + esc(t('archive')) + '"><i class="bi bi-archive"></i></button>'
       + '<button class="btn btn-ghost btn-icon" data-row-act="delete" title="' + esc(t('delete')) + '"><i class="bi bi-trash3"></i></button>'
       + '<button class="btn btn-ghost btn-icon" data-row-act="' + (m.unread ? 'read' : 'unread') + '" title="' + esc(m.unread ? t('mark_read') : t('mark_unread')) + '"><i class="bi bi-envelope' + (m.unread ? '-open' : '') + '"></i></button>'
@@ -228,7 +230,14 @@
       return;
     }
     var html = '', lastGroup = null;
+    var pinnedSep = false;
     S.items.forEach(function (m) {
+      if (m.pinned && !S.q) {
+        if (!pinnedSep) { html += '<div class="m4w-day-sep"><i class="bi bi-pin-angle-fill me-1"></i>' + esc(t('pinned_group')) + '</div>'; pinnedSep = true; }
+        html += rowHtml(m);
+        return;
+      }
+      if (pinnedSep && lastGroup === null && S.sort !== 'date') { html += '<div class="m4w-day-sep">' + esc(t('others_group')) + '</div>'; lastGroup = ''; }
       if (S.sort === 'date') {
         var g = M4W.dayGroup(m.date);
         if (g !== lastGroup) { html += '<div class="m4w-day-sep">' + esc(g) + '</div>'; lastGroup = g; }
@@ -511,6 +520,7 @@
       + '<button class="btn btn-ghost btn-icon" data-reader="unread" title="' + esc(t('mark_unread')) + ' (Shift+U)"><i class="bi bi-envelope"></i></button>'
       + '<span class="dropdown"><button class="btn btn-ghost btn-icon" data-bs-toggle="dropdown" title="' + esc(t('move')) + ' (V)"><i class="bi bi-folder-symlink"></i></button><div class="dropdown-menu" data-move-menu data-move-current></div></span>'
       + '<button class="btn btn-ghost btn-icon" data-reader="star" title="' + esc(t('star')) + ' (S)"><i class="bi bi-star' + (msg.flagged ? '-fill text-warning' : '') + '"></i></button>'
+      + (folder.role !== 'trash' && folder.role !== 'spam' ? '<button class="btn btn-ghost btn-icon" data-reader="' + (msg.pinned ? 'unpin' : 'pin') + '" title="' + esc(msg.pinned ? t('unpin') : t('pin')) + '" aria-label="' + esc(msg.pinned ? t('unpin') : t('pin')) + '" aria-pressed="' + (msg.pinned ? 'true' : 'false') + '"><i class="bi bi-pin-angle' + (msg.pinned ? '-fill text-primary' : '') + '"></i></button>' : '')
       + '<span class="ms-auto d-flex align-items-center gap-1"><span class="small text-muted d-none d-xl-inline me-1">' + esc(pos) + '</span>'
       + '<button class="btn btn-ghost btn-icon btn-sm" data-reader="prev" title="' + esc(t('newer')) + ' (K)"><i class="bi bi-chevron-left"></i></button>'
       + '<button class="btn btn-ghost btn-icon btn-sm" data-reader="next" title="' + esc(t('older')) + ' (J)"><i class="bi bi-chevron-right"></i></button>'
@@ -854,13 +864,21 @@
 
     // reader interactions
     $reader.on('click', '[data-reader]', function () {
-      var a = $(this).data('reader'), id = S.activeId;
+      var a = $(this).attr('data-reader'), id = S.activeId;
       if (a === 'back') { closeReader(); return; }
       if (a === 'prev') { moveCursor(-1); return; }
       if (a === 'next') { moveCursor(1); return; }
       if (a === 'star') { toggleStar(id); return; }
       if (a === 'unread') { action('unread', [id], { thread: S.prefs.conversations && !isSentLike() }); closeReader(); return; }
       if (a === 'phish') { reportPhishing(id); return; }
+      if (a === 'pin' || a === 'unpin') {
+        var on = a === 'pin', $b = $(this);
+        if (S.current) S.current.message.pinned = on;
+        $b.attr({ 'data-reader': on ? 'unpin' : 'pin', title: t(on ? 'unpin' : 'pin'), 'aria-label': t(on ? 'unpin' : 'pin'), 'aria-pressed': on ? 'true' : 'false' }).find('.bi').attr('class', 'bi bi-pin-angle' + (on ? '-fill text-primary' : ''));
+        action(a, [id], { thread: S.prefs.conversations && !isSentLike() });
+        M4W.toast(t(on ? 'pinned_done' : 'unpinned_done'), 'success');
+        return;
+      }
       bulk(a, [id]);
     });
     $reader.on('click', '[data-toggle-msg]', function (e) {
@@ -1003,12 +1021,14 @@
     var ids = selectedIds();
     var anyUnread = ids.some(function (id) { var it = itemById(id); return it && it.unread; });
     var one = ids.length === 1 ? ids[0] : null;
+    var allPinned = ids.every(function (id) { var it = itemById(id); return it && it.pinned; });
     var html = '<div class="dropdown-menu show m4w-ctx" style="left:' + x + 'px;top:' + y + 'px">'
       + (one ? '<button class="dropdown-item" data-ctx="reply"><i class="bi bi-reply"></i>' + esc(t('reply')) + '</button><button class="dropdown-item" data-ctx="reply_all"><i class="bi bi-reply-all"></i>' + esc(t('reply_all')) + '</button><button class="dropdown-item" data-ctx="forward"><i class="bi bi-forward"></i>' + esc(t('forward')) + '</button><div class="dropdown-divider"></div>' : '')
       + '<button class="dropdown-item" data-ctx="archive"><i class="bi bi-archive"></i>' + esc(t('archive')) + '</button>'
       + '<button class="dropdown-item" data-ctx="delete"><i class="bi bi-trash3"></i>' + esc(t('delete')) + '</button>'
       + '<button class="dropdown-item" data-ctx="' + (anyUnread ? 'read' : 'unread') + '"><i class="bi bi-envelope' + (anyUnread ? '-open' : '') + '"></i>' + esc(anyUnread ? t('mark_read') : t('mark_unread')) + '</button>'
       + '<button class="dropdown-item" data-ctx="flag"><i class="bi bi-star"></i>' + esc(t('star')) + '</button>'
+      + (allPinned ? '<button class="dropdown-item" data-ctx="unpin"><i class="bi bi-pin-angle"></i>' + esc(t('unpin')) + '</button>' : '<button class="dropdown-item" data-ctx="pin"><i class="bi bi-pin-angle-fill"></i>' + esc(t('pin')) + '</button>')
       + '<button class="dropdown-item" data-ctx="spam"><i class="bi bi-exclamation-octagon"></i>' + esc(t('spam')) + '</button>'
       + '<div class="dropdown-divider"></div><h6 class="dropdown-header">' + esc(t('move_to')) + '</h6>'
       + S.folders.filter(function (f) { return f.role !== 'drafts' && f.role !== 'sent' && f.id !== S.folder; }).map(function (f) { return '<button class="dropdown-item" data-move-to="' + f.id + '"><i class="bi bi-' + esc(f.icon) + '"></i>' + esc(f.name) + '</button>'; }).join('')

@@ -834,5 +834,9 @@ static function (): void {
 "ALTER TABLE remote_accounts ADD COLUMN sent_folder VARCHAR(190) NOT NULL DEFAULT ''",
 "ALTER TABLE remote_accounts ADD COLUMN restore_state {TEXT}",
 ],
+25 => [
+// Messages pinned at the top of their folder.
+"ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
+],
 ];
 

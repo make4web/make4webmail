@@ -357,6 +357,12 @@ body.m4w-resizing iframe { pointer-events: none; }
 .m4w-row-meta { text-align: right; font-size: .76rem; color: var(--m4w-muted); white-space: nowrap; display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
 .m4w-row.unread .m4w-row-date { color: var(--m4w-primary); font-weight: 600; }
 .m4w-row-icons { display: flex; gap: .3rem; color: var(--m4w-faint); font-size: .85rem; }
+/* Attachments must be noticed at a glance: darker than the other row icons, with the count. */
+.m4w-row-att { display: inline-flex; align-items: center; gap: .05rem; color: var(--m4w-text-2, var(--m4w-muted)); font-weight: 600; font-size: .8rem; }
+.m4w-row-att .bi { font-size: 1rem; }
+.m4w-row-pin { color: var(--m4w-primary); font-size: .85rem; margin-right: .3rem; }
+.m4w-row.pinned { background: color-mix(in srgb, var(--m4w-primary) 5%, transparent); }
+.m4w-row.pinned.unread { background: var(--m4w-unread-bg); }
 .m4w-row-icons .bi-exclamation-circle-fill { color: var(--m4w-danger); }
 .m4w-row-hover { display: none; position: absolute; right: .6rem; top: 50%; transform: translateY(-50%); background: inherit; gap: .1rem; padding-left: .5rem; }
 .m4w-row:hover .m4w-row-hover { display: flex; background: linear-gradient(90deg, transparent, var(--m4w-surface) 18%); }

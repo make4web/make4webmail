@@ -217,6 +217,7 @@ final class MailController extends Controller
             'snippet'     => $m['snippet'],
             'unread'      => !$m['is_read'],
             'flagged'     => (bool) $m['is_flagged'],
+            'pinned'      => (bool) ($m['is_pinned'] ?? 0),
             'answered'    => (bool) $m['is_answered'],
             'forwarded'   => (bool) $m['is_forwarded'],
             'draft'       => (bool) $m['is_draft'],
@@ -572,6 +573,10 @@ final class MailController extends Controller
                 case 'flag':
                 case 'unflag':
                     $n = Mailbox::setFlags($uid, $ids, ['is_flagged' => $action === 'flag']);
+                    break;
+                case 'pin':
+                case 'unpin':
+                    $n = Mailbox::setFlags($uid, $ids, ['is_pinned' => $action === 'pin']);
                     break;
                 case 'move':
                     $n = Mailbox::move($uid, $ids, $this->req->int('folder'));

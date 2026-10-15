@@ -826,6 +826,21 @@ test('search operators', function () use ($alice) {
     $r = Mailbox::list((int) $alice['id'], ['q' => 'has:attachment']);
     eq($r['total'], 0);
 });
+test('pinned messages stay at the top of their folder, not in search results', function () use ($alice) {
+    $uid = (int) $alice['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $old = Mailbox::store($uid, $inbox, "From: x@ext.com\r\nTo: alice@test.local\r\nSubject: Vieux mais important\r\nDate: " . date('r', time() - 90 * 86400) . "\r\n\r\nx", ['date_received' => time() - 90 * 86400]);
+    $first = static fn(array $o) => Mailbox::list($uid, $o + ['folder' => $inbox, 'limit' => 200])['items'][0];
+    ok($first([])['id'] !== $old, 'by date first');
+    Mailbox::setFlags($uid, [$old], ['is_pinned' => true]);
+    eq([$first([])['id'], $first([])['pinned']], [$old, true], 'pinned on top');
+    eq($first(['threads' => 1])['id'], $old, 'in conversations too');
+    eq($first(['sort' => 'subject', 'dir' => 'asc'])['id'], $old, 'whatever the sort');
+    ok(Mailbox::list($uid, ['q' => 'important'])['items'][0]['pinned'], 'flag shown in search');
+    Mailbox::setFlags($uid, [$old], ['is_pinned' => false]);
+    ok($first([])['id'] !== $old, 'unpinned');
+    Mailbox::delete($uid, [$old], true);
+});
 test('delete moves to trash, second delete purges file and quota', function () use ($alice) {
     $m = DB::one("SELECT m.* FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'inbox' LIMIT 1", ['u' => $alice['id']]);
     $path = storage_path($m['storage_path']);
