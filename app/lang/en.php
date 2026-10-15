@@ -2123,4 +2123,8 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.cal_meet_link' => 'Link',
     'js.cal_meet_pending' => 'The :provider meeting is created when you save: its link and connection details (ID, code, phone) will be added here and to the invitation.',
     'mail.body_error' => 'This message could not be displayed. The error was written to the server log (storage/logs/php-error.log).',
+    'health.c.files' => 'File permissions',
+    'health.files_ok' => 'messages readable by the web server',
+    'health.files_unreadable' => ':n message(s) the web server cannot read (created as root): chown -R :user::user :dir',
+    'health.cron_root' => 'The scheduled task is started as root (it switches to :user by itself): put it in /etc/cron.d/make4webmail under :user instead and remove it from root\'s crontab.',
 ];

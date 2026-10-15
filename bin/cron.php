@@ -86,4 +86,7 @@ if ($hourly) {
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);
+if (defined('M4W_STARTED_AS_ROOT')) {
+    Settings::set('system.cron_root', $now);
+}
 flock($lock, LOCK_UN);

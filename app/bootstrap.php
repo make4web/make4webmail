@@ -41,6 +41,7 @@ M4W\Core\Config::load();
 // the account the application's files belong to first, before writing anything. "storage"
 // itself may belong to root (git clone as root): the files the web server wrote tell more.
 if (PHP_SAPI === 'cli' && function_exists('posix_geteuid') && posix_geteuid() === 0) {
+    define('M4W_STARTED_AS_ROOT', true); // reported by the health page: the crontab line should name the web user
     $m4wOwner = static function (): ?array {
         $s = M4W\Core\Config::storagePath();
         $paths = array_merge([(string) M4W\Core\Config::get('run_user', '')], glob($s . '/mail/[0-9]*', GLOB_ONLYDIR) ?: [],
