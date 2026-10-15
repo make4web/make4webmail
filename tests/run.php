@@ -1466,10 +1466,9 @@ $wmMsg = static fn(string $from, string $subject, string $returnPath = null, str
 file_put_contents($wm['state'], json_encode([
     'accounts' => ['paul@test.local' => 'secret-paul', 'lea@test.local' => 'secret-lea'],
     'boxes' => [
+        // Already in the mailbox when it is linked: history (read on the provider, two years old).
         'paul@test.local' => ['INBOX' => ['validity' => 7, 'msgs' => [
-            ['uid' => 1, 'raw' => $wmMsg('Client <client@ext.com>', 'Facture 42', 'client@ext.com')],
-            ['uid' => 2, 'raw' => $wmMsg('Patron <boss@ext.com>', 'Point projet', 'boss@ext.com')],
-            ['uid' => 3, 'raw' => $wmMsg('MAILER-DAEMON <mailer-daemon@ext.com>', 'Undelivered Mail', '')],
+            ['uid' => 1, 'raw' => $wmMsg('Ancien <old@ext.com>', 'Vieille facture', 'old@ext.com'), 'flags' => ['\\Seen'], 'date' => time() - 730 * 86400],
         ]], 'Junk' => ['validity' => 3, 'msgs' => [['uid' => 9, 'raw' => $wmMsg('Promo <promo@spam.example>', 'Gagnez 1000 euros', 'promo@spam.example')]]]],
         'lea@test.local' => ['INBOX' => ['validity' => 1, 'msgs' => []]],
     ],
@@ -1510,9 +1509,23 @@ test('webmail: fetched mail goes through rules, spam folder, and no reply to bou
         'actions' => [['type' => 'move', 'folder' => $factures]]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
     Vacation::save($uid, ['enabled' => 1, 'subject' => 'Absent', 'body_html' => '<p>Je suis absent.</p>', 'interval_days' => 1]);
     Forwarding::save($uid, true, ['archive@ext.com'], true);
+    // First link: what is already there comes in as history, quietly.
     $r = RemoteMailbox::sync(RemoteMailbox::find($uid));
-    eq($r['error'], '');
-    eq($r['fetched'], 4, '3 inbox + 1 spam');
+    eq([$r['error'], $r['fetched']], ['', 2], '1 inbox + 1 spam already there');
+    $old = DB::one("SELECT m.*, f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = 'Vieille facture'", ['u' => $uid]);
+    ok($old['date_received'] < time() - 700 * 86400, 'keeps the date it arrived at the provider');
+    eq([(int) $old['is_read'], $old['role']], [1, 'inbox'], 'read state kept, no rule applied to history');
+    eq(DB::value("SELECT COUNT(*) FROM mail_queue WHERE user_id = :u", ['u' => $uid]), 0, 'no out-of-office reply, no forwarding for history');
+    // Then new mail arrives at the provider.
+    $st = json_decode((string) file_get_contents($GLOBALS['wm']['state']), true);
+    array_push($st['boxes']['paul@test.local']['INBOX']['msgs'],
+        ['uid' => 2, 'raw' => $GLOBALS['wmMsg']('Client <client@ext.com>', 'Facture 42', 'client@ext.com')],
+        ['uid' => 3, 'raw' => $GLOBALS['wmMsg']('Patron <boss@ext.com>', 'Point projet', 'boss@ext.com')],
+        ['uid' => 4, 'raw' => $GLOBALS['wmMsg']('MAILER-DAEMON <mailer-daemon@ext.com>', 'Undelivered Mail', '')]);
+    file_put_contents($GLOBALS['wm']['state'], json_encode($st), LOCK_EX);
+    DB::update('remote_accounts', ['last_sync_at' => 0], 'user_id = :u', ['u' => $uid]);
+    $r = RemoteMailbox::sync(RemoteMailbox::find($uid));
+    eq([$r['error'], $r['fetched']], ['', 3], 'new mail');
     $where = static fn(string $subject) => DB::one("SELECT f.role, f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.subject = :s", ['u' => $uid, 's' => $subject]);
     eq($where('Facture 42')['name'], 'Factures', 'rule applied');
     eq($where('Point projet')['role'], 'inbox');
@@ -1751,6 +1764,25 @@ test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
     eq(array_column(array_slice($wmSmtp(), $n), 'auth'), ['paul@test.local'], 'through his own box, not direct MX');
     RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 0], 1);
     eq(RemoteMailbox::personal((int) $paul['id']), null, 'switched off');
+    Settings::set('mail.mode', 'collector');
+});
+test('webmail: mail imported before history handling gets its real date and read state back', function () use ($lea, $wm, $fsAdmin) {
+    Settings::set('mail.mode', 'webmail');
+    $uid = (int) $lea['id'];
+    $raw = "From: Ancien <old@ext.com>\r\nTo: lea@test.local\r\nSubject: Message de 2024\r\nDate: " . date('r', time() - 400 * 86400) . "\r\nMessage-ID: <repair-1@ext.com>\r\n\r\nBonjour\r\n";
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $st['boxes']['lea@test.local']['INBOX']['msgs'] = [['uid' => 1, 'raw' => $raw, 'flags' => ['\\Seen'], 'date' => time() - 400 * 86400]];
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+    RemoteMailbox::save($uid, ['login' => '', 'password' => 'secret-lea', 'enabled' => 1], (int) $fsAdmin['id']);
+    $acc = RemoteMailbox::find($uid);
+    // As the old code did: stored "now", unread, and the provider position already past it.
+    $id = Mailbox::store($uid, (int) Folders::byRole($uid, 'inbox')['id'], $raw);
+    DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => 'inbox', 'validity' => 1, 'uid' => 1, 'imported_at' => time()]);
+    DB::update('remote_accounts', ['inbox_uid' => 1, 'inbox_validity' => 1, 'last_sync_at' => 0], 'id = :id', ['id' => $acc['id']]);
+    eq(RemoteMailbox::sync(RemoteMailbox::find($uid))['error'], '');
+    $m = DB::one('SELECT * FROM messages WHERE id = :id', ['id' => $id]);
+    ok((int) $m['date_received'] < time() - 399 * 86400, 'real date');
+    eq((int) $m['is_read'], 1, 'read, as on the provider');
     Settings::set('mail.mode', 'collector');
 });
 proc_terminate($wmProc);
