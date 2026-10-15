@@ -75,7 +75,7 @@ final class Forwarding
             . 'Resent-Date: ' . date('r') . "\r\n"
             . 'Resent-To: ' . implode(', ', $targets) . "\r\n";
         $raw = str_replace("\r\n", "\n", $raw);
-        if (RemoteMailbox::mode() !== 'server') {
+        if (RemoteMailbox::mode() !== 'server' || RemoteMailbox::personal((int) $user['id'])) {
             $raw = self::rewriteSender($raw, $user);
         }
         Transport::enqueue($headers . str_replace("\n", "\r\n", $raw), $user['email'], $targets, (int) $user['id'], 'forward');

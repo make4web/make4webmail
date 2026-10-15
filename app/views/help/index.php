@@ -510,6 +510,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li>Publiez un enregistrement <strong>DMARC</strong>, en commençant par <code>v=DMARC1; p=none; rua=mailto:dmarc@votre-domaine</code>, puis passez à <code>p=quarantine</code> une fois les rapports vérifiés.</li>
     </ol>
     <p>La carte « Enregistrements DNS » de la page récapitule les valeurs à publier (MX, SPF, DKIM, DMARC).</p>
+    <h3>Boîte personnelle imposée</h3>
+    <p>Dans la fiche d'un utilisateur, « Imposer sa propre boîte IMAP/SMTP » relève son courrier dans sa boîte chez le fournisseur et le fait partir par son SMTP, quel que soit le mode. En mode boîte collectrice, ne redirigez pas ses adresses. Indiquez la limite d'envoi de sa boîte : une fois atteinte, ses messages peuvent partir par la boîte collectrice (les deux limites s'additionnent) ou attendre.</p>
     <h3>Réception</h3>
     <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes posés par un antispam en amont (SpamAssassin, Rspamd, OVH) s'ajoutent au score du <a href="#a-spam">filtre antispam</a>.</p>
   </section>

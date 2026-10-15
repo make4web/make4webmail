@@ -199,14 +199,18 @@ final class AdminController extends Controller
         }
         $hasAccount = \M4W\Service\RemoteMailbox::find($userId) !== null;
         if (!$hasAccount && $r->raw('remote_password') === '') {
-            return null; // nothing entered yet: the mailbox stays "not linked"
+            // Nothing entered yet: the mailbox stays "not linked" (an own mailbox needs its password).
+            return !\M4W\Service\RemoteMailbox::active() && $r->bool('remote_forced') ? t('wm.need_password') : null;
         }
         try {
             \M4W\Service\RemoteMailbox::save($userId, [
                 'login' => $r->str('remote_login'), 'password' => $r->raw('remote_password'), 'enabled' => $r->bool('remote_enabled') || !$hasAccount,
                 'imap_host' => $r->str('remote_imap_host'), 'imap_port' => $r->int('remote_imap_port'), 'imap_security' => $r->str('remote_imap_security'),
                 'smtp_host' => $r->str('remote_smtp_host'), 'smtp_port' => $r->int('remote_smtp_port'), 'smtp_security' => $r->str('remote_smtp_security'),
-            ], $this->uid());
+            ] + (\M4W\Service\RemoteMailbox::active() ? [] : [
+                // Other modes: the administrator imposes (or not) the user's own mailbox.
+                'forced' => $r->bool('remote_forced'), 'overflow' => $r->bool('remote_overflow'), 'hourly_limit' => $r->int('remote_hourly_limit'),
+            ]), $this->uid());
         } catch (\InvalidArgumentException $e) {
             return $e->getMessage();
         }

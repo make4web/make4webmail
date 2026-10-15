@@ -129,9 +129,9 @@ while (true) {
                     $st = $load();
                     if ($authed === null) {
                         $out('530 5.7.0 authentication required');
-                    } elseif (!empty($st['smtp_reject'])) {
-                        // Simulates the provider's own sending cap.
-                        $out('450 4.7.1 ' . $st['smtp_reject']);
+                    } elseif (!empty($st['smtp_reject']) || !empty($st['smtp_reject_for'][$authed])) {
+                        // Simulates the provider's own sending cap (all accounts, or one).
+                        $out('450 4.7.1 ' . ($st['smtp_reject'] ?? $st['smtp_reject_for'][$authed]));
                     } elseif (strcasecmp($from, $authed) !== 0) {
                         $out('553 5.7.1 sender not allowed');
                     } else {

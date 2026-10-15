@@ -29,7 +29,9 @@ final class Transport
         // so their own mailbox (and their phone) receives it too.
         $webmail = RemoteMailbox::active();
         $collector = Collector::active();
-        if ($sign && !$webmail && !$collector) {
+        // A user whose own mailbox is imposed sends through it: the provider signs.
+        $personal = $webmail ? null : RemoteMailbox::personal($userId);
+        if ($sign && !$webmail && !$collector && !$personal) {
             $raw = self::dkim($raw);
         }
         $local = [];
@@ -63,18 +65,23 @@ final class Transport
             }
         }
         if ($remote) {
-            $r = $collector ? Collector::send($raw, $remote, $userId, $fromQueue, $kind) : self::sendRemote($raw, $envelopeFrom, $remote, $userId);
+            $r = match (true) {
+                $personal !== null => RemoteMailbox::sendPersonal($personal, $raw, $envelopeFrom, $remote, (int) $userId, $fromQueue, $kind),
+                $collector => Collector::send($raw, $remote, $userId, $fromQueue, $kind),
+                default => self::sendRemote($raw, $envelopeFrom, $remote, $userId),
+            };
             $sent = array_merge($sent, $r['sent']);
             $failed += $r['failed'];
             $deferred = $r['deferred'] ?? [];
             $retryAt = (int) ($r['retry_at'] ?? 0);
+            $heldNote = (string) ($r['note'] ?? Collector::HELD);
         }
         if ($deferred && !$fromQueue) {
-            self::enqueue($raw, $envelopeFrom, $deferred, $userId, $kind, $retryAt, Collector::HELD);
+            self::enqueue($raw, $envelopeFrom, $deferred, $userId, $kind, $retryAt, $heldNote ?? Collector::HELD);
         }
         $status = $failed ? (count($sent) ? 'partial' : 'failed') : ($deferred ? 'held' : 'ok');
         self::log('out', $userId, $envelopeFrom, $recipients, $raw, $status, $failed ? implode('; ', $failed) : ($deferred ? t('col.log_held', ['n' => count($deferred), 'time' => date('H:i', $retryAt)]) : ''));
-        return ['sent' => $sent, 'failed' => $failed, 'deferred' => $deferred, 'retry_at' => $retryAt];
+        return ['sent' => $sent, 'failed' => $failed, 'deferred' => $deferred, 'retry_at' => $retryAt, 'note' => $heldNote ?? Collector::HELD];
     }
 
     /** @return array{sent:string[],failed:array<string,string>} */
@@ -243,7 +250,7 @@ final class Transport
             if ($res['deferred']) {
                 // Hourly limit of the provider: wait for the window, it is not a failed attempt.
                 DB::update('mail_queue', [
-                    'status' => 'pending', 'last_error' => Collector::HELD, 'attempts' => (int) $row['attempts'] + ($res['failed'] ? 1 : 0),
+                    'status' => 'pending', 'last_error' => $res['note'] ?? Collector::HELD, 'attempts' => (int) $row['attempts'] + ($res['failed'] ? 1 : 0),
                     'recipients' => json_encode(array_values(array_merge($res['deferred'], array_keys($res['failed'])))), 'next_attempt_at' => max(time() + 30, $res['retry_at']),
                 ], 'id = :id', ['id' => $row['id']]);
                 continue;

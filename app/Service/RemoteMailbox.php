@@ -54,6 +54,105 @@ final class RemoteMailbox
         return self::mode() === 'webmail';
     }
 
+    /** Queue marker of messages waiting for a user's own mailbox to send again. */
+    public const HELD = 'rate-limit-own';
+
+    /**
+     * The user's own mailbox at the provider, imposed by the administrator outside webmail
+     * mode: their mail is fetched from it and leaves through it. Null when there is none.
+     */
+    public static function personal(?int $userId): ?array
+    {
+        if (!$userId || self::active()) {
+            return null;
+        }
+        $acc = self::find($userId);
+        return $acc && (int) $acc['forced'] && (int) $acc['enabled'] && (string) $acc['password_enc'] !== '' ? $acc : null;
+    }
+
+    /** This user's mail leaves through a provider mailbox (webmail mode, or an own mailbox). */
+    public static function viaProvider(?int $userId): bool
+    {
+        return self::active() || self::personal($userId) !== null;
+    }
+
+    /** External recipients sent through this user's own mailbox during the last hour. */
+    public static function usedBy(int $userId): int
+    {
+        return (int) DB::value('SELECT COALESCE(SUM(recipients), 0) FROM send_log WHERE account = :a AND created_at > :t', ['a' => $userId, 't' => time() - 3600]);
+    }
+
+    /**
+     * Send through the user's own mailbox, within its hourly limit. What does not fit (limit
+     * reached, provider refusing for rate) overflows to the collector mailbox when the
+     * administrator allows it, or waits in the queue.
+     * @return array{sent:string[],failed:array<string,string>,deferred:string[],retry_at:int,note:string}
+     */
+    public static function sendPersonal(array $acc, string $raw, string $envelopeFrom, array $rcpts, int $userId, bool $fromQueue, string $kind): array
+    {
+        $out = ['sent' => [], 'failed' => [], 'deferred' => [], 'retry_at' => 0, 'note' => self::HELD];
+        $limit = (int) $acc['hourly_limit'];
+        $blocked = (int) $acc['blocked_until'] > time();
+        $available = $blocked ? 0 : ($limit > 0 ? max(0, $limit - self::usedBy($userId)) : count($rcpts));
+        $now = array_slice($rcpts, 0, $available);
+        $over = array_values(array_slice($rcpts, count($now)));
+        if ($now) {
+            $logId = DB::insert('send_log', ['user_id' => $userId, 'account' => $userId, 'kind' => $kind, 'recipients' => count($now), 'created_at' => time()]);
+            $r = self::send($raw, $envelopeFrom, $now, $userId);
+            $out['sent'] = $r['sent'];
+            foreach ($r['failed'] as $rcpt => $why) {
+                if (Collector::isRateLimitText($why)) {
+                    $over[] = $rcpt;
+                    $blocked = true;
+                } else {
+                    $out['failed'][$rcpt] = $why;
+                }
+            }
+            if ($blocked && (int) $acc['blocked_until'] <= time()) {
+                // The provider counts its own way: this mailbox rests 15 minutes.
+                DB::update('remote_accounts', ['blocked_until' => time() + 900], 'id = :id', ['id' => $acc['id']]);
+                $acc['blocked_until'] = time() + 900;
+                \M4W\Core\Audit::log('remote.rate_limited', (string) $acc['login']);
+            }
+            if (!$out['sent']) {
+                DB::delete('send_log', 'id = :id', ['id' => $logId]);
+            } elseif (count($out['sent']) !== count($now)) {
+                DB::update('send_log', ['recipients' => count($out['sent'])], 'id = :id', ['id' => $logId]);
+            }
+        }
+        if ($over) {
+            if ((int) $acc['overflow'] && Collector::active()) {
+                $c = Collector::send($raw, $over, $userId, $fromQueue, $kind);
+                $out['sent'] = array_merge($out['sent'], $c['sent']);
+                $out['failed'] += $c['failed'];
+                $out['deferred'] = $c['deferred'];
+                $out['retry_at'] = $c['retry_at'];
+                $out['note'] = Collector::HELD;
+            } else {
+                $out['deferred'] = $over;
+                $out['retry_at'] = self::nextSlotFor($acc, $userId);
+            }
+        }
+        return $out;
+    }
+
+    /** When the user's own mailbox can send again. */
+    private static function nextSlotFor(array $acc, int $userId): int
+    {
+        $at = max(time() + 60, (int) $acc['blocked_until']);
+        $limit = (int) $acc['hourly_limit'];
+        if ($limit > 0 && self::usedBy($userId) >= $limit) {
+            $used = self::usedBy($userId);
+            foreach (DB::all('SELECT recipients, created_at FROM send_log WHERE account = :a AND created_at > :t ORDER BY created_at', ['a' => $userId, 't' => time() - 3600]) as $r) {
+                $used -= (int) $r['recipients'];
+                if ($used < $limit) {
+                    return max($at, (int) $r['created_at'] + 3601);
+                }
+            }
+        }
+        return $at;
+    }
+
     // ----------------------------------------------------------- accounts
 
     public static function find(int $userId): ?array
@@ -105,6 +204,19 @@ final class RemoteMailbox
             'smtp_host' => $host($d['smtp_host'] ?? ''), 'smtp_port' => max(0, min(65535, (int) ($d['smtp_port'] ?? 0))), 'smtp_security' => $sec($d['smtp_security'] ?? ''),
             'enabled' => !empty($d['enabled']) ? 1 : 0, 'updated_at' => time(),
         ];
+        if (array_key_exists('forced', $d)) {
+            $data['forced'] = !empty($d['forced']) ? 1 : 0;
+            $data['overflow'] = !empty($d['overflow']) ? 1 : 0;
+            $data['hourly_limit'] = max(0, min(100000, (int) ($d['hourly_limit'] ?? 0)));
+            // Outside webmail mode there may be no default servers: they must be known.
+            if ($data['forced'] && !self::active()) {
+                foreach (['imap_host', 'smtp_host'] as $k) {
+                    if ($data[$k] === '' && (string) Settings::get('webmail.' . $k, '') === '') {
+                        throw new \InvalidArgumentException(t('own.need_servers'));
+                    }
+                }
+            }
+        }
         if ($password !== '') {
             $data['password_enc'] = Crypto::encrypt($password);
             // New credentials are unverified until the next successful connection.
@@ -303,6 +415,14 @@ final class RemoteMailbox
             return;
         }
         $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+        // An own mailbox next to another way in (our MX, a colleague in copy…): one copy only.
+        if (!self::active()) {
+            $mid = MimeParser::parse($raw)->messageId();
+            if ($mid !== '' && DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m AND date_received > :t',
+                ['u' => $user['id'], 'm' => $mid, 't' => time() - 14 * 86400])) {
+                return;
+            }
+        }
         if ($local === 'spam') {
             $spam = Folders::byRole((int) $user['id'], 'spam');
             Mailbox::store((int) $user['id'], (int) $spam['id'], 'Delivered-To: ' . $user['email'] . "\n" . Delivery::sanitizeIncoming($raw));
@@ -354,13 +474,15 @@ final class RemoteMailbox
     /** Scheduler: every enabled account whose last run is older than the interval. */
     public static function syncAll(): int
     {
-        if (!self::active() && !Collector::active()) {
-            return 0;
-        }
         $interval = max(1, (int) Settings::get('webmail.interval', 2)) * 60 - 5;
         $n = 0;
-        // Only the accounts of the current mode: the collector, or every user's mailbox.
-        $which = Collector::active() ? 'user_id = 0' : 'user_id <> 0';
+        // The accounts of the current mode (the collector, or every user's mailbox), plus the
+        // own mailboxes imposed by the administrator, in any mode.
+        $which = match (true) {
+            self::active() => 'user_id <> 0',
+            Collector::active() => '(user_id = 0 OR forced = 1)',
+            default => '(user_id <> 0 AND forced = 1)',
+        };
         foreach (DB::all("SELECT * FROM remote_accounts WHERE enabled = 1 AND $which AND last_sync_at < :t", ['t' => time() - $interval]) as $acc) {
             $n += self::sync($acc)['fetched'];
         }
@@ -370,14 +492,22 @@ final class RemoteMailbox
     /** Opportunistic sync when someone looks at the mailbox (no scheduler needed for reading). */
     public static function syncIfDue(int $userId, int $minAge = 60): int
     {
-        if (!self::active() && !Collector::active()) {
-            return 0;
+        $accounts = [];
+        if (self::active()) {
+            $accounts[] = self::find($userId);
+        } else {
+            $accounts[] = self::personal($userId);
+            if (Collector::active()) {
+                $accounts[] = self::find(Collector::ACCOUNT);
+            }
         }
-        $acc = self::find(Collector::active() ? Collector::ACCOUNT : $userId);
-        if (!$acc || (int) $acc['last_sync_at'] > time() - $minAge) {
-            return 0;
+        $n = 0;
+        foreach (array_filter($accounts) as $acc) {
+            if ((int) $acc['last_sync_at'] <= time() - $minAge) {
+                $n += self::sync($acc)['fetched'];
+            }
         }
-        return self::sync($acc)['fetched'];
+        return $n;
     }
 
     /** Status shown to administrators and users. */

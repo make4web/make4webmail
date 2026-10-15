@@ -1698,6 +1698,61 @@ test('collector: a refusal from the provider itself pauses sending and is shown'
     Transport::processQueue();
     eq(array_slice($wmSmtp(), $n)[0]['rcpt'] ?? null, ['e@ext.com'], 'sent once the provider accepts again');
 });
+test('own mailbox imposed in collector mode: fetched from it, sent through it, overflow to the collector', function () use ($paul, $lea, $fsAdmin, $colState, $colMsg, $colCount, $wmSmtp) {
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1, 'forced' => 1, 'overflow' => 1, 'hourly_limit' => 2], (int) $fsAdmin['id']);
+    ok(RemoteMailbox::personal((int) $paul['id']) !== null);
+    ok(!in_array('paul@test.local', Collector::addressesToRedirect(), true), 'no redirection for an own mailbox');
+    // The same message reaches his own box and, Lea being in copy, the collector: Paul gets it once.
+    $colState(static function (array &$st) use ($colMsg) {
+        $raw = $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Devis perso', 'own-1');
+        // Above every number already seen (messages cleaned up at the provider included).
+        $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 1000, 'raw' => $raw];
+        $cmax = max(array_column($st['boxes']['mail@test.local']['INBOX']['msgs'], 'uid'));
+        $st['boxes']['mail@test.local']['INBOX']['msgs'][] = ['uid' => $cmax + 1, 'raw' => $raw];
+    });
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0');
+    RemoteMailbox::syncAll();
+    eq($colCount($paul, 'Devis perso'), 1, 'fetched from his own box, once');
+    eq($colCount($lea, 'Devis perso'), 1, 'Lea through the collector');
+    // Sending: his own SMTP up to its limit, then the collector.
+    DB::delete('send_log', '1 = 1');
+    $n = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'a@ext.com, b@ext.com, c@ext.com', 'subject' => 'Trois clients', 'html' => '<p>x</p>']);
+    $s = array_slice($wmSmtp(), $n);
+    eq(array_map(static fn($t) => [$t['auth'], count($t['rcpt'])], $s), [['paul@test.local', 2], ['mail@test.local', 1]], '2 by his box, 1 overflow');
+    eq([RemoteMailbox::usedBy((int) $paul['id']), Collector::used()], [2, 1], 'separate counters');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs');
+    // The provider refuses for his box: it rests, the collector takes over.
+    DB::delete('send_log', '1 = 1');
+    DB::run('UPDATE remote_accounts SET hourly_limit = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    $colState(static function (array &$st) { $st['smtp_reject_for']['paul@test.local'] = 'Rate limit exceeded'; });
+    $n = count($wmSmtp());
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'd@ext.com', 'subject' => 'Refus perso', 'html' => '<p>x</p>']);
+    eq(array_column(array_slice($wmSmtp(), $n), 'auth'), ['mail@test.local'], 'sent by the collector');
+    ok((int) RemoteMailbox::find((int) $paul['id'])['blocked_until'] > time(), 'his box rests');
+    // Without overflow, mail waits for his own box (not counted as the collector's queue).
+    DB::run('UPDATE remote_accounts SET overflow = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    $held = Collector::held();
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'e@ext.com', 'subject' => 'Attente perso', 'html' => '<p>x</p>']);
+    eq($r['deferred']['count'] ?? 0, 1, 'waits');
+    eq(Collector::held(), $held, 'not in the collector queue');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'pending' AND last_error = :h", ['h' => RemoteMailbox::HELD]), 1);
+    $colState(static function (array &$st) { unset($st['smtp_reject_for']); });
+    DB::run('UPDATE remote_accounts SET blocked_until = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => RemoteMailbox::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    ok(in_array(['paul@test.local', ['e@ext.com']], array_map(static fn($t) => [$t['auth'], $t['rcpt']], array_slice($wmSmtp(), $n)), true), 'leaves by his box later');
+});
+test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
+    Settings::set('mail.mode', 'server');
+    $n = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'f@ext.com', 'subject' => 'Mode serveur', 'html' => '<p>x</p>']);
+    eq(array_column(array_slice($wmSmtp(), $n), 'auth'), ['paul@test.local'], 'through his own box, not direct MX');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 0], 1);
+    eq(RemoteMailbox::personal((int) $paul['id']), null, 'switched off');
+    Settings::set('mail.mode', 'collector');
+});
 proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 

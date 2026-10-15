@@ -127,6 +127,10 @@ En mode boîte collectrice :
 - **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
 - Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
 
+**Boîte personnelle imposée** (fiche utilisateur, dans tous les modes) : l'administrateur peut imposer à un compte sa propre boîte IMAP/SMTP chez le fournisseur. Son courrier y est relevé et part par son SMTP, sans signature DKIM locale et avec réécriture des transferts, comme en mode webmail. Une copie reçue aussi par un autre chemin n'est importée qu'une fois.
+- En mode boîte collectrice, ses adresses ne sont plus à rediriger.
+- Sa boîte a sa propre limite horaire. Une fois atteinte, ou si le fournisseur refuse pour dépassement, les envois **débordent sur la boîte collectrice** (option) : les deux limites s'additionnent. Sans débordement, les messages attendent sa boîte.
+
 ### Application mobile et notifications push
 - Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.
 - **Notifications Web Push** à l'arrivée d'un message non lu dans la boîte de réception, même navigateur fermé. Toucher la notification ouvre le message. Implémentation native en PHP, sans dépendance ni service tiers : clés VAPID (RFC 8292) générées à l'installation, contenu chiffré de bout en bout jusqu'au navigateur (RFC 8291, aes128gcm), vérifié dans les tests avec le vecteur officiel de la RFC.

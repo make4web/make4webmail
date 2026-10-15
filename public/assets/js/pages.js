@@ -69,6 +69,10 @@
     }
 
     // Webmail mode: test / sync a provider mailbox from the user form.
+    // Own mailbox imposed by the administrator (user form, outside webmail mode).
+    $(document).on('change', '[data-own-toggle]', function () {
+      $('[data-own-fields]').toggleClass('d-none', !this.checked);
+    });
     $(document).on('click', '[data-remote-action]', function () {
       var $b = $(this), $r = $b.closest('.card-body').find('[data-remote-result]');
       $b.prop('disabled', true);

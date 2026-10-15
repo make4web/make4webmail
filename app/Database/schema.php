@@ -585,5 +585,18 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX url_verdicts_checked ON url_verdicts(checked_at)",
 ],
+15 => [
+// A user's own mailbox at the provider, imposed by the administrator in any mode: mail is
+// fetched from it and sent through it (with its own hourly limit, overflowing to the
+// collector mailbox when allowed).
+"ALTER TABLE remote_accounts ADD COLUMN forced INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE remote_accounts ADD COLUMN overflow INTEGER NOT NULL DEFAULT 1",
+"ALTER TABLE remote_accounts ADD COLUMN hourly_limit INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE remote_accounts ADD COLUMN blocked_until INTEGER NOT NULL DEFAULT 0",
+// Which mailbox sent (0 = the collector): each one has its own hourly counter.
+"ALTER TABLE send_log ADD COLUMN account INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX send_log_account ON send_log(account, created_at)",
+"CREATE INDEX messages_msgid ON messages(user_id, message_id)",
+],
 ];
 

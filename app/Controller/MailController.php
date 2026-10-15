@@ -598,7 +598,7 @@ final class MailController extends Controller
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         return $this->ok([
-            'remote'  => \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status(\M4W\Service\RemoteMailbox::find((int) $u['id']))] : null,
+            'remote'  => ($rmAcc = \M4W\Service\RemoteMailbox::active() ? \M4W\Service\RemoteMailbox::find((int) $u['id']) : \M4W\Service\RemoteMailbox::personal((int) $u['id'])) !== null || \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status($rmAcc)] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
             'folders' => Folders::listWithCounts((int) $u['id']),
