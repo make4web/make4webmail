@@ -25,9 +25,9 @@ final class Antivirus
     }
 
     /** @return resource|null */
-    private static function connect()
+    private static function connect(?string $addr = null)
     {
-        $addr = self::address();
+        $addr ??= self::address();
         if (!preg_match('#^(unix://.+|tcp://[a-z0-9.\-\[\]:]+:\d+)$#i', $addr)) {
             return null;
         }
@@ -39,10 +39,57 @@ final class Antivirus
         return $s;
     }
 
-    /** Daemon answers (administration status, installer check). */
-    public static function ping(): bool
+    /** Usual places of the daemon: Debian / Ubuntu, RHEL / Fedora, Arch, Alpine, network. */
+    public const CANDIDATES = [
+        'unix:///var/run/clamav/clamd.ctl', 'unix:///run/clamav/clamd.ctl', 'unix:///run/clamd.scan/clamd.sock', 'unix:///var/run/clamd.scan/clamd.sock',
+        'unix:///run/clamav/clamd.sock', 'unix:///var/run/clamav/clamd.sock', 'unix:///var/lib/clamav/clamd.sock', 'unix:///tmp/clamd.socket', 'tcp://127.0.0.1:3310',
+    ];
+
+    /**
+     * Why the daemon cannot be reached, in words an administrator can act on, and the
+     * addresses where one does answer.
+     * @return array{ok:bool,reason:string,found:string[],signatures:bool|null,user:string}
+     */
+    public static function diagnose(): array
     {
-        $s = self::connect();
+        $addr = self::address();
+        $user = function_exists('posix_geteuid') && function_exists('posix_getpwuid') ? (string) (posix_getpwuid(posix_geteuid())['name'] ?? '') : (string) get_current_user();
+        $out = ['ok' => self::ping(), 'reason' => '', 'found' => [], 'signatures' => null, 'user' => $user];
+        $dbDir = '/var/lib/clamav';
+        if (@is_dir($dbDir)) {
+            $out['signatures'] = (bool) (glob($dbDir . '/{main,daily}.{cvd,cld}', GLOB_BRACE) ?: []);
+        }
+        if ($out['ok']) {
+            return $out;
+        }
+        if (str_starts_with($addr, 'unix://')) {
+            $path = substr($addr, 7);
+            $basedir = (string) ini_get('open_basedir');
+            if (!@file_exists($path)) {
+                $out['reason'] = $basedir !== '' ? t('av.why_basedir', ['path' => $path, 'dirs' => $basedir]) : t('av.why_missing', ['path' => $path]);
+            } elseif (!@is_writable($path)) {
+                $out['reason'] = t('av.why_denied', ['path' => $path, 'user' => $user ?: '?']);
+            } else {
+                $out['reason'] = t('av.why_refused', ['path' => $path]);
+            }
+        } else {
+            $out['reason'] = t('av.why_tcp', ['addr' => $addr]);
+        }
+        if ($out['signatures'] === false) {
+            $out['reason'] .= ' ' . t('av.why_nosig', ['dir' => $dbDir]);
+        }
+        foreach (self::CANDIDATES as $c) {
+            if ($c !== $addr && self::ping($c)) {
+                $out['found'][] = $c;
+            }
+        }
+        return $out;
+    }
+
+    /** Daemon answers (administration status, installer check). */
+    public static function ping(?string $addr = null): bool
+    {
+        $s = self::connect($addr);
         if (!$s) {
             return false;
         }
