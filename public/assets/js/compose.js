@@ -172,6 +172,7 @@
     var self = this;
     var params = { mode: opts.mode || 'new' };
     if (opts.id) params.id = opts.id;
+    if (opts.part) params.part = opts.part;
     if (opts.to) params.to = opts.to;
     if (opts.subject) params.subject = opts.subject;
     this.$el.find('.title').text(t('loading'));

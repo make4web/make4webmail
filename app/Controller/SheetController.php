@@ -19,7 +19,8 @@ final class SheetController extends Controller
         if (!Sheet::supports($f['name'])) {
             return Response::redirect('/files#f/' . (int) $f['folder_id']);
         }
-        return $this->view('files/sheet', ['file' => $f, 'user' => $user], 'layouts/blank');
+        // Opened over the file space (framed by it) or on its own.
+        return $this->view('files/sheet', ['file' => $f, 'user' => $user], 'layouts/blank')->header('X-Frame-Options', 'SAMEORIGIN');
     }
 
     public function data(string $id): Response

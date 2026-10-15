@@ -74,6 +74,19 @@ final class ComposeController extends Controller
             return $this->ok(['compose' => $out, 'signature' => Signatures::render($u, 'preview', $out['mode'] !== 'new')['html']]);
         }
 
+        if ($mode === 'attach') {
+            // A new message carrying one attachment of a received message.
+            $part = (string) ($this->req->query['part'] ?? '');
+            foreach (json_decode((string) $m['attachments'], true) ?: [] as $a) {
+                if ($a['part'] === $part && empty($a['removed']) && ($a['risk'] ?? '') !== 'block') {
+                    $out['ref_attachments'][] = $a;
+                    $out['subject'] = (string) $a['name'];
+                }
+            }
+            $out['mode'] = 'new';
+            $out['ref_id'] = (int) $m['id'];
+            return $this->ok(['compose' => $out, 'signature' => Signatures::render($u)['html']]);
+        }
         $parsed = Mailbox::parsed($m);
         $out['ref_id'] = (int) $m['id'];
         $subject = $parsed->subject();

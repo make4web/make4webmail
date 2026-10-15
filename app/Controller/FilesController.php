@@ -11,8 +11,11 @@ use M4W\Service\Mailbox;
 
 final class FilesController extends Controller
 {
-    /** Types a browser may render inline without running anything. */
-    private const INLINE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf', 'text/plain', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm'];
+    /**
+     * Types a browser may render inline without running anything. SVG can hold scripts: it is
+     * shown through <img> (never scripted) and served with a CSP that forbids any script anyway.
+     */
+    private const INLINE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'application/pdf', 'text/plain', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm'];
 
     public function index(): Response
     {
@@ -242,7 +245,7 @@ final class FilesController extends Controller
             'Content-Disposition' => Response::disposition($inline ? 'inline' : 'attachment', $name),
             'Cache-Control' => 'private, max-age=0, no-store',
             // Nothing served from the file space may run script or be framed elsewhere.
-            'Content-Security-Policy' => "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+            'Content-Security-Policy' => \M4W\Core\Response::fileCsp($inline ? $mime : ''),
             'X-Frame-Options' => 'SAMEORIGIN',
             'Cross-Origin-Resource-Policy' => 'same-origin',
         ], static function () use ($blob) {

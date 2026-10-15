@@ -76,7 +76,7 @@ final class Meetings
         if ($provider === 'jitsi') {
             $base = rtrim((string) Settings::get('meet.jitsi_url', 'https://meet.jit.si'), '/');
             // Unguessable room name: anyone with the link can join, nobody can find it.
-            $room = 'M4W-' . substr(str_replace(['+', '/', '='], '', base64_encode(random_bytes(18))), 0, 20);
+            $room = 'M4W-' . bin2hex(random_bytes(10));
             return ['provider' => 'jitsi', 'url' => $base . '/' . $room, 'id' => $room];
         }
         if (self::mode($provider) === 'personal') {

@@ -217,6 +217,7 @@ final class MailController extends Controller
             'snippet'     => $m['snippet'],
             'unread'      => !$m['is_read'],
             'flagged'     => (bool) $m['is_flagged'],
+            'pinned'      => (bool) ($m['is_pinned'] ?? 0),
             'answered'    => (bool) $m['is_answered'],
             'forwarded'   => (bool) $m['is_forwarded'],
             'draft'       => (bool) $m['is_draft'],
@@ -397,6 +398,10 @@ final class MailController extends Controller
         if ($inline && !in_array($mime, $safeInline, true)) {
             $inline = false;
         }
+        // Shown by the browser's PDF viewer outside the sandbox: only if it really is a PDF.
+        if ($inline && $mime === 'application/pdf' && !str_contains(substr($content, 0, 1024), '%PDF-')) {
+            $inline = false;
+        }
         // Pictures shown in the page are re-encoded too (metadata and hidden payloads dropped).
         if ($inline && str_starts_with($mime, 'image/') && \M4W\Service\MailAssets::enabled()) {
             $a = \M4W\Service\MailAssets::inline((int) $m['id'], (int) $m['user_id'], 'part:' . $part, $content);
@@ -413,9 +418,43 @@ final class MailController extends Controller
             $content = $p->text();
         }
         $r = Response::download($content, $inline ? $mime : 'application/octet-stream', $name, $inline);
-        $r->header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox");
+        $r->header('Content-Security-Policy', Response::fileCsp($inline ? $mime : ''));
         $r->header('X-Frame-Options', 'SAMEORIGIN');
         return $r;
+    }
+
+    /** Office document, CSV or text attachment rendered as a static page (no script, nothing fetched). */
+    public function partPreview(string $id, string $part): Response
+    {
+        Session::close();
+        $m = $this->message($id);
+        $p = Mailbox::parsed($m)->findPart(rawurldecode($part));
+        if (!$p || $p->isMultipart()) {
+            throw new HttpException(404, t('mail.not_found'));
+        }
+        $name = $p->filename() ?: 'attachment';
+        $tmp = null;
+        try {
+            if (!\M4W\Service\DocPreview::supports($name)) {
+                throw new \InvalidArgumentException(t('files.preview_unsupported'));
+            }
+            $tmp = tempnam(storage_path('tmp'), 'att');
+            file_put_contents($tmp, $p->decodedBody());
+            $html = \M4W\Service\DocPreview::render($tmp, $name);
+        } catch (\InvalidArgumentException $e) {
+            $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font:14px system-ui,sans-serif;color:#475569;display:flex;align-items:center;justify-content:center;height:90vh;text-align:center}</style></head><body><p>' . e($e->getMessage()) . '</p></body></html>';
+        } finally {
+            if ($tmp) {
+                @unlink($tmp);
+            }
+        }
+        return new Response($html, 200, [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'Cache-Control' => 'private, max-age=0, no-store',
+            'Content-Security-Policy' => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+            'X-Frame-Options' => 'SAMEORIGIN',
+            'Cross-Origin-Resource-Policy' => 'same-origin',
+        ]);
     }
 
     /** All attachments of a message as a single ZIP archive. */
@@ -572,6 +611,10 @@ final class MailController extends Controller
                 case 'flag':
                 case 'unflag':
                     $n = Mailbox::setFlags($uid, $ids, ['is_flagged' => $action === 'flag']);
+                    break;
+                case 'pin':
+                case 'unpin':
+                    $n = Mailbox::setFlags($uid, $ids, ['is_pinned' => $action === 'pin']);
                     break;
                 case 'move':
                     $n = Mailbox::move($uid, $ids, $this->req->int('folder'));

@@ -232,6 +232,7 @@ final class App
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
         $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
+        $r->get('/api/messages/{id}/part/{part}/preview', [Controller\MailController::class, 'partPreview']);
         $r->get('/api/messages/{id}/source', [Controller\MailController::class, 'source']);
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);
         $r->get('/api/messages/{id}/print', [Controller\MailController::class, 'printView']);
@@ -408,6 +409,7 @@ final class App
         $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $admin);
         $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $admin);
         $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $admin);
+        $r->post('/admin/users/{id}/remote/restore', [Controller\AdminController::class, 'restoreRemote'], $admin);
         $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $admin);
         $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $admin);
         $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $admin);
@@ -481,7 +483,8 @@ final class App
                 "object-src 'none'",
                 "base-uri 'self'",
                 "form-action 'self'",
-                "frame-ancestors 'none'",
+                // Pages that ask for it (the document editors) may be framed by the application itself.
+                $res->getHeader('X-Frame-Options') === 'SAMEORIGIN' ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
             ]));
         }
         if ($res->getHeader('X-Frame-Options') === null) {

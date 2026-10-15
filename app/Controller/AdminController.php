@@ -285,6 +285,7 @@ final class AdminController extends Controller
             ] + (\M4W\Service\RemoteMailbox::active() ? [] : [
                 // Other modes: the administrator imposes (or not) the user's own mailbox.
                 'forced' => $r->bool('remote_forced'), 'overflow' => $r->bool('remote_overflow'), 'hourly_limit' => $r->int('remote_hourly_limit'),
+                'leave_days' => $r->int('remote_leave_days', -1), 'save_sent' => $r->bool('remote_save_sent'),
             ]), $this->uid());
         } catch (\InvalidArgumentException $e) {
             return $e->getMessage();
@@ -329,6 +330,19 @@ final class AdminController extends Controller
         $acc['last_sync_at'] = 0;
         $res = \M4W\Service\RemoteMailbox::sync($acc);
         return $res['error'] !== '' ? $this->fail($res['error']) : $this->ok(['message' => t('wm.synced', ['n' => $res['fetched']])]);
+    }
+
+    /** Copy the mail kept here back into the person's own mailbox (done during the next syncs). */
+    public function restoreRemote(string $id): Response
+    {
+        try {
+            $n = \M4W\Service\RemoteMailbox::startRestore((int) $id, $this->req->arr('folders') ?: ['inbox', 'sent'], $this->uid());
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        // Picked up by the next run of the scheduler (every minute), batch after batch.
+        DB::update('remote_accounts', ['last_sync_at' => 0], 'user_id = :u', ['u' => (int) $id]);
+        return $this->ok(['message' => t('own.restore_started', ['n' => $n])]);
     }
 
     public function deleteUser(): Response

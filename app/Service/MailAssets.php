@@ -293,7 +293,7 @@ final class MailAssets
     /** Embedded or attached picture shown inline: cleaned, cached, tied to its message. */
     public static function inline(int $messageId, int $userId, string $key, string $bytes): ?array
     {
-        $ref = DB::one('SELECT r.*, a.blob_id, a.mime, a.kind FROM mail_asset_refs r JOIN mail_assets a ON a.id = r.asset_id WHERE r.message_id = :m AND r.ref_key = :k', ['m' => $messageId, 'k' => hash('sha256', $key)]);
+        $ref = DB::one('SELECT r.*, a.blob_id, a.mime, a.kind, a.size, a.width, a.height FROM mail_asset_refs r JOIN mail_assets a ON a.id = r.asset_id WHERE r.message_id = :m AND r.ref_key = :k', ['m' => $messageId, 'k' => hash('sha256', $key)]);
         if ($ref) {
             return $ref;
         }

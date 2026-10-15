@@ -19,7 +19,8 @@ final class DocController extends Controller
         if (!DocEdit::supports($f['name'])) {
             return Response::redirect('/files#f/' . (int) $f['folder_id']);
         }
-        return $this->view('files/doc', ['file' => $f], 'layouts/blank');
+        // Opened over the file space (framed by it) or on its own.
+        return $this->view('files/doc', ['file' => $f], 'layouts/blank')->header('X-Frame-Options', 'SAMEORIGIN');
     }
 
     public function data(string $id): Response

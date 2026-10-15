@@ -55,10 +55,12 @@ final class Branding
             . "--m4w-primary:$p;--m4w-primary-rgb:$r,$g,$b;--m4w-primary-hover:" . self::shade($p, -0.12) . ";"
             . "--m4w-primary-active:" . self::shade($p, -0.2) . ";--m4w-primary-soft:rgba($r,$g,$b,.10);--m4w-primary-softer:rgba($r,$g,$b,.06);"
             . "--m4w-on-primary:" . self::contrast($p) . ";--m4w-accent:$a;--m4w-accent-rgb:$ar,$ag,$ab;"
-            . "--m4w-radius:{$radius}px;--m4w-radius-sm:" . max(0, $radius - 4) . "px;--m4w-radius-lg:" . ($radius + 6) . "px;"
+            . "--m4w-radius:{$radius}px;--m4w-radius-sm:" . max(0, $radius - 4) . "px;--m4w-radius-lg:" . ($radius ? $radius + 6 : 0) . "px;"
+            . "--m4w-radius-xs:" . (int) round($radius * .3) . "px;--m4w-radius-pill:" . ($radius ? '999px' : '0') . ";--m4w-radius-round:" . ($radius ? '50%' : '0') . ";"
             . "--m4w-font:$font;"
             . "--bs-primary:$p;--bs-primary-rgb:$r,$g,$b;--bs-link-color:$p;--bs-link-color-rgb:$r,$g,$b;--bs-link-hover-color:" . self::shade($p, -0.15) . ";"
-            . "--bs-border-radius:{$radius}px;--bs-border-radius-sm:" . max(0, $radius - 4) . "px;--bs-border-radius-lg:" . ($radius + 4) . "px;"
+            . "--bs-border-radius:{$radius}px;--bs-border-radius-sm:" . max(0, $radius - 4) . "px;--bs-border-radius-lg:" . ($radius ? $radius + 4 : 0) . "px;"
+            . "--bs-border-radius-xl:" . ($radius ? $radius + 6 : 0) . "px;--bs-border-radius-xxl:" . ($radius ? $radius * 2 : 0) . "px;--bs-border-radius-pill:" . ($radius ? '50rem' : '0') . ";"
             . "--bs-focus-ring-color:rgba($r,$g,$b,.25);--bs-body-font-family:$font;"
             . "}\n";
         if ($sidebar === 'brand') {

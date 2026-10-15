@@ -5,7 +5,7 @@ $back = url('files') . '#f/' . (int) $file['folder_id'];
 <div class="m4w-office<?= $embedded ? ' is-embedded' : '' ?>" data-office data-origin="<?= e($origin) ?>" data-back="<?= e($back) ?>">
   <?php if (!$embedded): ?>
   <header class="m4w-office-bar">
-    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>" data-office-close><i class="bi bi-arrow-left me-1"></i><?= te('office.back') ?></a>
+    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>" data-office-close data-editor-back><i class="bi bi-arrow-left me-1"></i><?= te('office.back') ?></a>
     <span class="fw-semibold text-truncate"><?= e($file['name']) ?></span>
     <span class="badge <?= $mode === 'edit' ? 'badge-soft-primary' : 'badge-soft-secondary' ?>"><?= te($mode === 'edit' ? 'office.mode_edit' : 'office.mode_view') ?></span>
     <span class="small text-muted ms-auto d-none d-md-inline"><i class="bi bi-people me-1"></i><?= te('office.collab_hint') ?></span>

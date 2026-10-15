@@ -212,7 +212,12 @@ final class Composer
         }
         $uid = (int) $user['id'];
         $sent = Folders::byRole($uid, 'sent');
-        $id = Mailbox::store($uid, (int) $sent['id'], $b->build(true), ['read' => true]);
+        $copy = $b->build(true);
+        $id = Mailbox::store($uid, (int) $sent['id'], $copy, ['read' => true]);
+        // Sent through the person's own mailbox: a copy in its Sent folder too.
+        if ($res['sent'] && RemoteMailbox::personal($uid)) {
+            RemoteMailbox::saveSent($uid, $copy);
+        }
 
         $mode = (string) ($in['mode'] ?? 'new');
         $refId = (int) ($in['ref_id'] ?? 0);

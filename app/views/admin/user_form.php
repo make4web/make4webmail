@@ -59,14 +59,25 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
             <?php if (M4W\Service\Collector::active()): ?>
             <div class="col-md-6 d-flex align-items-start pt-md-4"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="remote_overflow" value="1" id="rm-over" <?= !$rm || (int) $rm['overflow'] ? 'checked' : '' ?>><label class="form-check-label" for="rm-over"><?= te('own.overflow') ?></label><div class="form-text"><?= te('own.overflow_hint', ['box' => M4W\Service\Collector::address()]) ?></div></div></div>
             <?php endif; ?>
+            <div class="col-md-6"><label class="form-label" for="rm-leave"><?= te('own.leave') ?></label>
+              <select class="form-select" id="rm-leave" name="remote_leave_days">
+                <?php foreach ([-1 => 'own.leave_never', 90 => 'wm.leave_90', 30 => 'wm.leave_30', 7 => 'wm.leave_7', 0 => 'wm.leave_now'] as $lv => $ll): ?><option value="<?= $lv ?>" <?= (int) ($rm['leave_days'] ?? -1) === $lv ? 'selected' : '' ?>><?= te($ll) ?></option><?php endforeach; ?>
+              </select><div class="form-text"><?= te('own.leave_hint') ?></div></div>
+            <div class="col-md-6 d-flex align-items-start pt-md-4"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="remote_save_sent" value="1" id="rm-sent" <?= !$rm || (int) ($rm['save_sent'] ?? 1) ? 'checked' : '' ?>><label class="form-check-label" for="rm-sent"><?= te('own.save_sent') ?></label><div class="form-text"><?= te('own.save_sent_hint') ?></div></div></div>
           </div>
+          <?php if ($rm): $eff = M4W\Service\RemoteMailbox::effective($rm); ?>
+          <div class="small mt-3 p-2 rounded-3 bg-body-tertiary"><i class="bi bi-hdd-network me-1"></i><?= te('own.effective', ['login' => $eff['login'], 'imap' => $eff['imap_host'] . ':' . $eff['imap_port'], 'smtp' => $eff['smtp_host'] . ':' . $eff['smtp_port']]) ?>
+            <?php if ((string) $rm['imap_host'] === '' || (string) $rm['smtp_host'] === ''): ?><div class="text-warning-emphasis mt-1"><i class="bi bi-info-circle me-1"></i><?= te('own.inherited') ?></div><?php endif; ?></div>
+          <?php endif; ?>
           <?php endif; ?>
           <?php if ($rm): ?>
           <div class="small text-muted mt-3"><?= te('wm.last_sync', ['date' => $rm['last_ok_at'] ? format_datetime((int) $rm['last_ok_at']) : '—']) ?></div>
+          <?php $rs = M4W\Service\RemoteMailbox::restoreState($rm); if ($rs): ?><div class="small mt-1 <?= $rs['finished'] ? 'text-muted' : 'text-primary' ?>"><i class="bi bi-cloud-upload me-1"></i><?= te($rs['finished'] ? 'own.restore_done' : 'own.restore_running', ['done' => $rs['done'], 'skipped' => $rs['skipped'], 'failed' => $rs['failed'], 'total' => $rs['total']]) ?><?= $rs['error'] !== '' ? ' — ' . e($rs['error']) : '' ?></div><?php endif; ?>
           <?php if ($rm['last_error'] !== ''): ?><div class="alert alert-danger small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i><?= e($rm['last_error']) ?></div><?php endif; ?>
           <div class="d-flex gap-2 mt-3 flex-wrap">
             <button type="button" class="btn btn-light btn-sm" data-remote-action="<?= e(url('admin/users/' . (int) $u['id'] . '/remote/test')) ?>"><i class="bi bi-plug me-1"></i><?= te('wm.test') ?></button>
             <button type="button" class="btn btn-light btn-sm" data-remote-action="<?= e(url('admin/users/' . (int) $u['id'] . '/remote/sync')) ?>"><i class="bi bi-arrow-repeat me-1"></i><?= te('wm.sync_now') ?></button>
+            <?php if (!$wm && $forced): ?><button type="button" class="btn btn-light btn-sm" data-remote-action="<?= e(url('admin/users/' . (int) $u['id'] . '/remote/restore')) ?>" data-remote-confirm="<?= te('own.restore_confirm') ?>"><i class="bi bi-cloud-upload me-1"></i><?= te('own.restore') ?></button><?php endif; ?>
             <span class="small align-self-center" data-remote-result role="status"></span>
           </div>
           <?php endif; ?>

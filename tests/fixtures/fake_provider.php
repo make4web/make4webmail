@@ -62,6 +62,31 @@ while (true) {
                     $out('* ' . count($f['msgs']) . ' EXISTS');
                     $out('* OK [UIDVALIDITY ' . $f['validity'] . '] UIDs valid');
                     $out("$tag OK [READ-WRITE] selected");
+                } elseif ($cmd === 'LIST' && $user) {
+                    foreach (array_keys($st['boxes'][$user] ?? []) as $name) {
+                        $out('* LIST (' . ($name === ($st['sent_special'][$user] ?? '') ? '\\Sent' : '') . ') "/" "' . $name . '"');
+                    }
+                    $out("$tag OK list done");
+                } elseif ($cmd === 'APPEND' && $user) {
+                    preg_match('/^"((?:[^"\\\\]|\\\\.)*)"(?: \(([^)]*)\))?(?: "([^"]+)")? \{(\d+)\}$/', $args, $m);
+                    if (!$m || !isset($st['boxes'][$user][stripcslashes($m[1])])) {
+                        $out("$tag NO [TRYCREATE] no such mailbox");
+                        continue;
+                    }
+                    $out('+ go ahead');
+                    $raw = '';
+                    while (strlen($raw) < (int) $m[4]) {
+                        $raw .= fread($c, (int) $m[4] - strlen($raw));
+                    }
+                    fgets($c);
+                    $st = $load();
+                    $f = &$st['boxes'][$user][stripcslashes($m[1])];
+                    $f['next'] ??= ($f['msgs'] ? max(array_column($f['msgs'], 'uid')) : 0) + 1;
+                    $f['msgs'][] = ['uid' => $f['next'], 'raw' => str_replace("\r\n", "\n", $raw), 'flags' => $m[2] !== '' ? explode(' ', $m[2]) : [], 'date' => !empty($m[3]) ? strtotime($m[3]) : time()];
+                    $f['next']++;
+                    unset($f);
+                    $save($st);
+                    $out("$tag OK append done");
                 } elseif ($cmd === 'UID' && $user && $box) {
                     $f = &$st['boxes'][$user][$box];
                     if (preg_match('/^SEARCH UID (\d+):\*/i', $args, $m)) {

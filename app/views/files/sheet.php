@@ -5,7 +5,7 @@ $btn = static fn(string $cmd, string $icon, string $label, string $extra = '') =
 ?>
 <div class="m4w-sheet" data-sheet data-id="<?= (int) $file['id'] ?>" data-back="<?= e($back) ?>">
   <header class="m4w-sheet-bar">
-    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>"><i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline"><?= te('office.back') ?></span></a>
+    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>" data-editor-back><i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline"><?= te('office.back') ?></span></a>
     <i class="bi bi-file-earmark-spreadsheet text-success fs-5"></i>
     <h1 class="m4w-sheet-name text-truncate"><?= e($file['name']) ?></h1>
     <span class="m4w-sheet-status small text-muted text-truncate" data-status role="status"></span>

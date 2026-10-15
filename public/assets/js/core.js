@@ -164,6 +164,80 @@
     return d.promise();
   };
 
+  // ------------------------------------------------------------ document editors over the page
+  // Spreadsheet, Word and office editors open over the current page (same tab); the
+  // browser's Back button or the editor's own "Back" closes them.
+  M4W.openEditor = function (src, title, onClose) {
+    $('.m4w-editor-overlay').remove();
+    var $o = $('<div class="m4w-editor-overlay" role="dialog" aria-modal="true"></div>').attr('aria-label', title || '')
+      .append($('<iframe allow="clipboard-read; clipboard-write; fullscreen"></iframe>').attr({ src: src, title: title || '' }))
+      .appendTo(document.body);
+    $('body').addClass('m4w-editor-open');
+    var closed = false;
+    try { history.pushState({ m4wEditor: 1 }, '', window.location.href); } catch (e) { /* ignore */ }
+    function close() {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('message', onMsg);
+      window.removeEventListener('popstate', onPop);
+      // Unload first, so the editor sends what is pending and releases the document.
+      $o.find('iframe').attr('src', 'about:blank');
+      setTimeout(function () { $o.remove(); $('body').removeClass('m4w-editor-open'); if (onClose) onClose(); }, 250);
+    }
+    function onMsg(e) {
+      if (e.origin !== window.location.origin || !e.data || e.data.m4w !== 'editor-close') return;
+      if (history.state && history.state.m4wEditor) history.back(); else close();
+    }
+    function onPop() { close(); }
+    window.addEventListener('message', onMsg);
+    window.addEventListener('popstate', onPop);
+    $o.find('iframe').trigger('focus');
+    return { close: close };
+  };
+  // Inside such an editor: its "Back" button closes the panel instead of loading the list.
+  if (window.parent !== window) {
+    $(document).on('click', '[data-editor-back]', function (e) {
+      try {
+        if (window.parent.location.origin !== window.location.origin) return;
+      } catch (x) { return; }
+      e.preventDefault();
+      window.parent.postMessage({ m4w: 'editor-close' }, window.location.origin);
+    });
+  }
+
+  // ------------------------------------------------------------ zoomable picture
+  // Wheel (or pinch on a trackpad) zooms at the pointer, drag moves, double-click resets.
+  M4W.zoomable = function (img) {
+    var $img = $(img), $box = $img.parent(), z = 1, x = 0, y = 0, drag = null;
+    $box.addClass('m4w-zoom-box');
+    function apply() {
+      $img.css('transform', 'translate(' + x + 'px,' + y + 'px) scale(' + z + ')').toggleClass('is-zoomed', z > 1);
+      $box.attr('data-zoom-level', z > 1 ? Math.round(z * 100) + ' %' : '');
+    }
+    function reset() { z = 1; x = 0; y = 0; apply(); }
+    $box.off('.m4wzoom').on('wheel.m4wzoom', function (e) {
+      // The same box may later show something else (a document): let it scroll again.
+      if (!document.body.contains(img)) { $box.off('.m4wzoom').removeClass('m4w-zoom-box').removeAttr('data-zoom-level'); return; }
+      var ev = e.originalEvent;
+      e.preventDefault();
+      var nz = Math.min(8, Math.max(1, z * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      if (nz === z) return;
+      // Keep the point under the pointer in place (from the layout box, not the animated one).
+      var br = $box[0].getBoundingClientRect(), off = { left: img.offsetLeft + $box[0].clientLeft, top: img.offsetTop + $box[0].clientTop };
+      var px = ev.clientX - (br.left + off.left + img.offsetWidth / 2 + x), py = ev.clientY - (br.top + off.top + img.offsetHeight / 2 + y);
+      x -= px * (nz / z - 1); y -= py * (nz / z - 1);
+      z = nz;
+      if (z === 1) { x = 0; y = 0; }
+      apply();
+    }).on('dblclick.m4wzoom', function () { if (z > 1) reset(); else { z = 2; apply(); } })
+      .on('pointerdown.m4wzoom', function (e) { if (z <= 1) return; e.preventDefault(); drag = { sx: e.clientX - x, sy: e.clientY - y }; this.setPointerCapture && this.setPointerCapture(e.originalEvent.pointerId); })
+      .on('pointermove.m4wzoom', function (e) { if (!drag) return; x = e.clientX - drag.sx; y = e.clientY - drag.sy; apply(); })
+      .on('pointerup.m4wzoom pointercancel.m4wzoom', function () { drag = null; });
+    $img.attr('draggable', 'false');
+    reset();
+    return { reset: reset };
+  };
+
   M4W.debounce = function (fn, ms) { var t; return function () { var a = arguments, s = this; clearTimeout(t); t = setTimeout(function () { fn.apply(s, a); }, ms); }; };
 
   M4W.fileIcon = function (name, mime) {

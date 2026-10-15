@@ -70,6 +70,12 @@ final class RemoteMailbox
         return $acc && (int) $acc['forced'] && (int) $acc['enabled'] && (string) $acc['password_enc'] !== '' ? $acc : null;
     }
 
+    /** A person's own mailbox imposed outside webmail mode (not the collector, not webmail mode). */
+    public static function isOwn(array $acc): bool
+    {
+        return (int) $acc['user_id'] !== Collector::ACCOUNT && (int) ($acc['forced'] ?? 0) === 1 && !self::active();
+    }
+
     /** This user's mail leaves through a provider mailbox (webmail mode, or an own mailbox). */
     public static function viaProvider(?int $userId): bool
     {
@@ -208,6 +214,8 @@ final class RemoteMailbox
             $data['forced'] = !empty($d['forced']) ? 1 : 0;
             $data['overflow'] = !empty($d['overflow']) ? 1 : 0;
             $data['hourly_limit'] = max(0, min(100000, (int) ($d['hourly_limit'] ?? 0)));
+            $data['leave_days'] = in_array((int) ($d['leave_days'] ?? -1), [-1, 0, 7, 30, 90], true) ? (int) ($d['leave_days'] ?? -1) : -1;
+            $data['save_sent'] = !empty($d['save_sent']) ? 1 : 0;
             // Outside webmail mode there may be no default servers: they must be known.
             if ($data['forced'] && !self::active()) {
                 foreach (['imap_host', 'smtp_host'] as $k) {
@@ -291,7 +299,13 @@ final class RemoteMailbox
         try {
             $s = self::smtp($acc);
             $s->connect();
+            // Logged in is not enough: the provider must also accept this sender.
+            $from = self::envelopeFor($acc, (int) $userId, '');
+            $why = $s->probe($from, $from);
             $s->quit();
+            if ($why !== '') {
+                $out['smtp'] = t('wm.sender_refused', ['address' => $from]) . ' ' . $why;
+            }
         } catch (\Throwable $e) {
             $out['smtp'] = $e->getMessage();
         }
@@ -313,8 +327,7 @@ final class RemoteMailbox
         }
         // Providers only accept their own mailbox as sender: auto-replies (null sender)
         // and forwards leave with the mailbox address.
-        $email = (string) DB::value('SELECT email FROM users WHERE id = :u', ['u' => $userId]);
-        $from = $envelopeFrom !== '' && self::ownsAddress((int) $userId, $envelopeFrom) ? $envelopeFrom : $email;
+        $from = self::envelopeFor($acc, (int) $userId, $envelopeFrom);
         try {
             $client = self::smtp($acc);
             $client->connect();
@@ -327,6 +340,21 @@ final class RemoteMailbox
             }
             return ['sent' => [], 'failed' => array_fill_keys($rcpts, $e->getMessage())];
         }
+    }
+
+    /**
+     * Envelope sender for the provider: one of the person's addresses, and when the mailbox
+     * login is another address (a mailbox elsewhere), that login: providers refuse senders
+     * that are not the authenticated mailbox.
+     */
+    public static function envelopeFor(array $acc, int $userId, string $wanted): string
+    {
+        $email = (string) DB::value('SELECT email FROM users WHERE id = :u', ['u' => $userId]);
+        $login = mb_strtolower(trim((string) self::effective($acc)['login']));
+        if (is_valid_email($login) && !self::ownsAddress($userId, $login)) {
+            return $login;
+        }
+        return $wanted !== '' && self::ownsAddress($userId, $wanted) ? $wanted : $email;
     }
 
     private static function ownsAddress(int $userId, string $address): bool
@@ -376,6 +404,9 @@ final class RemoteMailbox
                 }
             }
             self::cleanup($client, $acc);
+            if ($user !== null && self::isOwn($acc)) {
+                self::restoreBatch($client, DB::one('SELECT * FROM remote_accounts WHERE id = :id', ['id' => $acc['id']]) ?? $acc, $user);
+            }
             $client->logout();
         } catch (\Throwable $e) {
             $client?->logout();
@@ -471,6 +502,11 @@ final class RemoteMailbox
         if ($mid !== '' && DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $uid, 'm' => $mid])) {
             return;
         }
+        // No Message-ID (rare): same sender, subject and date means the same message.
+        if ($mid === '' && $p->date() > 0 && DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND date_sent = :d AND subject = :s AND LOWER(from_email) = :f',
+            ['u' => $uid, 'd' => $p->date(), 's' => mb_substr($p->subject(), 0, 500), 'f' => mb_strtolower($p->from()['email'] ?? '')])) {
+            return;
+        }
         $flags = (array) ($meta['flags'] ?? []);
         $folder = Folders::byRole($uid, $local === 'spam' ? 'spam' : 'inbox');
         $date = (int) ($meta['date'] ?? 0) ?: ($p->date() ?: time());
@@ -511,10 +547,142 @@ final class RemoteMailbox
         Settings::set($key, 1);
     }
 
+    // ----------------------------------------------------------- copies to the provider
+
+    /** The provider's Sent folder (found once, then remembered). */
+    private static function sentFolderOf(ImapClient $client, array $acc): string
+    {
+        $f = (string) ($acc['sent_folder'] ?? '');
+        if ($f === '') {
+            $f = $client->sentFolder();
+            if ($f !== '') {
+                DB::update('remote_accounts', ['sent_folder' => mb_substr($f, 0, 190)], 'id = :id', ['id' => $acc['id']]);
+            }
+        }
+        return $f;
+    }
+
+    /**
+     * A message sent from the webmail through the person's own mailbox is also put in that
+     * mailbox's Sent folder, so it is found there too (phone, Outlook, provider's webmail).
+     */
+    public static function saveSent(int $userId, string $raw): bool
+    {
+        $acc = self::personal($userId);
+        if (!$acc || !(int) ($acc['save_sent'] ?? 1)) {
+            return false;
+        }
+        try {
+            $client = self::imap($acc);
+            $folder = self::sentFolderOf($client, $acc);
+            if ($folder !== '') {
+                $client->append($folder, $raw, ['\\Seen'], time());
+            }
+            $client->logout();
+            return $folder !== '';
+        } catch (\Throwable $e) {
+            error_log('[m4w] own mailbox sent copy: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Copy the mail kept here back into the person's own mailbox (after it was emptied by a
+     * clean-up, or to bring the two together). Inbox and Sent, oldest first, done a little at
+     * every synchronisation; what the mailbox already has is skipped.
+     * @param string[] $folders inbox, sent
+     */
+    public static function startRestore(int $userId, array $folders, int $by): int
+    {
+        $acc = self::find($userId);
+        if (!$acc || !self::isOwn($acc)) {
+            throw new \InvalidArgumentException(t('own.restore_only_own'));
+        }
+        $folders = array_values(array_intersect(['inbox', 'sent'], $folders)) ?: ['inbox'];
+        $ids = array_map(static fn($r) => (int) $r['id'], array_filter(array_map(static fn($f) => Folders::byRole($userId, $f), $folders)));
+        [$in, $p] = DB::in('f', $ids);
+        $total = (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND is_draft = 0 AND folder_id IN $in", $p + ['u' => $userId]);
+        DB::update('remote_accounts', ['restore_state' => json_encode(['folders' => $folders, 'next' => 0, 'done' => 0, 'skipped' => 0, 'failed' => 0, 'total' => $total,
+            'started' => time(), 'finished' => 0, 'error' => ''])], 'id = :id', ['id' => $acc['id']]);
+        Audit::log('own.restore_started', implode(',', $folders), ['total' => $total], $by);
+        return $total;
+    }
+
+    public static function restoreState(array $acc): ?array
+    {
+        $s = json_decode((string) ($acc['restore_state'] ?? ''), true);
+        return is_array($s) ? $s : null;
+    }
+
+    private static function restoreBatch(ImapClient $client, array $acc, array $user, int $max = 150): void
+    {
+        $st = self::restoreState($acc);
+        if (!$st || $st['finished']) {
+            return;
+        }
+        $uid = (int) $user['id'];
+        $map = [];
+        foreach ($st['folders'] as $f) {
+            $row = Folders::byRole($uid, $f);
+            $target = match ($f) {
+                'sent' => self::sentFolderOf($client, $acc),
+                default => 'INBOX',
+            };
+            if ($row && $target !== '') {
+                $map[(int) $row['id']] = $target;
+            }
+        }
+        if (!$map) {
+            $st['finished'] = time();
+            $st['error'] = t('own.restore_no_folder');
+            DB::update('remote_accounts', ['restore_state' => json_encode($st)], 'id = :id', ['id' => $acc['id']]);
+            return;
+        }
+        // What the mailbox already holds, by Message-ID (per target folder).
+        $have = [];
+        foreach (array_unique($map) as $target) {
+            $client->select($target);
+            $have[$target] = $client->flagsByMessageId();
+        }
+        [$in, $p] = DB::in('f', array_keys($map));
+        $rows = DB::all("SELECT * FROM messages WHERE user_id = :u AND is_draft = 0 AND folder_id IN $in AND id > :n ORDER BY id LIMIT $max", $p + ['u' => $uid, 'n' => (int) $st['next']]);
+        foreach ($rows as $m) {
+            $st['next'] = (int) $m['id'];
+            $target = $map[(int) $m['folder_id']];
+            if ($m['message_id'] !== '' && isset($have[$target][$m['message_id']])) {
+                $st['skipped']++;
+                continue;
+            }
+            $path = storage_path((string) $m['storage_path']);
+            if ($m['storage_path'] === '' || !is_file($path)) {
+                $st['failed']++;
+                continue;
+            }
+            try {
+                $raw = (string) file_get_contents($path);
+                // Our own delivery line is not part of the message.
+                $raw = preg_replace('/^Delivered-To: [^\n]*\n/', '', $raw, 1) ?? $raw;
+                $flags = array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []);
+                $client->append($target, $raw, $flags, (int) ($m['date_received'] ?: $m['date_sent']));
+                $st['done']++;
+            } catch (\Throwable $e) {
+                $st['failed']++;
+                $st['error'] = mb_substr($e->getMessage(), 0, 300);
+            }
+        }
+        if (count($rows) < $max) {
+            $st['finished'] = time();
+            Audit::log('own.restore_finished', (string) $acc['login'], ['done' => $st['done'], 'skipped' => $st['skipped'], 'failed' => $st['failed']], $uid);
+        }
+        DB::update('remote_accounts', ['restore_state' => json_encode($st)], 'id = :id', ['id' => $acc['id']]);
+    }
+
     /** Remove imported messages from the provider after the configured delay. */
     private static function cleanup(ImapClient $client, array $acc): void
     {
-        $days = (int) Settings::get('webmail.leave_days', -1);
+        // An own mailbox follows its own rule (never emptied unless chosen), not the one of the
+        // collector / webmail mode.
+        $days = self::isOwn($acc) ? (int) ($acc['leave_days'] ?? -1) : (int) Settings::get('webmail.leave_days', -1);
         if ($days < 0) {
             return;
         }
