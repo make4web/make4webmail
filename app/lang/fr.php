@@ -2177,4 +2177,8 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'wm.tw_report' => 'Synchro dans les deux sens (:time) : :followed messages suivis, :provider dans la boîte du fournisseur ; :trashed mis à la corbeille ici, :archived archivés ici, :moved déplacés chez le fournisseur, :flags lu/suivi mis à jour.',
     'wm.tw_other_way' => ':n message(s) de la boîte de réception sont arrivés par un autre chemin (boîte collectrice, redirection…) : ils ne suivent pas cette boîte. « Relevé dans » (détails d\'un message) indique d\'où vient chacun.',
     'wm.tw_waiting_empty' => 'La boîte du fournisseur paraît vide : rien n\'est supprimé ici tant que ce n\'est pas confirmé à la relève suivante.',
+    'audit.sync.trashed_here' => 'Synchro : mis à la corbeille ici (supprimé chez le fournisseur)',
+    'audit.sync.archived_here' => 'Synchro : archivé ici (archivé chez le fournisseur)',
+    'audit.sync.moved_there' => 'Synchro : déplacé chez le fournisseur',
+    'audit.sync.restored_here' => 'Synchro : remis dans la boîte de réception (de retour chez le fournisseur)',
 ];

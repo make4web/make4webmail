@@ -2104,4 +2104,8 @@ Approve or decline in Calendar › Rooms and bookings.',
     'wm.tw_report' => 'Two-way sync (:time): :followed messages followed, :provider in the provider mailbox; :trashed put in the trash here, :archived archived here, :moved moved at the provider, :flags read/flagged updated.',
     'wm.tw_other_way' => ':n inbox message(s) came another way (collector, redirection…): they do not follow this mailbox. "Collected from" (message details) tells where each came from.',
     'wm.tw_waiting_empty' => 'The provider mailbox looks empty: nothing is deleted here until the next pass confirms it.',
+    'audit.sync.trashed_here' => 'Sync: put in the trash here (deleted at the provider)',
+    'audit.sync.archived_here' => 'Sync: archived here (archived at the provider)',
+    'audit.sync.moved_there' => 'Sync: moved at the provider',
+    'audit.sync.restored_here' => 'Sync: put back in the inbox (back at the provider)',
 ];

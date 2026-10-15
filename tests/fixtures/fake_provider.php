@@ -102,6 +102,10 @@ while (true) {
                     } elseif (preg_match('/^FETCH ([\d,]+) \(.*HEADER\.FIELDS/i', $args, $m)) {
                         $set = array_map('intval', explode(',', $m[1]));
                         foreach ($f['msgs'] as $i => $msg) {
+                            // A server answer that a client may not read (tests: "hide_in_fetch").
+                            if (in_array($msg['uid'], $st['hide_in_fetch'] ?? [], true)) {
+                                continue;
+                            }
                             if (in_array($msg['uid'], $set, true)) {
                                 $hdr = (preg_match('/^Message-ID:[^\n]*/mi', str_replace("\r\n", "\n", $msg['raw']), $h) ? rtrim($h[0]) . "\r\n" : '') . "\r\n";
                                 fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' FLAGS (' . implode(' ', $msg['flags'] ?? []) . ') BODY[HEADER.FIELDS (MESSAGE-ID)] {' . strlen($hdr) . "}\r\n" . $hdr . ")\r\n");
