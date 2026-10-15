@@ -912,4 +912,11 @@ static function (): void {
     }
 },
 ],
+32 => [
+// Files: the same content is stored once (by SHA-256) and removed when nothing uses it.
+"ALTER TABLE fs_blobs ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX fs_blobs_sha ON fs_blobs(sha256)",
+"CREATE INDEX fs_files_blob ON fs_files(blob_id)",
+"CREATE INDEX fs_versions_blob ON fs_versions(blob_id)",
+],
 ];

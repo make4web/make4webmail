@@ -48,6 +48,7 @@ use M4W\Mail\MimeParser;
 use M4W\Service\Composer;
 use M4W\Service\Bimi;
 use M4W\Service\Delivery;
+use M4W\Storage\Storage;
 use M4W\Service\Search;
 use M4W\Service\Folders;
 use M4W\Service\Forwarding;
@@ -2174,6 +2175,83 @@ test('sessions: stored hashed, read back, refreshed sparingly, expired and purge
     $h->write($id, 'x|i:1;');
     $h->destroy($id);
     eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
+});
+
+echo "\nFiles: same content stored once\n";
+test('files: identical contents stored once, kept while used, removed when nothing uses them', function () use ($fsFile) {
+    $mk = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => explode('@', $e)[0]]));
+    [$p, $q] = [$mk('dd.p@test.local'), $mk('dd.q@test.local')];
+    $rootP = (int) Files::personalRoot((int) $p['id'])['id'];
+    $rootQ = (int) Files::personalRoot((int) $q['id'])['id'];
+    $big = random_bytes(200000);
+    $blobs = static fn() => (int) DB::value('SELECT COUNT(*) FROM fs_blobs');
+    $n0 = $blobs();
+    $u0 = Files::usage()['used'];
+    $fp = Files::addFromPath($p, $rootP, $fsFile($big), 'contrat.pdf');
+    $fq = Files::addFromPath($q, $rootQ, $fsFile($big), 'contrat (copie).pdf');
+    $bp = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fp['id']]);
+    $bq = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fq['id']]);
+    eq($bp, $bq, 'same content, one blob');
+    eq($blobs() - $n0, 1);
+    eq(Files::usage()['used'] - $u0, 200000, 'space used once');
+    eq([(int) $fp['size'], (int) $fq['size']], [200000, 200000], 'each file shows its full size');
+    $other = Files::addFromPath($q, $rootQ, $fsFile($big . 'x'), 'autre.pdf');
+    ok((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $other['id']]) !== $bp, 'a different content is a different blob');
+    // P deletes his for good: Q still reads hers, whole.
+    Files::destroyFile((int) $fp['id']);
+    ok(Storage::store()->exists($bp), 'kept while another file uses it');
+    eq(Files::contents($bq), $big, 'other file intact');
+    // Versions: back to an earlier content reuses its blob; pruning versions never takes it from the file.
+    $fv = Files::addFromPath($q, $rootQ, $fsFile('version A'), 'note.txt');
+    Files::putContent($q, (int) $fv['id'], $fsFile('version B'));
+    Files::putContent($q, (int) $fv['id'], $fsFile('version A'));
+    $cur = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fv['id']]);
+    ok((bool) DB::value('SELECT 1 FROM fs_versions WHERE file_id = :f AND blob_id = :b', ['f' => $fv['id'], 'b' => $cur]), 'version 1 and the current one share a blob');
+    Settings::set('files.versions', 0);
+    Files::putContent($q, (int) $fv['id'], $fsFile('version C'));
+    Settings::set('files.versions', 10);
+    eq(Files::contents((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $fv['id']])), 'version C');
+    // Q deletes the shared one: kept for a while (an upload may be about to reuse it), then cleaned up.
+    Files::destroyFile((int) $fq['id']);
+    ok(Storage::store()->exists($bq), 'just used: kept for the grace period');
+    DB::run('UPDATE fs_blobs SET last_used_at = :t, created_at = :t2 WHERE id = :b', ['t' => time() - 3600, 't2' => time() - 3600, 'b' => $bq]);
+    ok(Files::gcBlobs() >= 1);
+    ok(!Storage::store()->exists($bq) && !DB::value('SELECT 1 FROM fs_blobs WHERE id = :b', ['b' => $bq]), 'nothing uses it any more: removed');
+    eq(Files::usage()['used'] - $u0 >= 0, true);
+    // The clean-up never takes a blob still used by a file or a version.
+    DB::run('UPDATE fs_blobs SET last_used_at = 0, created_at = 0');
+    Files::gcBlobs();
+    foreach (DB::all('SELECT blob_id FROM fs_files UNION SELECT blob_id FROM fs_versions') as $r) {
+        ok(Storage::store()->exists((string) $r['blob_id']), 'still there: ' . $r['blob_id']);
+    }
+    eq(Files::contents((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $other['id']])), $big . 'x');
+    // Quota full: refused even for a content already stored (no hint that someone holds it).
+    Settings::set('files.quota_gb', 1);
+    DB::insert('fs_blobs', ['id' => 'fake-full', 'size' => 1024 ** 3, 'sha256' => '', 'created_at' => time()]);
+    $thrown = false;
+    try { Files::addFromPath($q, $rootQ, $fsFile($big . 'x'), 'encore.pdf'); } catch (\InvalidArgumentException) { $thrown = true; }
+    DB::delete('fs_blobs', "id = 'fake-full'");
+    Settings::set('files.quota_gb', 0);
+    ok($thrown, 'quota checked on the full size');
+    // Same behaviour with contents kept as plain files on disk.
+    $dir = sys_get_temp_dir() . '/m4w-local-' . bin2hex(random_bytes(4));
+    Storage::use(new M4W\Storage\LocalStore($dir));
+    try {
+        $l1 = Files::addFromPath($p, $rootP, $fsFile('sur disque'), 'd1.txt');
+        $l2 = Files::addFromPath($q, $rootQ, $fsFile('sur disque'), 'd2.txt');
+        $lb = (string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $l1['id']]);
+        eq((string) DB::value('SELECT blob_id FROM fs_files WHERE id = :i', ['i' => $l2['id']]), $lb, 'one blob on disk');
+        Files::destroyFile((int) $l1['id']);
+        eq(Files::contents($lb), 'sur disque', 'kept for the other file');
+        DB::run('UPDATE fs_blobs SET last_used_at = 0 WHERE id = :b', ['b' => $lb]);
+        Files::destroyFile((int) $l2['id']);
+        ok(!Storage::store()->exists($lb), 'removed from disk with the last file');
+    } finally {
+        Storage::use(null);
+        exec('rm -rf ' . escapeshellarg($dir));
+    }
+    Users::delete((int) $p['id']);
+    Users::delete((int) $q['id']);
 });
 
 echo "\nOne file per delivery\n";

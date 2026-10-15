@@ -88,6 +88,7 @@ if ($hourly) {
         }
     }
     $out('expired sessions: ' . M4W\Core\DbSessionHandler::purge());
+    $out('unused file contents: ' . M4W\Service\Files::gcBlobs());
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);
