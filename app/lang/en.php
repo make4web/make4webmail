@@ -2098,4 +2098,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'admin.sidebar_header' => 'Apply to the top bar as well',
     'admin.sidebar_color' => 'Menu colour',
     'admin.sidebar_image_hint' => 'PNG, JPEG, WebP. The text colour (light or dark) follows the picture\'s brightness, with a light veil to stay readable.',
+    'admin.sidebar_main' => 'Extend behind the work area',
 ];

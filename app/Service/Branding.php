@@ -119,7 +119,8 @@ final class Branding
         if ($bg === '') {
             return '';
         }
-        return 'has-chrome' . (self::contrast($bg) === '#ffffff' ? ' chrome-on-dark' : '') . ((int) Settings::get('brand.sidebar_header', 1) ? ' chrome-header' : '');
+        return 'has-chrome' . (self::contrast($bg) === '#ffffff' ? ' chrome-on-dark' : '') . ((int) Settings::get('brand.sidebar_header', 1) ? ' chrome-header' : '')
+            . ((int) Settings::get('brand.sidebar_main', 1) ? ' chrome-main' : '');
     }
 
     /** Average colour of a picture (GD), to pick the text colour that goes on it. */

@@ -585,6 +585,7 @@ final class AdminController extends Controller
             'brand.sidebar' => in_array($r->str('sidebar'), Branding::SIDEBAR_STYLES, true) ? $r->str('sidebar') : 'light',
             'brand.sidebar_color' => $color($r->str('sidebar_color'), '#0f766e'),
             'brand.sidebar_header' => $r->bool('sidebar_header') ? 1 : 0,
+            'brand.sidebar_main' => $r->bool('sidebar_main') ? 1 : 0,
             'brand.sidebar_bg_fit' => $r->str('sidebar_bg_fit') === 'tile' ? 'tile' : 'cover',
             'brand.radius' => max(0, min(24, $r->int('radius', 10))),
             'brand.font' => $r->str('font') === 'system' ? 'system' : 'inter',

@@ -461,6 +461,8 @@
       $pv.find('[data-pv-side]').css({ background: sideBg, color: sideFg });
       var head = side !== 'light' && $f.find('[name=sidebar_header]').is(':checked');
       $pv.find('.pv-top').css({ background: head ? sideBg : '', color: head ? sideFg : '' });
+      var behind = side !== 'light' && $f.find('[name=sidebar_main]').is(':checked');
+      $pv.find('.pv-body').css({ background: behind ? sideBg : '' });
       var activeBg = side === 'light' ? 'rgba(' + rgb + ',.12)' : (side === 'dark' ? 'rgba(' + rgb + ',.35)' : (lightText ? 'rgba(0,0,0,.22)' : 'rgba(0,0,0,.1)'));
       $pv.find('[data-pv-active]').css({ background: activeBg, color: side === 'light' ? 'var(--m4w-primary)' : (side === 'dark' ? '#ffffff' : sideFg) });
       $('[data-radius-val]').text(r + 'px');

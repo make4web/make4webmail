@@ -24,4 +24,4 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <link rel="stylesheet" href="<?= e(asset('vendor/bootstrap-icons/bootstrap-icons.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(asset('vendor/aos/aos.css')) ?>">
 <link rel="stylesheet" href="<?= e(asset('css/m4w.css')) ?>">
-<link rel="stylesheet" href="<?= e(url('theme.css')) ?>?v=<?= e(substr(md5(json_encode([Settings::get('brand.primary'), Settings::get('brand.accent'), Settings::get('brand.radius'), Settings::get('brand.sidebar'), Settings::get('brand.sidebar_color'), Settings::get('brand.sidebar_bg'), Settings::get('brand.sidebar_bg_fit'), Settings::get('brand.font'), md5((string) Settings::get('brand.custom_css'))])), 0, 8)) ?>">
+<link rel="stylesheet" href="<?= e(url('theme.css')) ?>?v=<?= e(substr(md5(json_encode([Settings::get('brand.primary'), Settings::get('brand.accent'), Settings::get('brand.radius'), Settings::get('brand.sidebar'), Settings::get('brand.sidebar_color'), Settings::get('brand.sidebar_bg'), Settings::get('brand.sidebar_bg_fit'), Settings::get('brand.sidebar_main'), Settings::get('brand.font'), md5((string) Settings::get('brand.custom_css'))])), 0, 8)) ?>">

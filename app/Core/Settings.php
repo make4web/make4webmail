@@ -26,6 +26,7 @@ final class Settings
         'brand.sidebar'        => 'light',
         'brand.sidebar_color'  => '#0f766e',
         'brand.sidebar_header' => 1,
+        'brand.sidebar_main'   => 1,
         'brand.sidebar_bg'     => '',
         'brand.sidebar_bg_avg' => '',
         'brand.sidebar_bg_fit' => 'cover',
