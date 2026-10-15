@@ -236,6 +236,9 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <h3>Tableur intégré</h3>
     <p>Les classeurs (xlsx, xls, ods, csv) s'ouvrent avec <em>Modifier en ligne</em>, à plusieurs en même temps : les cellules modifiées par vos collègues apparaissent en direct, avec leur nom. Les formules s'écrivent comme dans Excel en français (<code>=SOMME(B2:B10)</code>, <code>=SI(C2>0;"oui";"non")</code>). Vos modifications sont conservées sur le serveur au fil de l'eau ; <strong>Enregistrer</strong> (Ctrl+S) en fait une nouvelle version du fichier. Raccourcis : Entrée / Tab pour valider, F2 pour modifier, Suppr pour effacer, Ctrl+C / Ctrl+V avec Excel, Ctrl+Z pour annuler. Double-cliquez sur le bord d'une colonne pour l'ajuster à son contenu.</p>
     <p>Un classeur avec graphiques, tableaux croisés ou macros, ou au format .xls, est enregistré dans une copie : l'original reste intact.</p>
+    <h3>Traitement de texte intégré</h3>
+    <p>Les documents Word (docx, ainsi que odt et doc) s'ouvrent avec <em>Modifier en ligne</em>. Une seule personne écrit à la fois : si un collègue est en train d'écrire, vous voyez ses changements en direct et son nom en haut de la page ; dès qu'il clique sur <strong>Terminer</strong> (ou après 45 secondes d'inactivité), le bouton <strong>Modifier</strong> vous rend la main. <strong>Enregistrer</strong> (Ctrl+S) crée une nouvelle version ; les en-têtes, pieds de page et la mise en page du document d'origine sont conservés.</p>
+    <p>Un document avec suivi des modifications, commentaires, zones de texte ou notes de bas de page, ou au format .odt / .doc, est enregistré dans une copie : l'original reste intact.</p>
   </section>
 
   <section id="mobile" class="m4w-help-section">

@@ -266,6 +266,13 @@ final class App
         $r->get('/api/messages/{id}/img/{asset}', [Controller\MailController::class, 'image']);
         $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
         $r->get('/files/sheet/{id}', [Controller\SheetController::class, 'page']);
+        $r->get('/files/doc/{id}', [Controller\DocController::class, 'page']);
+        $r->get('/api/docs/{id}', [Controller\DocController::class, 'data']);
+        $r->post('/api/docs/{id}/take', [Controller\DocController::class, 'take']);
+        $r->post('/api/docs/{id}/release', [Controller\DocController::class, 'release']);
+        $r->post('/api/docs/{id}/draft', [Controller\DocController::class, 'draft']);
+        $r->get('/api/docs/{id}/poll', [Controller\DocController::class, 'poll']);
+        $r->post('/api/docs/{id}/save', [Controller\DocController::class, 'save']);
         $r->get('/api/sheets/{id}', [Controller\SheetController::class, 'data']);
         $r->post('/api/sheets/{id}/ops', [Controller\SheetController::class, 'ops']);
         $r->get('/api/sheets/{id}/poll', [Controller\SheetController::class, 'poll']);

@@ -2255,6 +2255,114 @@ test('spreadsheet: unsaved work is saved once everyone has left', function () us
     eq((int) Files::file($fid)['version'], $v + 1, 'saved as a new version');
 });
 
+// ------------------------------------------------------------------ built-in word processor
+echo "\nBuilt-in word processor (one writer, others follow)\n";
+use M4W\Service\DocEdit;
+use M4W\Service\WordDoc;
+$docx = static function (callable $build): string {
+    $w = new \PhpOffice\PhpWord\PhpWord();
+    $w->addTitleStyle(1, ['bold' => true, 'size' => 18]);
+    $build($w->addSection());
+    $p = tempnam(sys_get_temp_dir(), 'd') . '.docx';
+    \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save($p);
+    return $p;
+};
+test('documents: Word to HTML and back, only the body rewritten', function () use ($docx) {
+    $src = $docx(static function ($s) {
+        $s->addHeader()->addText('EN-TETE SOCIETE');
+        $s->addTitle('Rapport', 1);
+        $s->addText('Gras', ['bold' => true]);
+        $s->addListItem('Un', 0); $s->addListItem('Deux', 1);
+        $t = $s->addTable(); $t->addRow(); $t->addCell(2000)->addText('A'); $t->addCell(2000)->addText('B');
+        $s->addLink('https://exemple.fr', 'Lien');
+    });
+    $r = WordDoc::toHtml($src);
+    eq($r['issues'], []);
+    ok(str_contains($r['html'], '<h1>Rapport</h1>') && str_contains($r['html'], '<strong>Gras</strong>') && str_contains($r['html'], '<ul><li>Un<ul><li>Deux</li></ul></li></ul>'), $r['html']);
+    ok(str_contains($r['html'], '<table>') && str_contains($r['html'], '<a href="https://exemple.fr">Lien</a>'));
+    $out = tempnam(sys_get_temp_dir(), 'o') . '.docx';
+    WordDoc::fromHtml($r['html'] . '<p>Ajout <em>final</em></p><ol><li>Premier</li></ol><hr class="m4w-pagebreak"><p>Page 2</p>', $src, $out);
+    $back = WordDoc::toHtml($out)['html'];
+    eq(WordDoc::toHtml($out)['html'], WordDoc::toHtml((function () use ($back, $src) { $o = tempnam(sys_get_temp_dir(), 'o') . '.docx'; WordDoc::fromHtml($back, $src, $o); return $o; })())['html'], 'stable: saving twice changes nothing');
+    ok(str_contains($back, 'Ajout <em>final</em>') && str_contains($back, '<ol><li>Premier</li></ol>') && str_contains($back, 'm4w-pagebreak'));
+    $z = new \ZipArchive(); $z->open($out);
+    ok(str_contains((string) $z->getFromName('word/header1.xml'), 'EN-TETE SOCIETE'), 'header kept');
+    ok(str_contains((string) $z->getFromName('word/document.xml'), '<w:headerReference'), 'section settings kept');
+    ok(\PhpOffice\PhpWord\IOFactory::load($out) instanceof \PhpOffice\PhpWord\PhpWord, 'a valid package');
+    // Hostile input: entities, scripts.
+    $evil = $docx(static fn($s) => $s->addText('x'));
+    $z = new \ZipArchive(); $z->open($evil); $z->addFromString('word/document.xml', '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>'); $z->close();
+    $thrown = false;
+    try { WordDoc::toHtml($evil); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'a DTD is refused');
+    eq(WordDoc::issues('<w:body><w:p><w:ins w:id="1"><w:r><w:t>x</w:t></w:r></w:ins></w:p><w:p><w:r><w:commentReference w:id="0"/></w:r></w:p></w:body>'), ['tracked', 'comments']);
+});
+test('documents: one writer, the other follows, a new version is saved', function () use ($fsBob, $fsCarol, $fsAdmin, $docx) {
+    $space = Files::createSpace($fsAdmin, 'Docs ' . bin2hex(random_bytes(3)));
+    Files::setAcl($fsAdmin, $space, [['type' => 'user', 'principal' => $fsCarol['id'], 'level' => 'write'], ['type' => 'user', 'principal' => $fsBob['id'], 'level' => 'write']]);
+    $f = Files::addFromPath($fsBob, $space, $docx(static fn($s) => $s->addText('Version initiale')), 'Note.docx');
+    $file = static fn() => Files::file((int) $f['id']);
+    $o = DocEdit::open($fsBob, $file());
+    eq([$o['mode'], $o['pen']], ['edit', null]);
+    ok(DocEdit::take($fsBob, $file())['ok']);
+    $c = DocEdit::take($fsCarol, $file());
+    ok(!$c['ok'] && $c['pen']['id'] === (int) $fsBob['id'], 'one writer at a time');
+    $thrown = false;
+    try { DocEdit::draft($fsCarol, $file(), '<p>pirate</p>'); } catch (\DomainException) { $thrown = true; }
+    ok($thrown, 'only the writer saves drafts');
+    $rev = DocEdit::draft($fsBob, $file(), '<p>Version initiale</p><p>Ajout de <strong>Bob</strong><script>alert(1)</script></p>');
+    $p = DocEdit::poll($fsCarol, $file(), 1);
+    eq($p['rev'], $rev);
+    ok(str_contains($p['html'], 'Ajout de <strong>Bob</strong>') && !str_contains($p['html'], 'script'), 'the follower gets the cleaned text');
+    eq(DocEdit::poll($fsCarol, $file(), $rev)['html'] ?? null, null, 'nothing new, nothing sent');
+    $r = DocEdit::publish($fsBob, $file());
+    eq([$r['copy'], (int) $r['file']['version']], [false, 2]);
+    $t = tempnam(sys_get_temp_dir(), 'n') . '.docx';
+    file_put_contents($t, Files::contents($file()['blob_id']));
+    ok(str_contains(WordDoc::toHtml($t)['html'], 'Ajout de <strong>Bob</strong>'), 'saved in the .docx');
+    // The writer leaves: the other can take over.
+    DocEdit::release($fsBob, (int) $f['id']);
+    ok(DocEdit::take($fsCarol, $file())['ok']);
+    // A silent writer loses the pen after 45 seconds.
+    DB::run('UPDATE doc_sessions SET holder_seen = :t WHERE file_id = :f', ['t' => time() - 60, 'f' => $f['id']]);
+    ok(DocEdit::take($fsBob, $file())['ok'], 'taken over from an inactive writer');
+    // Unsaved work is saved after everyone left.
+    DocEdit::draft($fsBob, $file(), '<p>Dernier mot</p>');
+    DB::run('UPDATE doc_sessions SET updated_at = :t, holder_seen = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $f['id']]);
+    DB::run('UPDATE sheet_presence SET seen_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $f['id']]);
+    ok(DocEdit::housekeeping() >= 1);
+    eq((int) $file()['version'], 3);
+});
+test('documents: tracked changes, .odt and .doc are saved as copies', function () use ($fsBob, $docx) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $src = $docx(static fn($s) => $s->addText('Texte'));
+    $z = new \ZipArchive(); $z->open($src);
+    $xml = (string) $z->getFromName('word/document.xml');
+    $z->addFromString('word/document.xml', preg_replace('#<w:body>#', '<w:body><w:p><w:ins w:id="9" w:author="X"><w:r><w:t>insertion suivie</w:t></w:r></w:ins></w:p>', $xml, 1)); $z->close();
+    $f = Files::addFromPath($fsBob, $root, $src, 'Suivi.docx');
+    $o = DocEdit::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['issues']], ['copy', ['tracked']]);
+    DocEdit::take($fsBob, Files::file((int) $f['id']));
+    DocEdit::draft($fsBob, Files::file((int) $f['id']), '<p>Texte revu</p>');
+    $r = DocEdit::publish($fsBob, Files::file((int) $f['id']));
+    ok($r['copy'] && str_ends_with($r['file']['name'], '.docx'));
+    eq((int) Files::file((int) $f['id'])['version'], 1, 'original untouched');
+    // OpenDocument
+    $w = new \PhpOffice\PhpWord\PhpWord(); $w->addSection()->addText('Bonjour ODT');
+    $odt = tempnam(sys_get_temp_dir(), 'o') . '.odt';
+    \PhpOffice\PhpWord\IOFactory::createWriter($w, 'ODText')->save($odt);
+    $g = Files::addFromPath($fsBob, $root, $odt, 'Lettre.odt');
+    $o = DocEdit::open($fsBob, Files::file((int) $g['id']));
+    ok(str_contains($o['html'], 'Bonjour ODT') && $o['mode'] === 'copy', 'odt imported');
+    DocEdit::take($fsBob, Files::file((int) $g['id']));
+    DocEdit::draft($fsBob, Files::file((int) $g['id']), '<p>Bonjour ODT, <strong>modifié</strong></p>');
+    $r = DocEdit::publish($fsBob, Files::file((int) $g['id']));
+    ok($r['copy'] && str_ends_with($r['file']['name'], '.odt'), $r['file']['name']);
+    $t = tempnam(sys_get_temp_dir(), 'r') . '.odt';
+    file_put_contents($t, Files::contents(Files::file((int) $r['file']['id'])['blob_id']));
+    ok(str_contains((new \PhpOffice\PhpWord\Writer\HTML(\PhpOffice\PhpWord\IOFactory::load($t, 'ODText')))->getContent(), 'modifié'), 'odt written');
+});
+
 // ------------------------------------------------------------------ backups
 echo "\nBackups (zip to a backup disk)\n";
 use M4W\Service\Backup;

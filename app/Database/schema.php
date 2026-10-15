@@ -644,5 +644,21 @@ static function (): void {
   PRIMARY KEY (file_id, user_id)
 ) {OPT}",
 ],
+18 => [
+// Built-in word processor: working copy per document, who holds the pen, revision followed by readers.
+"CREATE TABLE doc_sessions (
+  file_id INTEGER NOT NULL PRIMARY KEY,
+  base_version INTEGER NOT NULL DEFAULT 0,
+  mode VARCHAR(10) NOT NULL DEFAULT 'edit',
+  reason VARCHAR(190) NOT NULL DEFAULT '',
+  holder INTEGER NULL,
+  holder_seen INTEGER NOT NULL DEFAULT 0,
+  rev INTEGER NOT NULL DEFAULT 1,
+  dirty INTEGER NOT NULL DEFAULT 0,
+  last_user INTEGER NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  published_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+],
 ];
 

@@ -18,18 +18,21 @@
   var OFFICE_VIEW = ($('#fs-app').data('office-view') || '').split(',').filter(Boolean);
   var TEXT_EDIT = ['txt', 'md', 'log', 'json', 'xml', 'ini', 'conf', 'yml', 'yaml'];
   var SHEET_EDIT = ($('#fs-app').data('sheet-edit') || '').split(',').filter(Boolean);
+  var DOC_EDIT = ($('#fs-app').data('doc-edit') || '').split(',').filter(Boolean);
   function extOf(f) { return (f.name.split('.').pop() || '').toLowerCase(); }
   /** How a file can be edited here: 'office' (online, collaborative), 'text' (built-in) or ''. */
   function editMode(f) {
     if (f.type !== 'file' || !itemWritable(f)) return '';
     if (OFFICE_EDIT.indexOf(extOf(f)) !== -1) return 'office';
     if (SHEET_EDIT.indexOf(extOf(f)) !== -1) return 'sheet';
+    if (DOC_EDIT.indexOf(extOf(f)) !== -1) return 'doc';
     return TEXT_EDIT.indexOf(extOf(f)) !== -1 ? 'text' : '';
   }
   function editFile(f) {
     var mode = editMode(f);
     if (mode === 'office') window.open(M4W.url('files/edit/' + f.id), '_blank', 'noopener');
     else if (mode === 'sheet') window.open(M4W.url('files/sheet/' + f.id), '_blank', 'noopener');
+    else if (mode === 'doc') window.open(M4W.url('files/doc/' + f.id), '_blank', 'noopener');
     else if (mode === 'text') textEditor(f);
   }
   var DOCPREVIEW = /^(docx|xlsx|pptx|odt|csv|tsv|txt|log|md|json|xml|ini|conf|ya?ml|sql|eml)$/;
@@ -456,7 +459,7 @@
     },
     move: function (items) { transfer(items || selectedItems(), 'move'); },
     edit: function (items) { var it = (items || selectedItems())[0]; if (it) editFile(it); },
-    'edit-builtin': function (items) { var it = (items || selectedItems())[0]; if (it) window.open(M4W.url('files/sheet/' + it.id), '_blank', 'noopener'); },
+    'edit-builtin': function (items) { var it = (items || selectedItems())[0]; if (it) window.open(M4W.url((DOC_EDIT.indexOf(extOf(it)) !== -1 ? 'files/doc/' : 'files/sheet/') + it.id), '_blank', 'noopener'); },
     expiry: function (items) {
       var it = (items || selectedItems())[0];
       if (it) M4W.get('api/files/file/' + it.id + '/expiry').done(expiryDialog);
@@ -543,6 +546,7 @@
     if (one && editMode(one)) m.splice(1, 0, ['edit', 'pencil-square', editMode(one) === 'text' ? 'fs_edit' : 'fs_edit_online']);
     // An office server takes over when configured; the built-in spreadsheet stays at hand.
     if (one && editMode(one) === 'office' && SHEET_EDIT.indexOf(extOf(one)) !== -1) m.splice(2, 0, ['edit-builtin', 'table', 'fs_edit_builtin']);
+    if (one && editMode(one) === 'office' && DOC_EDIT.indexOf(extOf(one)) !== -1) m.splice(2, 0, ['edit-builtin', 'file-earmark-text', 'fs_edit_builtin_doc']);
     if (one && one.type === 'file') m.push(['versions', 'clock-history', 'fs_versions']);
     if (one && one.type === 'file' && S.route !== 'trash') m.push(['expiry', 'hourglass-split', 'fs_expiry']);
     if (one) m.push(['copy-link', 'link-45deg', 'fs_copy_link']);

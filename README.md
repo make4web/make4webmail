@@ -50,6 +50,12 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
   - Le travail est conservé sur le serveur à chaque frappe (copie de travail, incluse dans les sauvegardes). « Enregistrer » crée une nouvelle version ; un classeur laissé ouvert est enregistré automatiquement deux minutes après le départ du dernier éditeur.
   - Ce que l'éditeur ne sait pas conserver (graphiques, tableaux croisés, macros, ancien format .xls) part dans une copie, comme une version enregistrée ailleurs entre-temps : l'original n'est jamais écrasé.
   - Si un serveur Collabora / ONLYOFFICE est configuré, il prend le relais ; le tableur intégré reste proposé.
+- **Traitement de texte intégré** (sans serveur bureautique) : docx, odt, doc.
+  - Page façon traitement de texte : titres, gras, couleurs, tailles, listes à puces et numérotées imbriquées, alignement, liens, images, tableaux, sauts de page, collage depuis Word.
+  - Fidélité : seul le corps de `word/document.xml` est réécrit ; styles, en-têtes et pieds de page (numéros de page compris), numérotation, mise en page et propriétés du .docx restent ceux de l'original. Validé avec LibreOffice.
+  - À plusieurs : une personne écrit à la fois, les autres suivent ses changements en direct et voient qui écrit ; la main se passe avec « Terminer », et un rédacteur inactif la perd après 45 secondes.
+  - Le texte est conservé sur le serveur au fil de la frappe ; « Enregistrer » crée une nouvelle version, et un document laissé ouvert est enregistré deux minutes après le départ de chacun.
+  - Ce que l'éditeur ne sait pas conserver (suivi des modifications, commentaires, zones de texte, notes de bas de page, table des matières automatique, équations, plusieurs sections), ainsi que les .odt et .doc, part dans une copie : l'original n'est jamais écrasé.
 - **Aperçu intégré** sans télécharger : images, PDF, audio, vidéo, et rendu HTML côté serveur des .docx, .xlsx, .pptx, .odt, CSV et fichiers texte. Ce rendu n'utilise aucun service externe ; il est protégé contre les bombes zip et les entités XML, et servi sous CSP `sandbox`. Les anciens formats (.doc, .xls, .ppt) passent par le serveur bureautique s'il y en a un.
 - **Édition en ligne collaborative** (Word, Excel, PowerPoint, OpenDocument, texte) par un serveur **Collabora Online** ou **ONLYOFFICE Docs**, via le protocole WOPI. Make4WebMail est l'hôte WOPI :
   - jetons d'accès aléatoires, conservés hachés, propres à un document et à une personne, valables 10 h ;
