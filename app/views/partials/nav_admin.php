@@ -10,6 +10,7 @@ $items = [
     ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail'],
     ['admin/spam', 'funnel', 'admin.nav_spam', 'spam'],
     ['admin/security', 'shield-check', 'admin.nav_security', 'security'],
+    ['admin/health', 'heart-pulse', 'admin.nav_health', 'health'],
     ['admin/logs', 'journal-text', 'admin.nav_logs', 'logs'],
 ];
 ?>

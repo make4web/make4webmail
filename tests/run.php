@@ -2784,6 +2784,72 @@ test('phishing report: removed from every mailbox, sender marked, administrators
     ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'reported_by_colleague'", ['u' => $bob['id']]));
 });
 
+echo "\nMonitoring, DMARC reports\n";
+test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {
+    $dns = ['MX test.local' => [], 'TXT test.local' => ['v=spf1 mx ~all'], 'TXT _dmarc.test.local' => ['v=DMARC1; p=none']];
+    M4W\Service\Health::$resolver = static fn(string $type, string $name) => $dns[$type . ' ' . $name] ?? [];
+    M4W\Service\Health::$certProbe = static fn() => null;
+    try {
+        Settings::set('system.cron_last', time());
+        $c = M4W\Service\Health::checks(true);
+        eq($c['mx:test.local']['state'], 'fail', 'no MX');
+        eq($c['spf:test.local']['state'], 'ok');
+        eq($c['dmarc:test.local']['state'], 'warn', 'p=none only monitors');
+        eq($c['cron']['state'], 'ok');
+        Settings::set('system.cron_last', time() - 7200);
+        eq(M4W\Service\Health::checks(false)['cron']['state'], 'fail', 'cron stopped');
+        Settings::set('system.cron_last', time());
+        DB::insert('mail_queue', ['user_id' => null, 'kind' => 'mail', 'envelope_from' => '', 'recipients' => '[]', 'raw_path' => 'queue/x.eml', 'status' => 'pending', 'created_at' => time() - 3 * 3600, 'next_attempt_at' => time()]);
+        eq(M4W\Service\Health::checks(false)['queue']['state'], 'fail', 'mail stuck for hours');
+        DB::run("DELETE FROM mail_queue WHERE raw_path = 'queue/x.eml'");
+        $admin = Users::findByEmail('admin@test.local');
+        $count = static fn() => (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Supervision%'", ['u' => $admin['id']]);
+        Settings::set('health.state', '{}');
+        $before = $count();
+        ok(M4W\Service\Health::run() > 0, 'first run reports the problems');
+        eq($count(), $before + 1);
+        eq(M4W\Service\Health::run(), 0, 'not again within the day');
+        ok(M4W\Service\Health::run(time() + 86400 + 60) > 0, 'reminded a day later');
+        eq(M4W\Service\Health::run(time() + 86400 + 120), 0, 'then quiet again');
+        $dns['MX test.local'] = ['mx.test.local'];
+        $dns['TXT _dmarc.test.local'] = ['v=DMARC1; p=quarantine; rua=mailto:postmaster@test.local'];
+        M4W\Service\Health::$resolver = static fn(string $type, string $name) => $dns[$type . ' ' . $name] ?? [];
+        $n = $count();
+        M4W\Service\Health::run();
+        ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $admin['id'], 's' => '%réglé%']) || $count() > $n, 'fixed reported');
+    } finally {
+        M4W\Service\Health::$resolver = null;
+        M4W\Service\Health::$certProbe = null;
+    }
+});
+test('dmarc: aggregate reports about our domains are read (gzip / zip), others ignored', function () {
+    $xml = static fn(string $domain, string $id, string $extra = '') => '<?xml version="1.0"?>' . $extra . '<feedback><report_metadata><org_name>google.com</org_name><report_id>' . $id . '</report_id><date_range><begin>' . (time() - 86400) . '</begin><end>' . time() . '</end></date_range></report_metadata>'
+        . '<policy_published><domain>' . $domain . '</domain><p>quarantine</p></policy_published>'
+        . '<record><row><source_ip>203.0.113.5</source_ip><count>40</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>' . $domain . '</header_from></identifiers></record>'
+        . '<record><row><source_ip>198.51.100.7</source_ip><count>3</count><policy_evaluated><disposition>quarantine</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated></row><identifiers><header_from>' . $domain . '</header_from></identifiers></record></feedback>';
+    $mail = static function (string $name, string $mime, string $content): string {
+        return "From: noreply-dmarc-support@google.com\r\nTo: postmaster@test.local\r\nSubject: Report domain: test.local Submitter: google.com Report-ID: x\r\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@google.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nReport\r\n--b\r\nContent-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . chunk_split(base64_encode($content)) . "--b--\r\n";
+    };
+    Delivery::deliver($mail('google.com!test.local!1!2.xml.gz', 'application/gzip', gzencode($xml('test.local', 'r1'))), 'noreply-dmarc-support@google.com', ['admin@test.local']);
+    eq((int) DB::value("SELECT messages FROM dmarc_reports WHERE report_id = 'r1'"), 43);
+    eq((int) DB::value("SELECT failed FROM dmarc_reports WHERE report_id = 'r1'"), 3);
+    Delivery::deliver($mail('google.com!test.local!1!2.xml.gz', 'application/gzip', gzencode($xml('test.local', 'r1'))), 'noreply-dmarc-support@google.com', ['admin@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM dmarc_reports WHERE report_id = 'r1'"), 1, 'same report once');
+    $zipPath = tempnam(sys_get_temp_dir(), 'z');
+    $z = new \ZipArchive();
+    $z->open($zipPath, \ZipArchive::OVERWRITE);
+    $z->addFromString('report.xml', $xml('test.local', 'r2'));
+    $z->close();
+    Delivery::deliver($mail('microsoft.zip', 'application/zip', (string) file_get_contents($zipPath)), 'dmarc@microsoft.com', ['admin@test.local']);
+    @unlink($zipPath);
+    ok((bool) DB::value("SELECT COUNT(*) FROM dmarc_reports WHERE report_id = 'r2'"), 'zip');
+    ok(!M4W\Service\DmarcReports::store($xml('other.example', 'r3')), 'not our domain');
+    ok(!M4W\Service\DmarcReports::store($xml('test.local', 'r4', '<!DOCTYPE feedback [<!ENTITY x SYSTEM "file:///etc/passwd">]>')), 'no DTD');
+    $sum = M4W\Service\DmarcReports::summary(30);
+    eq($sum['sources'][0]['source_ip'], '198.51.100.7', 'failing source first');
+    eq((int) $sum['domains'][0]['messages'], 86);
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

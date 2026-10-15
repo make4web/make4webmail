@@ -612,6 +612,16 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <p>En bas de page, la liste des adresses IP en échec de connexion permet de repérer une attaque et de débloquer les comptes.</p>
   </section>
 
+  <section id="a-health" class="m4w-help-section admin">
+    <h2><i class="bi bi-heart-pulse"></i>Supervision</h2>
+    <p><?= $go('admin/health', 'Supervision') ?> vérifie toutes les heures ce qui peut arrêter la messagerie sans bruit : tâche planifiée, file d'envoi bloquée, espace disque, dernière sauvegarde, antivirus, comptes chez le fournisseur, alertes de sécurité non traitées, expiration du certificat HTTPS et, pour chaque domaine, les enregistrements DNS MX, SPF, DKIM (la clé publiée doit être celle du serveur) et DMARC.</p>
+    <ul>
+      <li>Un point qui passe au rouge est signalé aux administrateurs, puis rappelé chaque jour, et un message confirme quand il est réglé. Le tableau de bord affiche aussi un bandeau.</li>
+      <li>Indiquez une <strong>adresse d'alerte extérieure</strong> : si la messagerie elle-même est en panne, c'est la seule qui sera lue.</li>
+      <li><strong>Rapports DMARC</strong> : ajoutez <code>rua=mailto:postmaster@votre-domaine</code> à l'enregistrement DMARC (avec une adresse de ce serveur). Les rapports quotidiens de Gmail, Microsoft, Yahoo… sont lus automatiquement : taux de messages authentifiés par domaine et serveurs qui envoient sans SPF ni DKIM (un service oublié à ajouter au SPF, ou une usurpation).</li>
+    </ul>
+  </section>
+
   <section id="a-logs" class="m4w-help-section admin">
     <h2><i class="bi bi-journal-text"></i>Journaux et suivi</h2>
     <ul>

@@ -429,6 +429,8 @@ final class App
         $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
         $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
         $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $admin);
+        $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
+        $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
         $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $admin);

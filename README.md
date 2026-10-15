@@ -159,6 +159,7 @@ En mode boîte collectrice :
 - HTTPS est obligatoire (exigence des navigateurs).
 
 ### Administration
+- **Supervision** : tâche planifiée, file d'envoi, disque, sauvegarde, antivirus, certificat HTTPS, DNS (MX, SPF, DKIM, DMARC) vérifiés chaque heure ; alertes aux administrateurs (et à une adresse extérieure) avec rappel quotidien ; lecture automatique des **rapports DMARC** agrégés (taux d'authentification, serveurs non autorisés).
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
   - création, modification, désactivation et suppression ;
@@ -303,7 +304,7 @@ Publiez-le ensuite derrière votre proxy HTTPS (par ex. `https://office.exemple.
 
 ## Tests
 ```bash
-php tests/run.php   # 159 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 161 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

@@ -42,6 +42,8 @@ if ($hourly) {
     M4W\Service\Collector::purge();
     M4W\Service\MailAssets::gc();
     M4W\Service\AccountGuard::gc();
+    M4W\Service\DmarcReports::gc();
+    $out('health notices: ' . M4W\Service\Health::run());
     [$rem, $arc] = M4W\Service\Files::processExpiry();
     $out('files expiry: ' . $rem . ' reminder(s), ' . $arc . ' archived');
     $out('files purged: ' . M4W\Service\Files::autoPurge(max(1, (int) Settings::get('files.trash_days', 30))));

@@ -773,5 +773,33 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX messages_msgid_all ON messages(message_id)",
 ],
+22 => [
+// DMARC aggregate reports (rua) sent by Gmail, Microsoft, Yahoo… about mail using our domains.
+"CREATE TABLE dmarc_reports (
+  id {PK},
+  org VARCHAR(190) NOT NULL DEFAULT '',
+  report_id VARCHAR(190) NOT NULL DEFAULT '',
+  domain VARCHAR(190) NOT NULL DEFAULT '',
+  policy VARCHAR(20) NOT NULL DEFAULT '',
+  date_begin INTEGER NOT NULL DEFAULT 0,
+  date_end INTEGER NOT NULL DEFAULT 0,
+  messages INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX dmarc_reports_uid ON dmarc_reports(org, report_id)",
+"CREATE INDEX dmarc_reports_end ON dmarc_reports(date_end)",
+"CREATE TABLE dmarc_records (
+  id {PK},
+  report_id INTEGER NOT NULL,
+  source_ip VARCHAR(64) NOT NULL DEFAULT '',
+  messages INTEGER NOT NULL DEFAULT 0,
+  disposition VARCHAR(20) NOT NULL DEFAULT '',
+  dkim VARCHAR(10) NOT NULL DEFAULT '',
+  spf VARCHAR(10) NOT NULL DEFAULT '',
+  header_from VARCHAR(190) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX dmarc_records_report ON dmarc_records(report_id)",
+],
 ];
 

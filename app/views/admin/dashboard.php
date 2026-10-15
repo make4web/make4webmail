@@ -15,6 +15,14 @@
   </div>
   <?php endforeach; ?>
 </div>
+<?php
+$hs = json_decode((string) M4W\Core\Settings::get('health.state', '{}'), true) ?: [];
+$hBad = count(array_filter($hs, static fn($x) => ($x['state'] ?? '') === 'fail'));
+$hWarn = count(array_filter($hs, static fn($x) => ($x['state'] ?? '') === 'warn'));
+if ($hBad || $hWarn): ?>
+<div class="alert <?= $hBad ? 'alert-danger' : 'alert-warning' ?> d-flex align-items-center gap-2" role="status"><i class="bi bi-heart-pulse"></i>
+  <div class="flex-grow-1"><?= te('health.dash', ['fail' => $hBad, 'warn' => $hWarn]) ?></div><a class="btn btn-light btn-sm" href="<?= e(url('admin/health')) ?>"><?= te('health.dash_open') ?></a></div>
+<?php endif; ?>
 <?php if (M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); ?>
 <div class="mb-4" data-aos="fade-up"><?php include __DIR__ . '/_send_gauge.php'; ?></div>
 <?php endif; ?>

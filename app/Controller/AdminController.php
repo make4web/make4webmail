@@ -71,6 +71,29 @@ final class AdminController extends Controller
         return $this->page('dashboard', compact('stats', 'days', 'checks', 'recent', 'top'));
     }
 
+    // ---- Supervision -----------------------------------------------------------
+
+    public function health(): Response
+    {
+        $checks = \M4W\Service\Health::checks(true);
+        $days = max(1, min(365, (int) ($this->req->query['days'] ?? 30)));
+        return $this->page('health', ['checks' => $checks, 'overall' => \M4W\Service\Health::overall($checks), 'dmarc' => \M4W\Service\DmarcReports::summary($days), 'days' => $days,
+            'domains' => array_column(DB::all('SELECT name FROM domains WHERE active = 1 ORDER BY name'), 'name')]);
+    }
+
+    public function saveHealth(): Response
+    {
+        $email = mb_strtolower(trim($this->req->str('alert_email')));
+        if ($email !== '' && !is_valid_email($email)) {
+            return $this->back('/admin/health', 'danger', t('health.bad_email'));
+        }
+        Settings::set('health.alert_email', $email);
+        if ($this->req->bool('refresh')) {
+            DB::run("DELETE FROM settings WHERE name LIKE 'health.dns.%'");
+        }
+        return $this->back('/admin/health', 'success', t('settings.saved'));
+    }
+
     // ---- Users ---------------------------------------------------------------
 
     public function users(): Response
