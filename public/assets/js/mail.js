@@ -458,7 +458,7 @@
     if (msg.impersonation) {
       var im = msg.impersonation;
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-person-exclamation"></i><span><strong>' + esc(t('imp_' + im.kind + '_title')) + '</strong> '
-        + esc(t('imp_' + im.kind + '_text', { address: im.address, colleague: im.colleague || '', domain: im.domain || '' })) + '</span></div>';
+        + esc(t('imp_' + im.kind + '_text', { address: im.address, colleague: im.colleague || '', domain: im.domain || '', real: im.real || '' })) + '</span></div>';
     }
     if (msg.spam && msg.spam.reasons.length) {
       banner += '<div class="m4w-msg-banner warn"><i class="bi bi-funnel-fill text-warning"></i><span><strong>' + esc(t('spam_why', { score: msg.spam.score })) + '</strong> ' + esc(msg.spam.reasons.join(' · ')) + '</span></div>';

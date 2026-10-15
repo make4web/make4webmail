@@ -631,9 +631,40 @@ test('links: misleading text, IP, shorteners, look-alikes', function () {
     eq(M4W\Mail\LinkCheck::problems('https://example.com/', 'Cliquez ici'), [], 'plain text is not an address');
     eq(M4W\Mail\LinkCheck::problems('http://192.168.4.20/login'), ['ip']);
     eq(M4W\Mail\LinkCheck::problems('https://bit.ly/3xYz'), ['shortener']);
-    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode']);
+    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode', 'homograph', 'mixed_script'], 'pаypal.com (Cyrillic а), punycode form');
     eq(M4W\Mail\LinkCheck::problems('https://www.paypal.com@evil.example/'), ['userinfo']);
     eq(M4W\Mail\LinkCheck::problems('javascript:alert(1)'), ['script']);
+});
+test('links: homographs (amαzon / amаzon), mixed scripts, punycode blocked', function () {
+    $H = M4W\Mail\Homograph::class;
+    $P = static fn(string $h) => M4W\Mail\LinkCheck::problems('https://' . $h . '/login');
+    eq($H::imitates('amαzon.com'), 'amazon.com', 'Greek alpha');
+    eq($H::imitates('amаzon.com'), 'amazon.com', 'Cyrillic a');
+    eq($H::imitates($H::ascii('amаzon.com')), 'amazon.com', 'punycode form too');
+    eq($H::imitates('аррӏе.com'), 'apple.com', 'whole name in Cyrillic');
+    eq($H::imitates('ɡoogle.com'), 'google.com', 'Latin script g');
+    eq($H::imitates('amazon.com'), null);
+    eq($H::imitates('élysée.fr'), null, 'an accented name is not an imitation');
+    eq($H::imitates('münchen.de'), null);
+    ok($H::mixedScript('amаzon.com') && $H::mixedScript('paypαl.com'), 'Latin + Cyrillic / Greek');
+    ok(!$H::mixedScript('аррӏе.com') && !$H::mixedScript('élysée.fr') && !$H::mixedScript('例え.jp') && !$H::mixedScript('ソニーsony.jp'), 'single script, or Japanese with Latin');
+    eq($P('amαzon.com'), ['punycode', 'homograph', 'mixed_script']);
+    eq($P('élysée.fr'), ['punycode']);
+    ok(str_contains($H::highlight('amаzon.com'), '<mark title="U+0430">а</mark>'), 'look-alike letter marked');
+    // Blocking policy.
+    $prev = Settings::get('security.idn_links');
+    Settings::set('security.idn_links', 'block');
+    eq([M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), M4W\Service\LinkGuard::idnThreat($P('élysée.fr')), M4W\Service\LinkGuard::idnThreat($P('amazon.com'))], ['HOMOGRAPH', 'IDN', ''], 'block: every IDN');
+    Settings::set('security.idn_links', 'suspicious');
+    eq([M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), M4W\Service\LinkGuard::idnThreat($P('élysée.fr'))], ['HOMOGRAPH', ''], 'suspicious: imitations only');
+    Settings::set('security.idn_links', 'warn');
+    eq(M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), '', 'warn: confirmation only');
+    Settings::set('security.idn_links', $prev);
+});
+test('antispam: a sender address in another alphabet weighs heavily', function () {
+    $p = M4W\Mail\MimeParser::parse("From: Service <securite@paypаl.com>\r\nTo: a@test.local\r\nSubject: Info\r\n\r\nBonjour");
+    $r = SpamFilter::evaluate($p, null);
+    ok(isset($r['tests']['FROM_HOMOGRAPH']), json_encode($r['tests']));
 });
 test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendTo) {
     $spamId = (int) Folders::byRole((int) $bob['id'], 'spam')['id'];

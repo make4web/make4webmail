@@ -253,7 +253,14 @@ final class MailController extends Controller
         if (($c = \M4W\Service\SpamFilter::colleagueName($p)) !== null) {
             return ['kind' => 'colleague', 'colleague' => $c, 'address' => $p->from()['email']];
         }
-        if (($d = \M4W\Service\SpamFilter::lookalikeDomain(\M4W\Mail\Address::domain($p->from()['email']))) !== null) {
+        $dom = \M4W\Mail\Address::domain($p->from()['email']);
+        if ($dom !== '' && ($d = \M4W\Mail\Homograph::imitates($dom)) !== null) {
+            return ['kind' => 'homograph', 'domain' => $d, 'address' => $p->from()['email'], 'real' => \M4W\Mail\Homograph::ascii($dom)];
+        }
+        if ($dom !== '' && \M4W\Mail\Homograph::mixedScript($dom)) {
+            return ['kind' => 'mixed_script', 'domain' => \M4W\Mail\Homograph::unicode($dom), 'address' => $p->from()['email'], 'real' => \M4W\Mail\Homograph::ascii($dom)];
+        }
+        if (($d = \M4W\Service\SpamFilter::lookalikeDomain($dom)) !== null) {
             return ['kind' => 'lookalike', 'domain' => $d, 'address' => $p->from()['email']];
         }
         return null;
