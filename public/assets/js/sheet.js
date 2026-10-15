@@ -147,9 +147,15 @@
       title = text;
       text = new Array(Math.max(1, Math.floor((rc.w - 9) / Math.max(1, textWidth('#', st)))) + 1).join('#');
     }
-    var css = 'left:' + rc.x + 'px;top:' + rc.y + 'px;width:' + rc.w + 'px;height:' + rc.h + 'px;' + cssFor(st, num, err);
-    // Text spills over empty neighbours, like in a spreadsheet.
-    var spill = text && !num && !st.wrap && !merged && (!st.ha || st.ha === 'left') && !cell(r, c + 1);
+    // Text spills over empty neighbours, like in a spreadsheet, and stops at the first one
+    // that holds something (or a merged area).
+    var spill = text && !num && !st.wrap && !merged && (!st.ha || st.ha === 'left') && !cell(r, c + 1) && !mergeAt(r, c + 1);
+    var w = rc.w;
+    if (spill) {
+      var need = textWidth(text, st) + 9;
+      for (var cc = c + 1; w < need && cc <= geo.nCols && cc <= c + 50 && !cell(r, cc) && !mergeAt(r, cc); cc++) w += colW(cc);
+    }
+    var css = 'left:' + rc.x + 'px;top:' + rc.y + 'px;width:' + w + 'px;height:' + rc.h + 'px;' + cssFor(st, num, err);
     return '<div class="c' + (merged ? ' m' : '') + (spill ? ' sp' : '') + '" style="' + css + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(text) + '</div>';
   }
   function drawSel() {

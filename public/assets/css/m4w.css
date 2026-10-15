@@ -1074,7 +1074,7 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-sheet-scroll { position: absolute; left: 46px; top: 24px; right: 0; bottom: 0; overflow: auto; outline: none; }
 .m4w-sheet-inner { position: relative; cursor: cell; }
 .m4w-sheet-cells .c { position: absolute; box-sizing: border-box; border-right: 1px solid var(--gl); border-bottom: 1px solid var(--gl); padding: 0 4px 1px; display: flex; align-items: flex-end; white-space: pre; overflow: hidden; font-size: 13px; line-height: 1.25; color: var(--m4w-text); }
-.m4w-sheet-cells .c.sp { overflow: visible; z-index: 1; }
+.m4w-sheet-cells .c.sp { z-index: 1; background: var(--m4w-surface); }
 .m4w-sheet-cells .c.m { background: var(--m4w-surface); z-index: 1; }
 .m4w-sheet-sel { position: absolute; border: 2px solid var(--m4w-primary, #7c3aed); pointer-events: none; z-index: 3; box-sizing: border-box; }
 .m4w-sheet-sel.multi { background: rgba(124, 58, 237, .08); }
