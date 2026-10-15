@@ -1,7 +1,7 @@
 <?php $o = $old ?? []; $v = static fn($k, $d = '') => e($o[$k] ?? $d); ?>
 <div class="m4w-install" data-aos="fade-up">
   <div class="text-center mb-4">
-    <span class="m4w-brand-mark mb-3" style="width:56px;height:56px;font-size:1.6rem;border-radius:16px"><i class="bi bi-envelope-paper-heart"></i></span>
+    <span class="m4w-brand-mark mb-3" style="width:56px;height:56px;font-size:1.6rem;border-radius:var(--m4w-radius-lg)"><i class="bi bi-envelope-paper-heart"></i></span>
     <h1 class="fw-bold" style="letter-spacing:-.03em"><?= te('install.title') ?></h1>
     <p class="text-muted"><?= te('install.subtitle') ?></p>
   </div>

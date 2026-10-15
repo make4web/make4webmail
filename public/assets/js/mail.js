@@ -157,7 +157,7 @@
   // ---------------------------------------------------------------- list
   function renderSkeleton() {
     var h = '';
-    for (var i = 0; i < 9; i++) h += '<div class="m4w-skeleton"><i style="width:36px;height:36px;border-radius:50%"></i><div class="flex-grow-1"><i style="width:' + (30 + (i * 17) % 40) + '%;margin-bottom:8px"></i><i style="width:' + (55 + (i * 13) % 35) + '%"></i></div></div>';
+    for (var i = 0; i < 9; i++) h += '<div class="m4w-skeleton"><i style="width:36px;height:36px;border-radius:var(--m4w-radius-round)"></i><div class="flex-grow-1"><i style="width:' + (30 + (i * 17) % 40) + '%;margin-bottom:8px"></i><i style="width:' + (55 + (i * 13) % 35) + '%"></i></div></div>';
     $('#m4w-list-scroll').html(h);
   }
 
@@ -287,7 +287,7 @@
     $main.addClass('reading');
     $reader.addClass('is-open');
     $('#m4w-reader-empty').addClass('d-none');
-    var $c = $('#m4w-reader-content').removeClass('d-none').addClass('d-flex').html('<div class="m4w-reader-toolbar"></div><div class="m4w-reader-scroll"><div class="m4w-skeleton border-0"><i style="width:60%;height:18px"></i></div><div class="m4w-skeleton border-0"><i style="width:36px;height:36px;border-radius:50%"></i><div class="flex-grow-1"><i style="width:40%;margin-bottom:8px"></i><i style="width:25%"></i></div></div></div>');
+    var $c = $('#m4w-reader-content').removeClass('d-none').addClass('d-flex').html('<div class="m4w-reader-toolbar"></div><div class="m4w-reader-scroll"><div class="m4w-skeleton border-0"><i style="width:60%;height:18px"></i></div><div class="m4w-skeleton border-0"><i style="width:36px;height:36px;border-radius:var(--m4w-radius-round)"></i><div class="flex-grow-1"><i style="width:40%;margin-bottom:8px"></i><i style="width:25%"></i></div></div></div>');
     var threads = S.prefs.conversations && !isSentLike() ? 1 : 0;
     M4W.get('api/messages/' + id, { thread: threads }).done(function (r) {
       if (S.activeId !== id) return;

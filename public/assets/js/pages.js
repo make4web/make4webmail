@@ -429,10 +429,14 @@
       el.style.setProperty('--m4w-primary', p); el.style.setProperty('--m4w-primary-rgb', rgb);
       el.style.setProperty('--m4w-primary-hover', shade(p, -.12)); el.style.setProperty('--m4w-primary-soft', 'rgba(' + rgb + ',.12)');
       el.style.setProperty('--m4w-on-primary', contrast(p)); el.style.setProperty('--m4w-accent', a);
-      el.style.setProperty('--m4w-radius-sm', Math.max(0, r - 4) + 'px'); el.style.setProperty('--bs-border-radius', r + 'px');
+      // Same scale as theme.css (Branding::css).
+      var radii = { '--m4w-radius': r + 'px', '--m4w-radius-sm': Math.max(0, r - 4) + 'px', '--m4w-radius-lg': (r ? r + 6 : 0) + 'px', '--m4w-radius-xs': Math.round(r * .3) + 'px',
+        '--m4w-radius-pill': r ? '999px' : '0', '--m4w-radius-round': r ? '50%' : '0', '--bs-border-radius': r + 'px', '--bs-border-radius-sm': Math.max(0, r - 4) + 'px',
+        '--bs-border-radius-lg': (r ? r + 4 : 0) + 'px', '--bs-border-radius-pill': r ? '50rem' : '0' };
+      Object.keys(radii).forEach(function (k) { el.style.setProperty(k, radii[k]); });
       $pv.find('.btn').css('border-radius', Math.max(0, r - 4) + 'px');
-      $pv.find('.pv-main, .pv-side').css('border-radius', (r + 2) + 'px');
-      $pv.find('[data-pv-mark]').css({ background: 'linear-gradient(135deg,' + p + ',' + a + ')', borderRadius: Math.max(4, r - 2) + 'px' });
+      $pv.find('.pv-main, .pv-side').css('border-radius', (r ? r + 2 : 0) + 'px');
+      $pv.find('[data-pv-mark]').css({ background: 'linear-gradient(135deg,' + p + ',' + a + ')', borderRadius: (r ? Math.max(4, r - 2) : 0) + 'px' });
       $pv.find('[data-pv-avatar]').css('background', a);
       $pv.find('[data-pv-primary-text]').css('color', p);
       var sideBg = side === 'brand' ? p : (side === 'dark' ? '#0f172a' : 'transparent'), sideFg = side === 'brand' ? contrast(p) : (side === 'dark' ? '#e2e8f0' : 'var(--m4w-text-2)');
