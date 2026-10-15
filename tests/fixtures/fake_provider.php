@@ -59,6 +59,12 @@ while (true) {
                     }
                     $box = $name;
                     $f = $st['boxes'][$user][$box];
+                    // UIDs are never given again, even after the messages left the folder.
+                    $top = ($f['msgs'] ? max(array_column($f['msgs'], 'uid')) : 0) + 1;
+                    if ((int) ($f['next'] ?? 0) < $top) {
+                        $st['boxes'][$user][$box]['next'] = $top;
+                        $save($st);
+                    }
                     $out('* ' . count($f['msgs']) . ' EXISTS');
                     $out('* OK [UIDVALIDITY ' . $f['validity'] . '] UIDs valid');
                     $out("$tag OK [READ-WRITE] selected");
@@ -82,7 +88,8 @@ while (true) {
                     fgets($c);
                     $st = $load();
                     $f = &$st['boxes'][$user][stripcslashes($m[1])];
-                    $f['next'] ??= ($f['msgs'] ? max(array_column($f['msgs'], 'uid')) : 0) + 1;
+                    // Like a real server: always above every UID the folder has held (tests add some by hand).
+                    $f['next'] = max((int) ($f['next'] ?? 1), ($f['msgs'] ? max(array_column($f['msgs'], 'uid')) : 0) + 1);
                     $f['msgs'][] = ['uid' => $f['next'], 'raw' => str_replace("\r\n", "\n", $raw), 'flags' => $m[2] !== '' ? explode(' ', $m[2]) : [], 'date' => !empty($m[3]) ? strtotime($m[3]) : time()];
                     $f['next']++;
                     unset($f);

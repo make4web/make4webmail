@@ -2068,6 +2068,35 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     eq($local('tw-here-flag')['role'], 'inbox', 'cleaned up at the provider by us: kept in the inbox here');
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => -1, 'save_sent' => 1], 1);
 });
+test('own mailbox: mail delivered here directly (a colleague of the server) is copied to the provider inbox', function () use ($paul, $wm) {
+    $uid = (int) $paul['id'];
+    $box = static fn(string $f) => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'][$f]['msgs'] ?? [];
+    $at = static fn(string $f, string $id) => array_values(array_filter($box($f), static fn($m) => str_contains($m['raw'], "<$id@test.local>")));
+    $local = static fn(string $id) => DB::all('SELECT m.*, f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.message_id = :m', ['u' => $uid, 'm' => "$id@test.local"]);
+    $sync = static function () use ($uid) { DB::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u', ['u' => $uid]); return RemoteMailbox::sync(RemoteMailbox::find($uid))['error']; };
+    $mail = static fn(string $id, string $subject) => "From: Lea <lea@test.local>\nTo: paul@test.local\nSubject: $subject\nMessage-ID: <$id@test.local>\nDate: " . date('r') . "\n\nBonjour\n";
+    Delivery::deliver($mail('pc-1', 'Invitation interne'), 'lea@test.local', ['paul@test.local'], 'local');
+    Delivery::deliver($mail('pc-2', 'Classé tout de suite'), 'lea@test.local', ['paul@test.local'], 'local');
+    // Filed elsewhere before the sync: not copied (the sync would bring it back to the inbox).
+    Mailbox::move($uid, [(int) $local('pc-2')[0]['id']], (int) Folders::byRole($uid, 'archive')['id']);
+    eq((int) DB::value('SELECT COUNT(*) FROM provider_copies WHERE user_id = :u', ['u' => $uid]), 2, 'waiting for the next sync');
+    eq($sync(), '');
+    $copy = $at('INBOX', 'pc-1');
+    eq(count($copy), 1, 'in the provider inbox, for the phone and the other webmail');
+    ok(!str_contains($copy[0]['raw'], 'Delivered-To:') && !str_contains($copy[0]['raw'], 'X-M4W-'), 'without our own delivery lines');
+    eq($at('INBOX', 'pc-2'), [], 'filed here first: not copied');
+    eq((int) DB::value('SELECT COUNT(*) FROM provider_copies WHERE user_id = :u', ['u' => $uid]), 0);
+    eq($sync(), '');
+    eq(count($local('pc-1')), 1, 'found again there by its Message-ID: not imported twice');
+    eq(count($at('INBOX', 'pc-1')), 1, 'not copied twice');
+    // Then it lives both ways like any other message: deleted here, in the provider Trash.
+    Mailbox::move($uid, [(int) $local('pc-1')[0]['id']], (int) Folders::byRole($uid, 'trash')['id']);
+    eq($sync(), '');
+    ok(!$at('INBOX', 'pc-1') && $at('Corbeille', 'pc-1'), 'deleted here → provider Trash');
+    // What came from the provider itself is never sent back to it.
+    eq((int) DB::value('SELECT COUNT(*) FROM provider_copies'), 0);
+});
+
 test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
     Settings::set('mail.mode', 'server');
     $n = count($wmSmtp());
