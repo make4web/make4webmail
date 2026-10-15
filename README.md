@@ -121,6 +121,12 @@ En mode webmail :
 - Les messages relevés peuvent être conservés chez le fournisseur (sauvegarde) ou supprimés après 0, 7, 30 ou 90 jours. Comme les utilisateurs ne connaissent pas le mot de passe de leur boîte, ils consultent leur courrier sur téléphone avec l'application Make4WebMail (voir ci-dessous) et non avec une application IMAP. Un dossier indésirables du fournisseur peut être relevé vers les Indésirables.
 - Un test de bout en bout (`tests/run.php`) vérifie le mode webmail contre un faux fournisseur IMAP/SMTP sur de vraies sockets. Ce faux fournisseur, comme les vrais, refuse tout expéditeur autre que la boîte authentifiée.
 
+En mode boîte collectrice :
+- Une seule boîte chez le fournisseur (par ex. `mail@domaine`) reçoit, par des redirections `a@ → mail@`, le courrier de tous les utilisateurs. Make4WebMail la relève et distribue chaque message à son destinataire, retrouvé grâce aux traces du fournisseur (`X-Original-To`, `Delivered-To`, `Received … for`), puis aux champs À et Cc. Les doublons sont écartés, les avis de non-remise reviennent à leur expéditeur, et ce qui ne peut pas être attribué va dans une boîte de rattrapage.
+- Tout part par le SMTP de cette boîte, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues restent internes et ne consomment pas le quota.
+- **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
+- Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
+
 ### Application mobile et notifications push
 - Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.
 - **Notifications Web Push** à l'arrivée d'un message non lu dans la boîte de réception, même navigateur fermé. Toucher la notification ouvre le message. Implémentation native en PHP, sans dépendance ni service tiers : clés VAPID (RFC 8292) générées à l'installation, contenu chiffré de bout en bout jusqu'au navigateur (RFC 8291, aes128gcm), vérifié dans les tests avec le vecteur officiel de la RFC.
@@ -178,13 +184,11 @@ En mode webmail :
 ---
 
 ## Licences tierces
-Toutes les bibliothèques vendorisées sont sous licence permissive : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator) ou OFL (police Inter). Le webmail peut donc être distribué ou exploité en SaaS sous licence propriétaire, à condition de conserver les fichiers de licence (`public/assets/vendor/*/LICENSE*`).
+- Navigateur (`public/assets/vendor/`) : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator), OFL (police Inter).
+- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache) et **LGPL-3.0 pour PHPWord**.
 
-En mode boîte collectrice :
-- Une seule boîte chez le fournisseur (par ex. `mail@domaine`) reçoit, par des redirections `a@ → mail@`, le courrier de tous les utilisateurs. Make4WebMail la relève et distribue chaque message à son destinataire, retrouvé grâce aux traces du fournisseur (`X-Original-To`, `Delivered-To`, `Received … for`), puis aux champs À et Cc. Les doublons sont écartés, les avis de non-remise reviennent à leur expéditeur, et ce qui ne peut pas être attribué va dans une boîte de rattrapage.
-- Tout part par le SMTP de cette boîte, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues restent internes et ne consomment pas le quota.
-- **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
-- Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
+La LGPL autorise l'usage de PHPWord dans un produit propriétaire ou un SaaS, à condition de le livrer sans modification, avec sa licence, et de laisser l'utilisateur le remplacer par une autre version (c'est le cas : ses sources sont dans `app/vendor/phpoffice/phpword`). Le webmail peut donc être distribué ou exploité sous licence propriétaire en conservant les fichiers de licence (`public/assets/vendor/*/LICENSE*`, `app/vendor/*/*/LICENSE*`).
+
 
 ## Prérequis
 ClamAV (`clamav-daemon`, recommandé) et PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.
