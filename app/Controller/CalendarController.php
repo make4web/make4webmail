@@ -10,6 +10,8 @@ use M4W\Core\Session;
 use M4W\Dav\AppPasswords;
 use M4W\Service\Calendar;
 use M4W\Service\Mailbox;
+use M4W\Service\Meetings;
+use M4W\Service\Rooms;
 use M4W\Service\Scheduling;
 use M4W\Service\Users;
 use Sabre\VObject;
@@ -122,12 +124,15 @@ final class CalendarController extends Controller
         $mine = array_map(static fn($h) => substr($h, 7), Scheduling::hrefs($user));
         return $this->ok(['event' => [
             'calendar_id' => (int) $c['id'], 'uri' => $o['uri'], 'uid' => $o['uid'], 'title' => (string) ($ev->SUMMARY ?? ''),
-            'location' => (string) ($ev->LOCATION ?? ''), 'description' => (string) ($ev->DESCRIPTION ?? ''), 'all_day' => $allDay,
+            'location' => (string) ($ev->LOCATION ?? ''), 'description' => Meetings::userDescription($ev), 'all_day' => $allDay,
             'start' => $start->format($allDay ? 'Y-m-d' : 'Y-m-d H:i'), 'end' => $end->format($allDay ? 'Y-m-d' : 'Y-m-d H:i'),
             'repeat' => $repeat, 'repeat_until' => $until, 'recurring' => $rrule !== '', 'reminder' => $reminder, 'attendees' => $attendees,
             'status' => strtoupper((string) ($ev->STATUS ?? 'CONFIRMED')), 'organizer' => $org, 'organizer_name' => (string) ($ev->ORGANIZER['CN'] ?? ''),
             'i_organize' => $org === '' || in_array($org, $mine, true), 'my_partstat' => Scheduling::myPartstat($cal, $user),
             'writable' => Calendar::level($user, $c) >= 2,
+            'meeting' => ($mt = Meetings::of($cal)) ? $mt['provider'] : '', 'meeting_url' => $mt['url'] ?? '',
+            'room_id' => Rooms::roomOf($cal), 'room_status' => strtolower((string) ($master->{'X-M4W-ROOM-STATUS'} ?? '')),
+            'room_name' => ($r = Rooms::find(Rooms::roomOf($cal))) ? $r['name'] : '',
         ]]);
     }
 
@@ -156,6 +161,8 @@ final class CalendarController extends Controller
                 }
             }
             $this->conflictCheck($vcal, $target);
+            $roomStatus = $this->rooms($user, $old ? (string) $old['data'] : null, $vcal, (int) $target['id'], $uri, array_key_exists('room_id', $d) ? (int) $d['room_id'] : null);
+            $this->meeting($user, $old ? (string) $old['data'] : null, $vcal, array_key_exists('meeting', $d) ? (string) $d['meeting'] : null);
             if ((int) $source['id'] !== (int) $target['id']) {
                 Calendar::remove((int) $source['id'], $uri);
             }
@@ -164,7 +171,7 @@ final class CalendarController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
-        return $this->ok(['uri' => $uri, 'calendar_id' => (int) $target['id'], 'sent' => $sent]);
+        return $this->ok(['uri' => $uri, 'calendar_id' => (int) $target['id'], 'sent' => $sent, 'room_status' => $roomStatus]);
     }
 
     /** Rooms cannot be double-booked. */
@@ -242,12 +249,80 @@ final class CalendarController extends Controller
                 $vcal = $cal;
             }
             $this->conflictCheck($vcal, $c);
+            $this->rooms($user, (string) $o['data'], $vcal, (int) $c['id'], (string) $o['uri']);
+            $this->meeting($user, (string) $o['data'], $vcal, null);
             Calendar::put((int) $c['id'], (string) $o['uri'], $vcal->serialize());
             $sent = Scheduling::afterChange($user, (string) $o['data'], $vcal->serialize());
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
         return $this->ok(['sent' => $sent]);
+    }
+
+    /**
+     * The online meeting of an event changed by its organizer: created (Jitsi, Teams, Meet,
+     * Zoom), kept and moved with the event, replaced, or cancelled.
+     * $wanted: provider chosen in the form ('' none, null keep).
+     */
+    private function meeting(array $user, ?string $oldData, ?VObject\Component\VCalendar $new, ?string $wanted): void
+    {
+        $old = $oldData !== null ? VObject\Reader::read($oldData, VObject\Reader::OPTION_FORGIVING) : null;
+        $ref = $new ?? $old;
+        if (!$ref || !Rooms::organizedBy($user, $ref)) {
+            return;
+        }
+        $cur = $old ? Meetings::of($old) : ($new ? Meetings::of($new) : null);
+        $want = $new === null ? '' : ($wanted ?? ($cur['provider'] ?? ''));
+        if ($cur && $cur['provider'] !== $want) {
+            Meetings::delete($user, $cur);
+        }
+        if ($new === null) {
+            return;
+        }
+        if ($want === '') {
+            Meetings::detach($new);
+            return;
+        }
+        $m = $new->getBaseComponent('VEVENT') ?? $new->VEVENT;
+        $start = $m->DTSTART->getDateTime()->getTimestamp();
+        $end = isset($m->DTEND) ? $m->DTEND->getDateTime()->getTimestamp() : $start + 3600;
+        $title = (string) ($m->SUMMARY ?? '');
+        if ($cur && $cur['provider'] === $want) {
+            $om = $old ? ($old->getBaseComponent('VEVENT') ?? $old->VEVENT) : null;
+            if ($om && ($om->DTSTART->getDateTime()->getTimestamp() !== $start || (string) ($om->SUMMARY ?? '') !== $title)) {
+                Meetings::update($user, $cur, $title, $start, $end);
+            }
+            Meetings::attach($new, $cur);
+            return;
+        }
+        Meetings::attach($new, Meetings::create($user, $want, $title, $start, $end));
+    }
+
+    /**
+     * The room of an event changed by its organizer: booked (checked free and open), re-booked
+     * after a change of time, or released. Attendees' copies never touch the room.
+     * $wanted: the room chosen in the form (null: keep the current one, 0: none).
+     */
+    private function rooms(array $user, ?string $oldData, ?VObject\Component\VCalendar $new, int $calendarId, string $uri, ?int $wanted = null): string
+    {
+        $old = $oldData !== null ? VObject\Reader::read($oldData, VObject\Reader::OPTION_FORGIVING) : null;
+        $ref = $new ?? $old;
+        if (!$ref || !Rooms::organizedBy($user, $ref)) {
+            return '';
+        }
+        $oldRoom = $old ? Rooms::roomOf($old) : 0;
+        $uid = (string) (($ref->getBaseComponent('VEVENT') ?? $ref->VEVENT)->UID ?? '');
+        $room = $new === null ? 0 : ($wanted ?? $oldRoom);
+        $status = '';
+        if ($new !== null && $room) {
+            $status = Rooms::book($user, $room, $new, $calendarId, $uri);
+        } elseif ($new !== null) {
+            Rooms::detach($new);
+        }
+        if ($oldRoom && $oldRoom !== $room) {
+            Rooms::release($oldRoom, $uid);
+        }
+        return $status;
     }
 
     public function delete(): Response
@@ -262,9 +337,16 @@ final class CalendarController extends Controller
             }
             if (($d['scope'] ?? 'all') === 'one' && isset($d['occurrence'])) {
                 $vcal = Calendar::withoutOccurrence((string) $o['data'], (int) $d['occurrence']);
+                try {
+                    $this->rooms($user, (string) $o['data'], $vcal, (int) $c['id'], (string) $o['uri']);
+                } catch (\InvalidArgumentException) {
+                    // One occurrence fewer can only free the room.
+                }
                 Calendar::put((int) $c['id'], (string) $o['uri'], $vcal->serialize());
                 $sent = Scheduling::afterChange($user, (string) $o['data'], $vcal->serialize());
             } else {
+                $this->rooms($user, (string) $o['data'], null, (int) $c['id'], (string) $o['uri']);
+                $this->meeting($user, (string) $o['data'], null, null);
                 Calendar::remove((int) $c['id'], (string) $o['uri']);
                 $sent = Scheduling::afterChange($user, (string) $o['data'], null);
             }
@@ -335,6 +417,67 @@ final class CalendarController extends Controller
             $out[$email] = $busy[$id] ?? [];
         }
         return $this->ok(['busy' => $out]);
+    }
+
+    // ---------------------------------------------------------------- rooms
+
+    /** Rooms for the slot of the form: the free and open ones are offered. */
+    public function roomsAvailable(): Response
+    {
+        $user = $this->user();
+        Session::close();
+        $q = $this->req->query;
+        try {
+            $vcal = Calendar::fromForm($user, ['title' => 'x', 'start' => (string) ($q['start'] ?? ''), 'end' => (string) ($q['end'] ?? ''), 'all_day' => !empty($q['all_day']),
+                'repeat' => (string) ($q['repeat'] ?? 'none'), 'repeat_until' => (string) ($q['repeat_until'] ?? '')]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        // The event's own booking does not count against it.
+        return $this->ok(['rooms' => Rooms::available($vcal, (string) ($q['uid'] ?? ''))]);
+    }
+
+    /** Room bookings to approve (managers), and room settings (administrators). */
+    public function roomsPage(): Response
+    {
+        $user = $this->user();
+        $backlog = Rooms::backlog($user);
+        if (!$backlog['rooms'] && ($user['role'] ?? '') !== 'admin') {
+            return Response::redirect('/calendar');
+        }
+        $people = DB::all("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email");
+        $rooms = [];
+        foreach (Rooms::all() as $id => $r) {
+            $rooms[$id] = $r + ['config' => Rooms::config($r), 'manage' => Rooms::canManage($user, $r)];
+        }
+        return $this->view('calendar/rooms', ['backlog' => $backlog, 'rooms' => $rooms, 'people' => $people, 'isAdmin' => ($user['role'] ?? '') === 'admin',
+            'calendars' => $this->calendars($user), 'user' => $user]);
+    }
+
+    public function decide(string $id): Response
+    {
+        try {
+            Rooms::decide($this->user(), (int) $id, $this->req->str('decision') === 'approve', $this->req->str('comment'));
+        } catch (\InvalidArgumentException $e) {
+            return $this->back('/calendar/rooms', 'danger', $e->getMessage());
+        }
+        return $this->back('/calendar/rooms', 'success', t($this->req->str('decision') === 'approve' ? 'rooms.approved' : 'rooms.declined'));
+    }
+
+    public function roomConfig(string $id): Response
+    {
+        $r = $this->req;
+        $hours = [];
+        for ($d = 1; $d <= 7; $d++) {
+            $hours[$d] = $r->bool('open_' . $d) ? [$r->str('from_' . $d), $r->str('to_' . $d)] : null;
+        }
+        try {
+            Rooms::saveConfig($this->user(), (int) $id, ['managed' => $r->bool('managed'), 'managers' => $r->arr('managers'), 'capacity' => $r->int('capacity'),
+                'details' => $r->str('details'), 'hours' => $hours]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->back('/calendar/rooms', 'danger', $e->getMessage());
+        }
+        return $this->back('/calendar/rooms#room-' . (int) $id, 'success', t('settings.saved'));
     }
 
     // ---------------------------------------------------------------- calendars
@@ -478,6 +621,23 @@ final class CalendarController extends Controller
         $v = Session::get($key);
         Session::forget($key);
         return $v;
+    }
+
+    public function saveMeetingLinks(): Response
+    {
+        $user = $this->user();
+        $prefs = [];
+        foreach (['teams', 'meet', 'zoom'] as $p) {
+            $v = trim($this->req->str('meet_' . $p));
+            if ($v !== '' && !Meetings::validPersonal($p, $v)) {
+                return $this->back('/settings/sync#meetings', 'danger', t('meet.bad_personal', ['provider' => Meetings::LABELS[$p]]));
+            }
+            if (array_key_exists('meet_' . $p, $this->req->post)) {
+                $prefs['meet_' . $p] = $v;
+            }
+        }
+        Users::savePrefs((int) $user['id'], $prefs);
+        return $this->back('/settings/sync#meetings', 'success', t('settings.saved'));
     }
 
     public function createPassword(): Response

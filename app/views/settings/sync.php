@@ -63,3 +63,19 @@ $login = mb_strtolower($user['email']);
     </div>
   </div>
 </div>
+
+<?php $personal = array_filter(['teams', 'meet', 'zoom'], static fn($p) => M4W\Service\Meetings::mode($p) === 'personal'); ?>
+<?php if ($personal): ?>
+<form method="post" action="<?= e(url('settings/sync/meetings')) ?>" class="card mt-4" id="meetings">
+  <?= csrf_field() ?>
+  <div class="card-header"><i class="bi bi-camera-video me-2 text-primary"></i><?= te('meet.personal_title') ?></div>
+  <div class="card-body">
+    <p class="small text-muted"><?= te('meet.personal_desc') ?></p>
+    <?php foreach ($personal as $pv): ?>
+    <div class="mb-3"><label class="form-label" for="ml-<?= $pv ?>"><?= e(M4W\Service\Meetings::LABELS[$pv]) ?></label>
+      <input class="form-control m4w-code" type="url" id="ml-<?= $pv ?>" name="meet_<?= $pv ?>" value="<?= e(M4W\Service\Meetings::personalLink($user, $pv)) ?>" placeholder="<?= te('meet.ph_' . $pv) ?>"></div>
+    <?php endforeach; ?>
+    <button class="btn btn-primary"><?= te('common.save') ?></button>
+  </div>
+</form>
+<?php endif; ?>

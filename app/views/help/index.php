@@ -192,7 +192,15 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
       <li>Les réponses mettent à jour votre événement (coche verte : accepté, croix rouge : refusé). Déplacer ou supprimer l'événement prévient automatiquement les participants.</li>
       <li>Une invitation reçue s'affiche en tête du message avec <?= $ui('check-lg', 'Accepter') ?> <?= $ui('question-lg', 'Peut-être') ?> <?= $ui('x-lg', 'Refuser') ?> ; votre réponse part à l'organisateur et l'événement s'ajoute à votre agenda. Les conflits avec vos autres rendez-vous sont signalés.</li>
     </ul>
-    <h3>Partager un agenda, réserver une salle</h3>
+    <h3>Réunion en ligne</h3>
+    <p>Dans l'événement, « Visioconférence » ajoute une réunion Jitsi Meet, Teams, Google Meet ou Zoom (selon ce que l'administrateur a activé). Le lien est créé à l'enregistrement, figure dans l'invitation reçue par les participants (bouton « Rejoindre ») et se retrouve dans l'événement ; il suit l'événement s'il est déplacé et est supprimé avec lui.</p>
+    <h3>Réserver une salle</h3>
+    <ul>
+      <li>Le champ « Salle » ne propose que les salles <strong>libres et ouvertes</strong> sur le créneau choisi (toutes les occurrences pour un événement répété) ; changer l'heure met la liste à jour.</li>
+      <li>Certaines salles demandent une <strong>validation</strong> : la demande part aux gestionnaires de la salle, le créneau est retenu en attendant (sablier dans l'agenda), et vous recevez la réponse par message. Si l'événement est déplacé, une nouvelle validation est demandée.</li>
+      <li>Les gestionnaires traitent les demandes dans <?= $go('calendar/rooms', 'Agenda → Salles et réservations') ?>.</li>
+    </ul>
+    <h3>Partager un agenda</h3>
     <ul>
       <li><?= $ui('plus-circle', 'Nouvel agenda') ?> crée un agenda supplémentaire (projet, équipe…). Le menu <?= $ui('three-dots', '') ?> d'un agenda permet de le partager avec des collègues ou toute l'organisation, en <strong>lecture</strong> ou en <strong>modification</strong>, de l'exporter (.ics) ou d'importer un fichier .ics.</li>
       <li>Les <strong>salles</strong> (créées par l'administrateur) sont visibles de tous : indiquez la salle comme lieu de la réunion ou créez l'événement dans son agenda. Une salle ne peut pas être réservée deux fois sur le même créneau.</li>
@@ -461,7 +469,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
   <section id="a-calendar" class="m4w-help-section admin">
     <h2><i class="bi bi-calendar3"></i>Agenda : salles et synchronisation</h2>
     <ul>
-      <li><strong>Salles</strong> : dans l'<?= $go('calendar', 'Agenda') ?>, <?= $ui('door-open', 'Nouvelle salle') ?> crée l'agenda d'une salle de réunion (ou d'un véhicule, d'un vidéoprojecteur…). Tout le monde peut y réserver un créneau ; les doubles réservations sont refusées. Seuls les administrateurs renomment ou suppriment une salle.</li>
+      <li><strong>Salles</strong> : dans l'<?= $go('calendar', 'Agenda') ?>, <?= $ui('door-open', 'Nouvelle salle') ?> crée une salle (ou un véhicule, un vidéoprojecteur…). Dans <?= $go('calendar/rooms', 'Salles et réservations') ?>, réglez pour chacune les <strong>horaires d'ouverture</strong> de la semaine, le nombre de places, l'équipement et si les réservations sont <strong>soumises à validation</strong> (par ses gestionnaires, à défaut les administrateurs). Les utilisateurs réservent depuis leurs événements, uniquement sur des créneaux libres et ouverts.</li>
+      <li><strong>Visioconférence</strong> : dans <?= $go('admin/meetings', 'Visioconférence') ?>, Jitsi Meet fonctionne sans compte ; Teams, Google Meet et Zoom créent la réunion au nom de l'organisateur une fois les identifiants de l'organisation saisis (application Entra ID, compte de service Google, application Zoom « Server-to-Server »), ou chacun utilise son lien personnel. « Créer une réunion d'essai » vérifie les identifiants.</li>
       <li><strong>CalDAV / CardDAV</strong> : les téléphones et Thunderbird se connectent à <code>/dav/</code> (découverte automatique par <code>/.well-known/caldav</code> et <code>/.well-known/carddav</code>) avec un mot de passe d'application, uniquement en HTTPS. Avec Apache, l'en-tête <code>Authorization</code> est transmis par le <code>.htaccess</code> fourni ; avec nginx, rien à faire.</li>
       <li>Les invitations sont envoyées par le serveur (même depuis un téléphone) et suivent les règles d'envoi habituelles (DKIM, file d'attente, limites).</li>
     </ul>

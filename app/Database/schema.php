@@ -801,5 +801,30 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX dmarc_records_report ON dmarc_records(report_id)",
 ],
+23 => [
+// Rooms: weekly opening hours, approval by managers, capacity (JSON on the room calendar).
+"ALTER TABLE calendars ADD COLUMN room_config {TEXT}",
+// Room bookings made from events: the backlog of the room managers.
+"CREATE TABLE room_bookings (
+  id {PK},
+  room_id INTEGER NOT NULL,
+  requester_id INTEGER NOT NULL,
+  calendar_id INTEGER NOT NULL,
+  event_uri VARCHAR(190) NOT NULL DEFAULT '',
+  uid VARCHAR(255) NOT NULL DEFAULT '',
+  title VARCHAR(255) NOT NULL DEFAULT '',
+  start_at INTEGER NOT NULL DEFAULT 0,
+  end_at INTEGER NOT NULL DEFAULT 0,
+  recurring INTEGER NOT NULL DEFAULT 0,
+  status VARCHAR(12) NOT NULL DEFAULT 'pending',
+  decided_by INTEGER NULL,
+  decided_at INTEGER NOT NULL DEFAULT 0,
+  comment VARCHAR(500) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX room_bookings_room ON room_bookings(room_id, status)",
+"CREATE INDEX room_bookings_uid ON room_bookings(uid)",
+],
 ];
 

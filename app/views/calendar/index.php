@@ -2,6 +2,7 @@
 /** @var array $calendars @var array $people @var array $user */
 $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['email']), 'name' => $user['name']],
     'people' => array_map(static fn($p) => ['id' => (int) $p['id'], 'email' => $p['email'], 'name' => $p['display_name'] ?: trim($p['first_name'] . ' ' . $p['last_name']) ?: $p['email']], $people),
+    'meetings' => M4W\Service\Meetings::available($user),
     'colors' => M4W\Service\Calendar::COLORS, 'week_start' => 1, 'lang' => M4W\Core\I18n::language()];
 ?>
 <script type="application/json" id="cal-boot"><?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?></script>
@@ -53,7 +54,20 @@ $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['ema
               <?php foreach ([-1, 0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080] as $m): ?><option value="<?= $m ?>"><?= te('cal.reminder_' . ($m < 0 ? 'none' : $m)) ?></option><?php endforeach; ?>
             </select></div>
         </div>
-        <div class="mb-3"><label class="form-label" for="cal-f-location"><?= te('cal.f_location') ?></label><input class="form-control" id="cal-f-location" name="location" maxlength="500" list="cal-rooms"><datalist id="cal-rooms"></datalist></div>
+        <div class="mb-3" data-cal-meetrow>
+          <label class="form-label" for="cal-f-meeting"><?= te('cal.f_meeting') ?></label>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select" style="max-width:20rem" id="cal-f-meeting" name="meeting"><option value=""><?= te('cal.no_meeting') ?></option></select>
+            <a class="btn btn-soft d-none" data-cal-join target="_blank" rel="noopener noreferrer"><i class="bi bi-camera-video me-1"></i><?= te('cal.join') ?></a>
+            <button type="button" class="btn btn-ghost btn-sm d-none" data-cal-copyjoin><i class="bi bi-clipboard me-1"></i><?= te('cal.copy_link') ?></button>
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-sm-6" data-cal-roomrow><label class="form-label" for="cal-f-room"><?= te('cal.f_room') ?></label>
+            <select class="form-select" id="cal-f-room" name="room_id" aria-describedby="cal-f-room-help"><option value="0"><?= te('cal.no_room') ?></option></select>
+            <div class="form-text" id="cal-f-room-help" data-cal-roomhelp role="status"></div></div>
+          <div class="col-sm-6"><label class="form-label" for="cal-f-location"><?= te('cal.f_location') ?></label><input class="form-control" id="cal-f-location" name="location" maxlength="500"></div>
+        </div>
         <div class="mb-3">
           <label class="form-label" for="cal-f-attendee"><?= te('cal.f_attendees') ?></label>
           <div class="m4w-cal-attendees" data-cal-attendees></div>

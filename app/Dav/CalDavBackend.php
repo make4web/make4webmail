@@ -142,6 +142,20 @@ final class CalDavBackend extends AbstractBackend
             throw new Exception\BadRequest($e->getMessage());
         }
         $new = Calendar::object($calendarId, $uri);
+        // A room booked on the web follows the event moved on a phone, or is given up.
+        $nv = \Sabre\VObject\Reader::read((string) $new['data'], \Sabre\VObject\Reader::OPTION_FORGIVING);
+        $room = \M4W\Service\Rooms::organizedBy($this->user, $nv) ? \M4W\Service\Rooms::roomOf($nv) : 0;
+        if ($room) {
+            try {
+                \M4W\Service\Rooms::book($this->user, $room, $nv, $calendarId, $uri);
+            } catch (\InvalidArgumentException $e) {
+                \M4W\Service\Rooms::release($room, (string) ($nv->VEVENT->UID ?? ''));
+                \M4W\Service\Rooms::detach($nv);
+                \M4W\Service\AccountGuard::notifyUser($this->user, t('rooms.lost_subject'), $e->getMessage(), 'calendar');
+            }
+            Calendar::put($calendarId, $uri, $nv->serialize());
+            $new = Calendar::object($calendarId, $uri);
+        }
         // The server sends the invitations (we announce calendar-auto-schedule).
         Scheduling::afterChange($this->user, $old ? (string) $old['data'] : null, (string) $new['data']);
         // No ETag: the stored copy was normalised, the client must fetch it again.
@@ -154,6 +168,10 @@ final class CalDavBackend extends AbstractBackend
         $old = Calendar::object((int) $calendarId, (string) $objectUri);
         Calendar::remove((int) $calendarId, (string) $objectUri);
         if ($old) {
+            $ov = \Sabre\VObject\Reader::read((string) $old['data'], \Sabre\VObject\Reader::OPTION_FORGIVING);
+            if (\M4W\Service\Rooms::organizedBy($this->user, $ov)) {
+                \M4W\Service\Rooms::release(\M4W\Service\Rooms::roomOf($ov), (string) ($ov->VEVENT->UID ?? ''));
+            }
             Scheduling::afterChange($this->user, (string) $old['data'], null);
         }
     }

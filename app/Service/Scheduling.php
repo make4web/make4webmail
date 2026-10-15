@@ -163,8 +163,15 @@ final class Scheduling
             $html .= '<tr><td style="color:#6b7280;padding:3px 16px 3px 0;vertical-align:top">' . e($k) . '</td><td style="padding:3px 0">' . e($v) . '</td></tr>';
         }
         $html .= '</table>';
-        if ($m->method === 'REQUEST' && isset($ev->DESCRIPTION) && (string) $ev->DESCRIPTION !== '') {
-            $html .= '<p style="white-space:pre-wrap">' . e((string) $ev->DESCRIPTION) . '</p>';
+        // Online meeting: a real button, not only the link lost in the description.
+        $join = (string) ($ev->{'X-M4W-MEETING-URL'} ?? '');
+        if ($m->method === 'REQUEST' && preg_match('#^https://#', $join)) {
+            $label = Meetings::LABELS[(string) ($ev->{'X-M4W-MEETING'} ?? '')] ?? 'Visio';
+            $html .= '<p style="margin:14px 0"><a href="' . e($join) . '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:9px 18px;border-radius:6px;font-weight:bold">'
+                . e(t('cal.join_with', ['provider' => $label])) . '</a><br><span style="color:#6b7280;font-size:12px">' . e($join) . '</span></p>';
+        }
+        if ($m->method === 'REQUEST' && trim(Meetings::userDescription($ev)) !== '') {
+            $html .= '<p style="white-space:pre-wrap">' . e(Meetings::userDescription($ev)) . '</p>';
         }
         if ($m->method === 'REQUEST') {
             $html .= '<p style="color:#6b7280;font-size:12px">' . e(t('cal.mail.howto')) . '</p>';
@@ -350,6 +357,8 @@ final class Scheduling
             'cancelled' => $method === 'CANCEL' || ($current && strtoupper((string) ($current->VEVENT->STATUS ?? '')) === 'CANCELLED'),
             'outdated' => $current && (int) (string) ($current->VEVENT->SEQUENCE ?? 0) > (int) (string) ($ev->SEQUENCE ?? 0),
             'conflicts' => array_slice($conflicts, 0, 5), 'can_answer' => $method === 'REQUEST' && $partstat !== '',
+            'join' => preg_match('#^https://#', $j = (string) ($ev->{'X-M4W-MEETING-URL'} ?? ($ev->CONFERENCE ?? ''))) ? $j : '',
+            'join_label' => Meetings::LABELS[(string) ($ev->{'X-M4W-MEETING'} ?? '')] ?? '',
         ];
     }
 

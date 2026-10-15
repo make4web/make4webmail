@@ -26,6 +26,9 @@ final class Users
         'avatar'         => '',
         'accent'         => '',
         'zoom'           => 100,         // display size, %
+        'meet_teams'     => '',          // personal meeting links
+        'meet_meet'      => '',
+        'meet_zoom'      => '',
     ];
 
     /** Allowed values for enumerated preferences (null = free value). */
@@ -163,6 +166,7 @@ final class Users
                     'mark_read_delay' => max(-1, min(30, (int) $v)),
                     'accent' => preg_match('/^#[0-9a-f]{6}$/i', (string) $v) ? (string) $v : '',
                     'avatar' => '',
+                    'meet_teams', 'meet_meet', 'meet_zoom' => \M4W\Service\Meetings::validPersonal(substr($k, 5), trim((string) $v)) ? trim((string) $v) : '',
                     default => $v,
                 };
                 $allowed = self::prefChoices($k);

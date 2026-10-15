@@ -82,7 +82,12 @@
   }
   function evButton(e, extra) {
     return $('<button type="button"></button>').addClass(evClasses(e) + (extra ? ' ' + extra : '')).css('--ev', e.color)
-      .attr('aria-label', evLabel(e)).data('ev', e).attr('draggable', e.writable ? 'true' : 'false');
+      .attr('aria-label', evLabel(e) + (e.meeting ? ', ' + t('cal_has_meeting') : '') + (e.room_status === 'pending' ? ', ' + t('cal_room_pending') : ''))
+      .data('ev', e).attr('draggable', e.writable ? 'true' : 'false');
+  }
+  /** Small marks after the title: online meeting, room waiting for approval. */
+  function evMarks(e) {
+    return (e.meeting ? ' <i class="bi bi-camera-video" aria-hidden="true"></i>' : '') + (e.room_status === 'pending' ? ' <i class="bi bi-hourglass-split" aria-hidden="true"></i>' : '');
   }
 
   // ---------------------------------------------------------------- month view
@@ -104,7 +109,7 @@
         list.slice(0, list.length > max + 1 ? max : max + 1).forEach(function (e) {
           var $e = evButton(e, e.all_day || e.end - e.start >= 86400 ? 'bar' : 'dot');
           if (!e.all_day && e.end - e.start < 86400) $e.append($('<span class="tm"></span>').text(time(new Date(e.start * 1000))));
-          $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')));
+          $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')).append(evMarks(e)));
           $cell.append($e);
         });
         if (list.length > max + 1) $cell.append($('<button type="button" class="m4w-cal-more"></button>').text(t('cal_more', { n: list.length - max })).attr('data-goto', ymd(day)).attr('data-goto-view', 'day'));
@@ -147,7 +152,7 @@
       var $c = $('<div class="m4w-cal-allday-cell"></div>').attr('data-date', ymd(d));
       S.events.forEach(function (e) {
         if ((e.all_day || e.end - e.start >= 86400) && e.start < ts(addDays(d, 1)) && e.end > ts(d)) {
-          $c.append(evButton(e, 'bar').append($('<span class="ttl"></span>').text(e.title || t('cal_untitled'))));
+          $c.append(evButton(e, 'bar').append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')).append(evMarks(e))));
         }
       });
       $all.append($c);
@@ -165,7 +170,7 @@
         var s = Math.max(e.start, dayStart), en = Math.min(Math.max(e.end, e.start + 900), dayEnd);
         var top = (s - dayStart) / 3600 * HOUR, height = Math.max(18, (en - s) / 3600 * HOUR - 2);
         var $e = evButton(e, 'block').css({ top: top, height: height, left: (e._col / e._cols * 100) + '%', width: 'calc(' + (100 / e._cols) + '% - 3px)' });
-        $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')));
+        $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')).append(evMarks(e)));
         $e.append($('<span class="tm"></span>').text(time(new Date(e.start * 1000)) + ' – ' + time(new Date(e.end * 1000))));
         if (e.location) $e.append($('<span class="loc"></span>').text(e.location));
         if (e.writable && e.end <= dayEnd) $e.append('<span class="m4w-cal-resize" aria-hidden="true"></span>');
@@ -194,7 +199,7 @@
       var $e = evButton(e, 'row');
       $e.attr('draggable', 'false');
       $e.append($('<span class="tm"></span>').text(e.all_day ? t('cal_all_day') : time(d) + ' – ' + time(new Date(e.end * 1000))));
-      $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')));
+      $e.append($('<span class="ttl"></span>').text(e.title || t('cal_untitled')).append(evMarks(e)));
       if (e.location) $e.append($('<span class="loc"></span>').append('<i class="bi bi-geo-alt me-1"></i>').append(document.createTextNode(e.location)));
       if (e.my_partstat === 'NEEDS-ACTION') $e.append($('<span class="badge badge-soft-warning ms-2"></span>').text(t('cal_to_answer')));
       $l.append($e);
@@ -247,8 +252,7 @@
       });
       $l.append($ul);
     });
-    var $rooms = $('#cal-rooms').empty();
-    S.calendars.filter(function (c) { return c.kind === 'room'; }).forEach(function (c) { $rooms.append($('<option></option>').attr('value', c.name)); });
+
   }
 
   // ---------------------------------------------------------------- navigation
@@ -429,7 +433,8 @@
 
   function openForm(data) {
     F = { attendees: (data.attendees || []).slice(), uri: data.uri || '', original: data.calendar_id || null, occurrence: data.occurrence || null, recurring: !!data.recurring,
-      organizer: data.i_organize !== false, uid: data.uid || '', writable: data.writable !== false, partstat: data.my_partstat || '' };
+      organizer: data.i_organize !== false, uid: data.uid || '', writable: data.writable !== false, partstat: data.my_partstat || '',
+      room: +data.room_id || 0, roomName: data.room_name || '', roomStatus: data.room_status || '' };
     $f[0].reset();
     $('#cal-event-title').text(F.uri ? t('cal_edit_event') : t('cal_new_event'));
     fillCalendarSelect(data.calendar_id);
@@ -461,9 +466,62 @@
     $f.find('[data-cal-save]').toggleClass('d-none', !F.writable);
     if (!F.writable) $f.find('input, select, textarea').prop('disabled', true);
     if (data.all_day) setAllDay(true);
+    $f.find('[data-cal-roomrow]').toggleClass('d-none', guest || !F.writable);
+    // Online meeting: the providers enabled for this person, and the link once created.
+    var $ms = $f.find('[name=meeting]'), meets = BOOT.meetings || {};
+    $ms.find('option:not([value=""])').remove();
+    $.each(meets, function (k, label) { $ms.append($('<option></option>').val(k).text(label)); });
+    if (data.meeting && !meets[data.meeting]) $ms.append($('<option></option>').val(data.meeting).text(data.meeting));
+    $ms.val(data.meeting || '').prop('disabled', guest || !F.writable);
+    F.meetingUrl = data.meeting_url || '';
+    $f.find('[data-cal-join]').toggleClass('d-none', !F.meetingUrl).attr('href', F.meetingUrl || '#');
+    $f.find('[data-cal-copyjoin]').toggleClass('d-none', !F.meetingUrl);
+    $f.find('[data-cal-meetrow]').toggleClass('d-none', !Object.keys(meets).length && !F.meetingUrl);
+    refreshRooms(true);
     bootstrap.Modal.getOrCreateInstance($modal[0]).show();
   }
   $modal.on('shown.bs.modal', function () { if (!F.uri) $f.find('[name=title]').trigger('focus'); });
+
+  /** Rooms offered for the slot: only the free ones, open at that time (every occurrence). */
+  var roomsReq = null;
+  function refreshRooms(first) {
+    var $s = $f.find('[name=room_id]'), $h = $f.find('[data-cal-roomhelp]');
+    var all = $f.find('[name=all_day]').is(':checked'), sd = $f.find('[name=start_date]').val(), ed = $f.find('[name=end_date]').val();
+    if (!sd || !ed) return;
+    var want = first ? F.room : +$s.val() || 0;
+    var q = { start: sd + (all ? '' : ' ' + ($f.find('[name=start_time]').val() || '09:00')), end: ed + (all ? '' : ' ' + ($f.find('[name=end_time]').val() || '10:00')),
+      all_day: all ? 1 : 0, repeat: $f.find('[name=repeat]').val(), repeat_until: $f.find('[name=repeat_until]').val(), uid: F.uid };
+    if (roomsReq && roomsReq.abort) roomsReq.abort();
+    roomsReq = M4W.get('api/calendar/rooms', q, { silent: true, quiet: true }).done(function (r) {
+      var list = r.rooms || [], free = list.filter(function (x) { return x.state === 'ok'; }), other = list.length - free.length;
+      $s.find('option:not([value=0])').remove();
+      free.forEach(function (x) {
+        $s.append($('<option></option>').val(x.id).text(x.name + (x.capacity ? ' · ' + t('cal_room_capacity', { n: x.capacity }) : '') + (x.managed ? ' · ' + t('cal_room_managed') : '')).attr('title', x.details || ''));
+      });
+      var still = free.some(function (x) { return +x.id === want; });
+      $s.val(still ? String(want) : '0');
+      var help = '';
+      if (want && !still) {
+        var gone = list.filter(function (x) { return +x.id === want; })[0];
+        help = t('cal_room_lost', { room: gone ? gone.name : F.roomName }) + (gone && gone.why ? ' ' + gone.why : '');
+      } else if (want && still && first && F.roomStatus === 'pending') help = t('cal_room_pending');
+      else if (want && still && first && F.roomStatus === 'approved') help = t('cal_room_approved');
+      else if (!list.length) help = '';
+      else if (!free.length) help = t('cal_room_none_free');
+      else if (other) help = t('cal_room_hidden', { n: other });
+      $h.text(help).toggleClass('text-warning-emphasis', !!(want && !still));
+      $f.find('[data-cal-roomrow]').toggleClass('d-none', !list.length || !F.organizer || !F.writable);
+    });
+  }
+  var refreshRoomsSoon = M4W.debounce(function () { refreshRooms(false); }, 250);
+  $f.on('change', '[name=start_date], [name=start_time], [name=end_date], [name=end_time], [name=all_day], [name=repeat], [name=repeat_until]', refreshRoomsSoon);
+  $f.on('click', '[data-cal-copyjoin]', function () {
+    if (navigator.clipboard && F.meetingUrl) navigator.clipboard.writeText(F.meetingUrl).then(function () { M4W.toast(t('cal_link_copied'), 'success'); });
+  });
+  $f.on('change', '[name=room_id]', function () {
+    var name = $(this).find('option:selected').text().split(' · ')[0], $loc = $f.find('[name=location]');
+    if (+this.value && (!$loc.val() || $loc.val() === F.roomName)) { $loc.val(name); F.roomName = name; }
+  });
 
   function openNew(start, end, allDay) {
     if (!writableCalendars().length) return;
@@ -551,6 +609,8 @@
       end: $f.find('[name=end_date]').val() + (all ? '' : ' ' + ($f.find('[name=end_time]').val() || '10:00')),
       reminder: +$f.find('[name=reminder]').val(), attendees: F.attendees, occurrence: F.occurrence
     };
+    if (F.organizer && !$f.find('[data-cal-roomrow]').hasClass('d-none')) body.room_id = +$f.find('[name=room_id]').val() || 0;
+    if (F.organizer && !$f.find('[name=meeting]').prop('disabled')) body.meeting = $f.find('[name=meeting]').val() || '';
     var rep = $f.find('[name=repeat]').val();
     if (rep !== 'custom') { body.repeat = rep; body.repeat_until = rep === 'none' ? '' : $f.find('[name=repeat_until]').val(); }
     var send = function (scope) {
@@ -559,7 +619,7 @@
       if (scope === 'one') { delete body.repeat; delete body.repeat_until; }
       M4W.post('api/calendar/event', body).done(function (r) {
         bootstrap.Modal.getInstance($modal[0]).hide();
-        M4W.toast(r.sent ? t('cal_saved_sent', { n: r.sent }) : t('cal_saved'), 'success');
+        M4W.toast((r.sent ? t('cal_saved_sent', { n: r.sent }) : t('cal_saved')) + (r.room_status === 'pending' ? ' ' + t('cal_room_pending') : ''), 'success');
         load();
       });
     };

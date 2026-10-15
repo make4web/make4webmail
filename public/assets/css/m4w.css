@@ -1124,7 +1124,7 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-doc-page .jodit-wysiwyg td > p, .m4w-doc-page .jodit-wysiwyg th > p { margin: 0; }
 
 /* ---------------------------------------------------------------- calendar */
-.m4w-area-calendar .m4w-page-inner { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.m4w-area-calendar .m4w-page-inner:has([data-cal]) { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .m4w-area-calendar .m4w-page-content { padding-bottom: 1rem; }
 .m4w-cal { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .m4w-cal-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
