@@ -2101,4 +2101,7 @@ Approve or decline in Calendar › Rooms and bookings.',
     'admin.sidebar_main' => 'Extend behind the work area',
     'wm.two_way' => 'Two-way synchronisation with the mailbox',
     'wm.two_way_hint' => 'What is deleted, archived, read or flagged on the phone is too here, and the other way round. A deleted message always goes to the trash (never erased at once).',
+    'wm.tw_report' => 'Two-way sync (:time): :followed messages followed, :provider in the provider mailbox; :trashed put in the trash here, :archived archived here, :moved moved at the provider, :flags read/flagged updated.',
+    'wm.tw_other_way' => ':n inbox message(s) came another way (collector, redirection…): they do not follow this mailbox. "Collected from" (message details) tells where each came from.',
+    'wm.tw_waiting_empty' => 'The provider mailbox looks empty: nothing is deleted here until the next pass confirms it.',
 ];
