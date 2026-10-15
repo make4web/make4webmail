@@ -110,7 +110,7 @@ final class LinkCheck
         }
         $doc = new \DOMDocument();
         $prev = libxml_use_internal_errors(true);
-        $doc->loadHTML('<?xml encoding="utf-8"?>' . mb_substr($html, 0, 500000), LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $doc->loadHTML('<?xml encoding="utf-8"?>' . html_ascii(mb_substr($html, 0, 500000)), LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         $out = [];

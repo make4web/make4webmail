@@ -47,9 +47,9 @@
   --m4w-sidebar-hover: var(--m4w-hover);
   --m4w-sidebar-active: var(--m4w-primary-soft);
 
-  --m4w-topbar-h: 60px;
-  --m4w-sidebar-w: 256px;
-  --m4w-row-h: 56px;
+  --m4w-topbar-h: calc(60px * var(--m4w-s, 1));
+  --m4w-sidebar-w: calc(256px * var(--m4w-s, 1));
+  --m4w-row-h: calc(56px * var(--m4w-s, 1));
 
   --bs-body-bg: var(--m4w-bg);
   --bs-body-color: var(--m4w-text);
@@ -139,7 +139,7 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
   --bs-btn-active-bg: var(--m4w-surface-3); --bs-btn-active-color: var(--m4w-text); --bs-btn-active-border-color: var(--m4w-border-strong);
 }
 .btn-ghost { --bs-btn-bg: transparent; --bs-btn-border-color: transparent; --bs-btn-hover-bg: var(--m4w-hover); --bs-btn-hover-border-color: transparent; --bs-btn-active-border-color: transparent; }
-.btn-icon { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; --bs-btn-border-radius: 50%; font-size: 1.05rem; }
+.btn-icon { width: calc(36px * var(--m4w-s, 1)); height: calc(36px * var(--m4w-s, 1)); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; --bs-btn-border-radius: 50%; font-size: 1.05rem; }
 .btn-icon.btn-sm { width: 30px; height: 30px; font-size: .95rem; }
 .btn-danger { --bs-btn-bg: var(--m4w-danger); --bs-btn-border-color: var(--m4w-danger); }
 .btn-outline-danger { --bs-btn-color: var(--m4w-danger); --bs-btn-border-color: rgba(220, 38, 38, .45); --bs-btn-hover-bg: var(--m4w-danger); --bs-btn-hover-border-color: var(--m4w-danger); }
@@ -265,7 +265,7 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
 .m4w-nav { list-style: none; padding: 0; margin: 0; }
 .m4w-nav-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--m4w-sidebar-muted); font-weight: 600; padding: 1rem .9rem .35rem 1.1rem; display: flex; align-items: center; justify-content: space-between; }
 .m4w-nav-item {
-  display: flex; align-items: center; gap: .85rem; height: 34px; padding: 0 .75rem 0 1.1rem; border-radius: 0 18px 18px 0; margin-left: -.5rem;
+  display: flex; align-items: center; gap: .85rem; height: calc(34px * var(--m4w-s, 1)); padding: 0 .75rem 0 1.1rem; border-radius: 0 18px 18px 0; margin-left: -.5rem;
   color: var(--m4w-sidebar-fg); cursor: pointer; font-size: .875rem; position: relative; user-select: none; transition: background .12s;
 }
 .m4w-nav-item:hover { background: var(--m4w-sidebar-hover); color: var(--m4w-sidebar-fg); }
@@ -302,6 +302,17 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
 .m4w-main.pane-off .m4w-list, .m4w-main.pane-bottom .m4w-list { max-width: none; flex: 1; }
 .m4w-main.pane-bottom { flex-direction: column; }
 .m4w-main.pane-bottom .m4w-list { flex: 0 0 45%; min-height: 200px; }
+/* Draggable border between the list and the reading pane (the width is remembered per device). */
+.m4w-splitter { flex: 0 0 12px; margin: 0 -.75rem; align-self: stretch; cursor: col-resize; position: relative; z-index: 2; touch-action: none; outline: none; }
+.m4w-splitter::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 44px; margin: -22px 0 0 -2px; border-radius: 4px; background: var(--m4w-border-strong); opacity: 0; transition: opacity .15s, background .15s; }
+.m4w-splitter:hover::after, .m4w-splitter:focus-visible::after, .m4w-splitter.dragging::after { opacity: 1; background: var(--m4w-primary); }
+.m4w-main.pane-bottom .m4w-splitter { cursor: row-resize; margin: -.75rem 0; flex-basis: 12px; }
+.m4w-main.pane-bottom .m4w-splitter::after { width: 44px; height: 4px; margin: -2px 0 0 -22px; }
+.m4w-main.pane-off .m4w-splitter { display: none; }
+.m4w-main.resized .m4w-list { max-width: none; min-width: 0; }
+body.m4w-resizing, body.m4w-resizing * { cursor: col-resize !important; user-select: none !important; }
+body.m4w-resizing-v, body.m4w-resizing-v * { cursor: row-resize !important; }
+body.m4w-resizing iframe { pointer-events: none; }
 .m4w-main.pane-off .m4w-reader:not(.is-open) { display: none; }
 .m4w-main.pane-off .m4w-reader.is-open { flex: 1; }
 .m4w-main.pane-off .m4w-reader.is-open ~ .m4w-list, .m4w-main.pane-off.reading .m4w-list { display: none; }
@@ -350,7 +361,7 @@ kbd { background: var(--m4w-surface-3); color: var(--m4w-text); border: 1px soli
 .m4w-row-hover { display: none; position: absolute; right: .6rem; top: 50%; transform: translateY(-50%); background: inherit; gap: .1rem; padding-left: .5rem; }
 .m4w-row:hover .m4w-row-hover { display: flex; background: linear-gradient(90deg, transparent, var(--m4w-surface) 18%); }
 .m4w-row.unread:hover .m4w-row-hover, .m4w-row:hover .m4w-row-hover { background: linear-gradient(90deg, transparent, var(--m4w-surface) 18%); }
-.m4w-row-hover .btn-icon { width: 32px; height: 32px; font-size: .95rem; color: var(--m4w-text-2); }
+.m4w-row-hover .btn-icon { width: calc(32px * var(--m4w-s, 1)); height: calc(32px * var(--m4w-s, 1)); font-size: .95rem; color: var(--m4w-text-2); }
 .m4w-row-hover .btn-icon:hover { background: var(--m4w-surface-3); }
 .m4w-chip-folder { font-size: .68rem; padding: .08rem .45rem; border-radius: 4px; background: var(--m4w-surface-3); color: var(--m4w-muted); font-weight: 600; white-space: nowrap; }
 [data-density="compact"] .m4w-row { padding-top: .32rem; padding-bottom: .32rem; grid-template-columns: 24px 24px minmax(0, 1fr) auto; }
@@ -621,6 +632,8 @@ textarea.m4w-code.m4w-code-short { min-height: 0; }
   .m4w-msg-banner { margin-left: 1rem; }
 }
 @media (max-width: 991.98px) {
+  .m4w-splitter { display: none; }
+  .m4w-main.resized .m4w-list { flex: 1 !important; }
   :root { --m4w-sidebar-w: 280px; }
   .m4w-mobile-only { display: inline-flex !important; }
   .m4w-desktop-only { display: none !important; }
@@ -1074,7 +1087,7 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-sheet-scroll { position: absolute; left: 46px; top: 24px; right: 0; bottom: 0; overflow: auto; outline: none; }
 .m4w-sheet-inner { position: relative; cursor: cell; }
 .m4w-sheet-cells .c { position: absolute; box-sizing: border-box; border-right: 1px solid var(--gl); border-bottom: 1px solid var(--gl); padding: 0 4px 1px; display: flex; align-items: flex-end; white-space: pre; overflow: hidden; font-size: 13px; line-height: 1.25; color: var(--m4w-text); }
-.m4w-sheet-cells .c.sp { overflow: visible; z-index: 1; }
+.m4w-sheet-cells .c.sp { z-index: 1; background: var(--m4w-surface); }
 .m4w-sheet-cells .c.m { background: var(--m4w-surface); z-index: 1; }
 .m4w-sheet-sel { position: absolute; border: 2px solid var(--m4w-primary, #7c3aed); pointer-events: none; z-index: 3; box-sizing: border-box; }
 .m4w-sheet-sel.multi { background: rgba(124, 58, 237, .08); }
@@ -1111,7 +1124,7 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-doc-page .jodit-wysiwyg td > p, .m4w-doc-page .jodit-wysiwyg th > p { margin: 0; }
 
 /* ---------------------------------------------------------------- calendar */
-.m4w-area-calendar .m4w-page-inner { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.m4w-area-calendar .m4w-page-inner:has([data-cal]) { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .m4w-area-calendar .m4w-page-content { padding-bottom: 1rem; }
 .m4w-cal { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .m4w-cal-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
@@ -1239,3 +1252,10 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
   .m4w-cal-scroll { overflow: visible; }
 }
 .m4w-legend { font-size: .82rem; float: none; width: auto; }
+
+/* Display size chosen by each person (Settings, quick settings): the whole interface follows
+   the root font size (rem), and the few fixed sizes above follow --m4w-s. */
+html[data-zoom="80"] { font-size: 80%; --m4w-s: .8; }
+html[data-zoom="90"] { font-size: 90%; --m4w-s: .9; }
+html[data-zoom="110"] { font-size: 110%; --m4w-s: 1.1; }
+html[data-zoom="120"] { font-size: 120%; --m4w-s: 1.2; }

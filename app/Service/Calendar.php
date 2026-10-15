@@ -53,7 +53,7 @@ final class Calendar
         return $out;
     }
 
-    /** 0 none, 1 read, 2 write, 3 owner. Rooms: everyone books (write), administrators own. */
+    /** 0 none, 1 read, 2 write, 3 owner. Rooms: everyone sees them, managers write, administrators own. */
     public static function level(array $user, array $c): int
     {
         if ((int) $c['deleted_at'] > 0) {
@@ -64,7 +64,11 @@ final class Calendar
             return 3;
         }
         if ($c['kind'] === 'room') {
-            return ($user['role'] ?? '') === 'admin' ? 3 : 2;
+            // Rooms are booked from an event (free and open slots only), not written directly.
+            if (($user['role'] ?? '') === 'admin') {
+                return 3;
+            }
+            return in_array($uid, Rooms::config($c)['managers'], true) ? 2 : 1;
         }
         $l = DB::value('SELECT level FROM calendar_acl WHERE calendar_id = :c AND user_id IN (:u, 0) ORDER BY user_id DESC LIMIT 1', ['c' => $c['id'], 'u' => $uid]);
         return $l ? (self::LEVELS[$l] ?? 0) : 0;
@@ -342,6 +346,7 @@ final class Calendar
             'title' => (string) ($ev->SUMMARY ?? ''), 'location' => (string) ($ev->LOCATION ?? ''), 'description' => (string) ($ev->DESCRIPTION ?? ''),
             'start' => $start->getTimestamp(), 'end' => $end->getTimestamp(), 'all_day' => $allDay,
             'status' => strtoupper((string) ($ev->STATUS ?? 'CONFIRMED')), 'color' => $cal['color'], 'writable' => in_array($cal['level'] ?? 'read', ['write', 'owner'], true),
+            'meeting' => (string) ($ev->{'X-M4W-MEETING-URL'} ?? ''), 'room_status' => strtolower((string) ($ev->{'X-M4W-ROOM-STATUS'} ?? '')),
             'organizer' => $org, 'organizer_name' => isset($ev->ORGANIZER['CN']) ? (string) $ev->ORGANIZER['CN'] : '', 'attendees' => $attendees, 'my_partstat' => $mine,
         ];
     }

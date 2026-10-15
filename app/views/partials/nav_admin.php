@@ -9,6 +9,7 @@ $items = [
     ['admin/deleted', 'trash3', 'admin.nav_deleted', 'deleted'],
     ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail'],
     ['admin/spam', 'funnel', 'admin.nav_spam', 'spam'],
+    ['admin/meetings', 'camera-video', 'admin.nav_meetings', 'meetings'],
     ['admin/security', 'shield-check', 'admin.nav_security', 'security'],
     ['admin/health', 'heart-pulse', 'admin.nav_health', 'health'],
     ['admin/logs', 'journal-text', 'admin.nav_logs', 'logs'],

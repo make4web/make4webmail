@@ -36,6 +36,10 @@
       <?php foreach (['comfortable', 'compact'] as $k): ?>
       <input type="radio" class="btn-check" name="density" id="de-<?= $k ?>" value="<?= $k ?>" <?= $p['density'] === $k ? 'checked' : '' ?>><label class="btn btn-light" for="de-<?= $k ?>"><?= te('settings.density_' . $k) ?></label>
       <?php endforeach; ?></div></div>
+    <div class="m4w-setting-row"><div class="label" id="zoom-label"><?= te('settings.zoom') ?><small><?= te('settings.zoom_desc') ?></small></div><div class="btn-group flex-wrap" role="group" aria-labelledby="zoom-label">
+      <?php foreach ([80, 90, 100, 110, 120] as $z): ?>
+      <input type="radio" class="btn-check" name="zoom" id="zo-<?= $z ?>" value="<?= $z ?>" <?= (int) ($p['zoom'] ?? 100) === $z ? 'checked' : '' ?>><label class="btn btn-light" for="zo-<?= $z ?>"><?= $z ?> %</label>
+      <?php endforeach; ?></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('settings.reading_pane') ?></div><div class="btn-group" role="group">
       <?php foreach (['right' => 'layout-split', 'bottom' => 'layout-text-window-reverse', 'off' => 'list-ul'] as $k => $i): ?>
       <input type="radio" class="btn-check" name="reading_pane" id="rp-<?= $k ?>" value="<?= $k ?>" <?= $p['reading_pane'] === $k ? 'checked' : '' ?>><label class="btn btn-light" for="rp-<?= $k ?>"><i class="bi bi-<?= $i ?> me-1"></i><?= te('settings.pane_' . $k) ?></label>

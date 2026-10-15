@@ -71,6 +71,58 @@ final class AdminController extends Controller
         return $this->page('dashboard', compact('stats', 'days', 'checks', 'recent', 'top'));
     }
 
+    // ---- Online meetings --------------------------------------------------------
+
+    public function meetings(): Response
+    {
+        return $this->page('meetings', []);
+    }
+
+    public function saveMeetings(): Response
+    {
+        $r = $this->req;
+        $mode = static fn(string $v) => in_array($v, ['off', 'api', 'personal'], true) ? $v : 'off';
+        $jitsi = rtrim($r->str('jitsi_url'), '/');
+        if ($jitsi !== '' && !preg_match('#^https://[a-z0-9.-]+(:\d+)?(/[\w.-]*)*$#i', $jitsi)) {
+            return $this->back('/admin/meetings', 'danger', t('meet.bad_url'));
+        }
+        Settings::setMany([
+            'meet.jitsi' => $r->bool('jitsi') ? 'on' : 'off', 'meet.jitsi_url' => $jitsi ?: 'https://meet.jit.si',
+            'meet.teams' => $mode($r->str('teams')), 'meet.teams_tenant' => preg_replace('/[^\w.-]/', '', $r->str('teams_tenant')) ?? '', 'meet.teams_client' => preg_replace('/[^\w-]/', '', $r->str('teams_client')) ?? '',
+            'meet.meet' => $mode($r->str('meet')),
+            'meet.zoom' => $mode($r->str('zoom')), 'meet.zoom_account' => preg_replace('/[^\w-]/', '', $r->str('zoom_account')) ?? '', 'meet.zoom_client' => preg_replace('/[^\w-]/', '', $r->str('zoom_client')) ?? '',
+        ]);
+        // Secrets are only replaced when typed (never shown again).
+        foreach (['teams_secret', 'zoom_secret'] as $k) {
+            if ($r->raw($k) !== '') {
+                Settings::setSecret('meet.' . $k, trim($r->raw($k)));
+            }
+        }
+        if ($r->raw('google_key') !== '') {
+            $key = json_decode($r->raw('google_key'), true);
+            if (!is_array($key) || empty($key['client_email']) || empty($key['private_key']) || !openssl_pkey_get_private((string) $key['private_key'])) {
+                return $this->back('/admin/meetings', 'danger', t('meet.bad_key'));
+            }
+            Settings::setSecret('meet.google_key', (string) json_encode(['client_email' => $key['client_email'], 'private_key' => $key['private_key']]));
+        }
+        Audit::log('admin.meetings_saved');
+        return $this->back('/admin/meetings', 'success', t('settings.saved'));
+    }
+
+    /** Create (and remove) a real meeting in the administrator's name to check the settings. */
+    public function testMeeting(): Response
+    {
+        $p = $this->req->str('provider');
+        $u = $this->user();
+        try {
+            $info = \M4W\Service\Meetings::create($u, $p, 'Test Make4WebMail', time() + 3600, time() + 5400);
+            \M4W\Service\Meetings::delete($u, $info);
+        } catch (\InvalidArgumentException $e) {
+            return $this->back('/admin/meetings', 'danger', $e->getMessage());
+        }
+        return $this->back('/admin/meetings', 'success', t('meet.test_ok', ['provider' => \M4W\Service\Meetings::LABELS[$p] ?? $p, 'url' => $info['url']]));
+    }
+
     // ---- Supervision -----------------------------------------------------------
 
     public function health(): Response

@@ -2564,7 +2564,7 @@ test('calendar: sharing (read, write), rooms for everyone, nobody else sees anyt
     try { M4W\Service\Calendar::create($calB, 'Salle', 'room'); } catch (\InvalidArgumentException) { $thrown = true; }
     ok($thrown, 'rooms are made by administrators');
     $room = M4W\Service\Calendar::create($calA, 'Salle Jura', 'room');
-    eq(M4W\Service\Calendar::forUser($calB)[$room]['level'], 'write', 'everyone books a room');
+    eq(M4W\Service\Calendar::forUser($calB)[$room]['level'], 'read', 'everyone sees a room; booking goes through an event');
     $thrown = false;
     try { M4W\Service\Calendar::delete($calA, (int) M4W\Service\Calendar::defaultFor((int) $calA['id'])['id']); } catch (\InvalidArgumentException) { $thrown = true; }
     ok($thrown, 'main calendar kept');
@@ -2880,6 +2880,147 @@ test('dmarc: aggregate reports about our domains are read (gzip / zip), others i
     $sum = M4W\Service\DmarcReports::summary(30);
     eq($sum['sources'][0]['source_ip'], '198.51.100.7', 'failing source first');
     eq((int) $sum['domains'][0]['messages'], 86);
+});
+
+test('html: a <meta charset> left in the content does not garble accents (Outlook)', function () {
+    $s = new HtmlSanitizer(true);
+    eq($s->sanitize('<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"></head><body><p>je l’ai créée à la RATP 😀 &amp;</p></body></html>'),
+        '<p>je l’ai créée à la RATP 😀 &amp;</p>');
+    eq($s->sanitize('<meta charset="iso-8859-1"><p>Envoyé : à</p>'), '<p>Envoyé : à</p>');
+});
+
+test('rooms: offered only when free and open, approval by managers, requester told', function () {
+    $admin = Users::findByEmail('admin@test.local');
+    $bob = Users::findByEmail('bob@test.local');
+    $carol = Users::findByEmail('carol@test.local');
+    $R = M4W\Service\Rooms::class;
+    $roomId = M4W\Service\Calendar::create($admin, 'Salle Léman', 'room');
+    $hours = [1 => ['08:00', '18:00'], 2 => ['08:00', '18:00'], 3 => ['08:00', '12:00'], 4 => ['08:00', '18:00'], 5 => ['08:00', '18:00'], 6 => null, 7 => null];
+    $R::saveConfig($admin, $roomId, ['managed' => 1, 'managers' => [$carol['id']], 'capacity' => 12, 'hours' => $hours]);
+    $thrown = false;
+    try { $R::saveConfig($bob, $roomId, []); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'only administrators set rooms up');
+    $ev = static fn(string $start, string $end, string $repeat = 'none') => M4W\Service\Calendar::fromForm($bob, ['title' => 'Réunion', 'start' => $start, 'end' => $end, 'repeat' => $repeat]);
+    $state = static function ($vcal) use ($R, $roomId) {
+        foreach ($R::available($vcal) as $r) {
+            if ($r['id'] === $roomId) {
+                return $r['state'];
+            }
+        }
+        return '?';
+    };
+    eq($state($ev('2026-11-02 10:00', '2026-11-02 11:00')), 'ok', 'Monday morning');
+    eq($state($ev('2026-11-04 14:00', '2026-11-04 15:00')), 'closed', 'Wednesday afternoon closed');
+    eq($state($ev('2026-11-07 10:00', '2026-11-07 11:00')), 'closed', 'Saturday closed');
+    eq($state($ev('2026-11-02 17:30', '2026-11-02 18:30')), 'closed', 'ends after closing');
+    eq($state($ev('2026-11-02 10:00', '2026-11-02 11:00', 'daily')), 'closed', 'a daily series meets the weekend');
+    // Bob books: managed room, so it waits for Carol.
+    $cal = M4W\Service\Calendar::defaultFor((int) $bob['id']);
+    $v = $ev('2026-11-02 10:00', '2026-11-02 11:00');
+    $uri = M4W\Service\Scheduling::uriFor((string) $v->VEVENT->UID);
+    eq($R::book($bob, $roomId, $v, (int) $cal['id'], $uri), 'pending');
+    M4W\Service\Calendar::put((int) $cal['id'], $uri, $v->serialize());
+    eq((string) $v->VEVENT->LOCATION, 'Salle Léman', 'location filled');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $carol['id'], 's' => '%Salle Léman%']), 'manager told');
+    eq($state($ev('2026-11-02 10:30', '2026-11-02 11:30')), 'busy', 'a pending request already holds the slot');
+    eq($R::backlog($carol)['pending'][0]['title'], 'Réunion');
+    eq($R::backlog($bob)['pending'], [], 'not a manager');
+    $b = $R::booking($roomId, (string) $v->VEVENT->UID);
+    $thrown = false;
+    try { $R::decide($bob, (int) $b['id'], true); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'the requester cannot approve');
+    $R::decide($carol, (int) $b['id'], true, 'OK pour moi');
+    $evRow = M4W\Service\Calendar::object((int) $cal['id'], $uri);
+    ok(str_contains($evRow['data'], 'X-M4W-ROOM-STATUS:APPROVED'), 'requester\'s event updated');
+    ok(str_contains(M4W\Service\Calendar::object($roomId, $uri)['data'], 'STATUS:CONFIRMED'), 'room calendar confirmed');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $bob['id'], 's' => 'Salle confirmée%']), 'requester told');
+    // Moving the meeting asks again; releasing frees the room.
+    $moved = M4W\Service\Calendar::fromForm($bob, ['title' => 'Réunion', 'start' => '2026-11-03 09:00', 'end' => '2026-11-03 10:00'], $evRow['data']);
+    eq($R::book($bob, $roomId, $moved, (int) $cal['id'], $uri), 'pending', 'a new time needs a new approval');
+    $R::release($roomId, (string) $moved->VEVENT->UID);
+    eq($state($ev('2026-11-03 09:00', '2026-11-03 10:00')), 'ok', 'released');
+    // A declined request: the event stays, without the room.
+    $v2 = $ev('2026-11-05 14:00', '2026-11-05 15:00');
+    $uri2 = M4W\Service\Scheduling::uriFor((string) $v2->VEVENT->UID);
+    $R::book($bob, $roomId, $v2, (int) $cal['id'], $uri2);
+    M4W\Service\Calendar::put((int) $cal['id'], $uri2, $v2->serialize());
+    $R::decide($carol, (int) $R::booking($roomId, (string) $v2->VEVENT->UID)['id'], false, 'Salle en travaux');
+    $d = M4W\Service\Calendar::object((int) $cal['id'], $uri2)['data'];
+    ok(!str_contains($d, 'X-M4W-ROOM') && !str_contains($d, 'LOCATION:Salle Léman'), 'room removed from the event');
+    ok(M4W\Service\Calendar::object($roomId, $uri2) === null, 'slot freed');
+    // Unmanaged room, or a manager booking: confirmed at once.
+    eq($R::book($carol, $roomId, $ev('2026-11-06 09:00', '2026-11-06 10:00'), (int) M4W\Service\Calendar::defaultFor((int) $carol['id'])['id'], 'x.ics'), 'approved');
+    $thrown = false;
+    try { $R::book($bob, $roomId, $ev('2026-11-06 09:30', '2026-11-06 10:30'), (int) $cal['id'], 'y.ics'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'no double booking');
+});
+
+test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their API; link in the event', function () {
+    $M = M4W\Service\Meetings::class;
+    $bob = Users::findByEmail('bob@test.local');
+    Settings::setMany(['meet.jitsi' => 'on', 'meet.jitsi_url' => 'https://visio.test.local', 'meet.zoom' => 'api', 'meet.zoom_account' => 'acc1', 'meet.zoom_client' => 'cli1',
+        'meet.teams' => 'api', 'meet.teams_tenant' => 'contoso.onmicrosoft.com', 'meet.teams_client' => 'app1', 'meet.meet' => 'personal']);
+    Settings::setSecret('meet.zoom_secret', 'zs');
+    Settings::setSecret('meet.teams_secret', 'ts');
+    eq(array_keys($M::available($bob)), ['jitsi', 'teams', 'zoom'], 'Meet offered only with a personal link');
+    $j = $M::create($bob, 'jitsi', 'Point', time(), time() + 3600);
+    ok(preg_match('#^https://visio\.test\.local/M4W-[A-Za-z0-9]{20}$#', $j['url']) === 1, 'unguessable Jitsi room');
+    $calls = [];
+    $M::$transport = function (string $method, string $url, array $h, string $body) use (&$calls) {
+        $calls[] = [$method, $url, $body, $h];
+        return match (true) {
+            str_contains($url, 'zoom.us/oauth/token') => [200, '{"access_token":"ZT"}'],
+            str_contains($url, '/v2/users/bob%40test.local/meetings') => [201, '{"id":987,"join_url":"https://us02web.zoom.us/j/987"}'],
+            str_contains($url, 'api.zoom.us/v2/meetings/987') => [204, ''],
+            str_contains($url, 'login.microsoftonline.com/contoso.onmicrosoft.com') => [200, '{"access_token":"MT"}'],
+            str_contains($url, 'graph.microsoft.com/v1.0/users/bob%40test.local/onlineMeetings') && $method === 'POST' => [201, '{"id":"MSO1","joinWebUrl":"https://teams.microsoft.com/l/meetup-join/abc"}'],
+            str_contains($url, 'oauth2.googleapis.com/token') => [200, '{"access_token":"GT"}'],
+            str_contains($url, 'meet.googleapis.com/v2/spaces') => [200, '{"name":"spaces/xyz","meetingUri":"https://meet.google.com/abc-defg-hij"}'],
+            default => [404, '{"message":"unexpected"}'],
+        };
+    };
+    try {
+        $z = $M::create($bob, 'zoom', 'Point', strtotime('2026-11-02 10:00'), strtotime('2026-11-02 11:00'));
+        eq([$z['url'], $z['id']], ['https://us02web.zoom.us/j/987', '987']);
+        $create = array_values(array_filter($calls, static fn($c) => str_contains($c[1], '/meetings') && $c[0] === 'POST'))[0];
+        eq(json_decode($create[2], true)['duration'], 60);
+        ok(in_array('Authorization: Bearer ZT', $create[3], true), 'token used');
+        $M::delete($bob, $z);
+        ok(in_array(['DELETE', 'https://api.zoom.us/v2/meetings/987'], array_map(static fn($c) => [$c[0], $c[1]], $calls), true), 'cancelled with the event');
+        $tm = $M::create($bob, 'teams', 'Point', time(), time() + 3600);
+        eq($tm['url'], 'https://teams.microsoft.com/l/meetup-join/abc');
+        // Google Meet through a service account (JWT signed with its key).
+        $k = openssl_pkey_new(['private_key_bits' => 2048]);
+        openssl_pkey_export($k, $pem);
+        Settings::setSecret('meet.google_key', json_encode(['client_email' => 'svc@proj.iam.gserviceaccount.com', 'private_key' => $pem]));
+        Settings::set('meet.meet', 'api');
+        $g = $M::create($bob, 'meet', 'Point', time(), time() + 3600);
+        eq($g['url'], 'https://meet.google.com/abc-defg-hij');
+        $tok = array_values(array_filter($calls, static fn($c) => str_contains($c[1], 'oauth2.googleapis.com')))[0];
+        parse_str($tok[2], $form);
+        [$hd, $cl, $sig] = explode('.', $form['assertion']);
+        $claims = json_decode(base64_decode(strtr($cl, '-_', '+/')), true);
+        eq([$claims['iss'], $claims['sub']], ['svc@proj.iam.gserviceaccount.com', 'bob@test.local'], 'acts as the organizer');
+        eq(openssl_verify($hd . '.' . $cl, base64_decode(strtr($sig, '-_', '+/') . str_repeat('=', (4 - strlen($sig) % 4) % 4)), openssl_pkey_get_details($k)['key'], OPENSSL_ALGO_SHA256), 1, 'RS256 signature');
+        // An API error is explained.
+        $M::$transport = static fn() => [401, '{"error":{"message":"Invalid client secret"}}'];
+        $msg = '';
+        try { $M::create($bob, 'teams', 'Point', time(), time() + 3600); } catch (\InvalidArgumentException $e) { $msg = $e->getMessage(); }
+        ok(str_contains($msg, 'Invalid client secret'), $msg);
+    } finally {
+        $M::$transport = null;
+    }
+    // The event carries the link (CONFERENCE, description) and loses it cleanly.
+    $v = M4W\Service\Calendar::fromForm($bob, ['title' => 'Point', 'description' => 'Ordre du jour', 'start' => '2026-11-02 10:00', 'end' => '2026-11-02 11:00']);
+    $M::attach($v, $j);
+    $M::attach($v, $j);
+    $ics = str_replace("\r\n ", '', $v->serialize());
+    ok(str_contains($ics, 'CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO;LABEL=Jitsi Meet:' . $j['url']));
+    eq(substr_count($ics, $j['url']), 4, 'conference, url, private copy, description: once each');
+    eq($M::userDescription($v->VEVENT), 'Ordre du jour', 'the form shows what the person wrote');
+    $M::detach($v);
+    eq([(string) $v->VEVENT->DESCRIPTION, isset($v->VEVENT->CONFERENCE), isset($v->VEVENT->LOCATION)], ['Ordre du jour', false, false]);
+    Settings::setMany(['meet.zoom' => 'off', 'meet.teams' => 'off', 'meet.meet' => 'off']);
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

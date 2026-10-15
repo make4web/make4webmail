@@ -351,6 +351,10 @@ final class App
         $r->post('/api/calendar/event/delete', [Controller\CalendarController::class, 'delete']);
         $r->post('/api/calendar/event/partstat', [Controller\CalendarController::class, 'partstat']);
         $r->get('/api/calendar/busy', [Controller\CalendarController::class, 'busy']);
+        $r->get('/api/calendar/rooms', [Controller\CalendarController::class, 'roomsAvailable']);
+        $r->get('/calendar/rooms', [Controller\CalendarController::class, 'roomsPage']);
+        $r->post('/calendar/rooms/booking/{id}', [Controller\CalendarController::class, 'decide']);
+        $r->post('/calendar/rooms/{id}/config', [Controller\CalendarController::class, 'roomConfig']);
         $r->post('/api/calendar/calendars', [Controller\CalendarController::class, 'createCalendar']);
         $r->post('/api/calendar/calendars/{id}', [Controller\CalendarController::class, 'updateCalendar']);
         $r->post('/api/calendar/calendars/{id}/delete', [Controller\CalendarController::class, 'deleteCalendar']);
@@ -358,6 +362,7 @@ final class App
         $r->post('/api/calendar/respond', [Controller\CalendarController::class, 'respond']);
         $r->get('/settings/sync', [Controller\CalendarController::class, 'sync']);
         $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
+        $r->post('/settings/sync/meetings', [Controller\CalendarController::class, 'saveMeetingLinks']);
         $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);
         $r->get('/settings/sync/profile', [Controller\CalendarController::class, 'mobileconfig']);
 
@@ -429,6 +434,9 @@ final class App
         $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
         $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
         $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $admin);
+        $r->get('/admin/meetings', [Controller\AdminController::class, 'meetings'], $admin);
+        $r->post('/admin/meetings', [Controller\AdminController::class, 'saveMeetings'], $admin);
+        $r->post('/admin/meetings/test', [Controller\AdminController::class, 'testMeeting'], $admin);
         $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
         $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);

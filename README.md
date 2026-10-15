@@ -79,7 +79,9 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 
 ### Agenda, invitations et synchronisation des téléphones
 - Agenda jour / semaine / mois / liste, glisser-déposer pour déplacer ou allonger un événement, répétitions (quotidienne, jours ouvrés, hebdomadaire, mensuelle, annuelle, avec date de fin), « cette occurrence ou toute la série », rappels envoyés en notification sur les appareils.
-- Agendas multiples, **partagés** en lecture ou en modification avec des collègues ou toute l'organisation ; **salles** réservables par tous, sans double réservation ; import / export `.ics`.
+- Agendas multiples, **partagés** en lecture ou en modification avec des collègues ou toute l'organisation ; import / export `.ics`.
+- **Salles** créées par les administrateurs, avec horaires d'ouverture hebdomadaires, places, équipement et validation facultative par des gestionnaires : un événement ne propose que les salles libres et ouvertes (toutes occurrences), les demandes à valider forment une file, le demandeur est prévenu de la décision.
+- **Visioconférence** dans les événements : Jitsi Meet (sans compte), Microsoft Teams, Google Meet et Zoom (réunion créée par leur API au nom de l'organisateur, ou lien personnel) ; lien « Rejoindre » dans l'événement, l'invitation et la carte d'invitation.
 - **Invitations** au standard iTIP / iMIP : les collègues trouvent l'événement directement dans leur agenda, les personnes extérieures reçoivent un e-mail qu'Outlook, Gmail, Apple et Thunderbird savent accepter ; les réponses, modifications et annulations sont appliquées automatiquement (expéditeur vérifié). Une invitation reçue s'affiche en tête du message avec Accepter / Peut-être / Refuser et les conflits d'horaire ; disponibilité des collègues vérifiée avant l'envoi.
 - **CalDAV / CardDAV** (`/dav/`, découverte `/.well-known/caldav`) : agenda, contacts et annuaire de l'entreprise synchronisés dans les deux sens avec iPhone (profil à installer en un geste), Android (DAVx⁵), Thunderbird. Connexion par **mots de passe d'application** (un par appareil, révocables), HTTPS obligatoire.
 

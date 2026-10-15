@@ -81,6 +81,13 @@ $prefs = $u['prefs'] ?? [];
           <label class="btn btn-light btn-sm" for="qs_density_<?= $k ?>"><?= te('settings.density_' . $k) ?></label>
           <?php endforeach; ?>
         </div>
+        <div class="small text-muted fw-semibold text-uppercase mb-2" style="letter-spacing:.06em;font-size:.7rem" id="qs_zoom_label"><?= te('settings.zoom') ?></div>
+        <div class="btn-group w-100 mb-3" role="group" aria-labelledby="qs_zoom_label">
+          <?php foreach ([80, 90, 100, 110, 120] as $z): ?>
+          <input type="radio" class="btn-check" name="qs_zoom" id="qs_zoom_<?= $z ?>" value="<?= $z ?>" <?= (int) ($prefs['zoom'] ?? 100) === $z ? 'checked' : '' ?>>
+          <label class="btn btn-light btn-sm px-1" for="qs_zoom_<?= $z ?>"><?= $z ?> %</label>
+          <?php endforeach; ?>
+        </div>
         <div class="small text-muted fw-semibold text-uppercase mb-2" style="letter-spacing:.06em;font-size:.7rem"><?= te('settings.reading_pane') ?></div>
         <div class="btn-group w-100 mb-3" role="group">
           <?php foreach (['right' => 'layout-split', 'bottom' => 'layout-text-window-reverse', 'off' => 'list-ul'] as $k => $icon): ?>

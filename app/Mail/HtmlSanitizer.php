@@ -86,7 +86,7 @@ final class HtmlSanitizer
 
         $doc = new DOMDocument('1.0', 'UTF-8');
         $prev = libxml_use_internal_errors(true);
-        $doc->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>', LIBXML_NONET | LIBXML_COMPACT | LIBXML_HTML_NODEFDTD | LIBXML_PARSEHUGE);
+        $doc->loadHTML('<?xml encoding="UTF-8"><html><body>' . html_ascii($html) . '</body></html>', LIBXML_NONET | LIBXML_COMPACT | LIBXML_HTML_NODEFDTD | LIBXML_PARSEHUGE);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
 

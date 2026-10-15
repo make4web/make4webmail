@@ -91,6 +91,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
       <div class="m4w-list-scroll" id="m4w-list-scroll" tabindex="-1" aria-label="<?= te('mail.list') ?>"></div>
       <div class="d-flex align-items-center justify-content-between px-3 py-2 border-top m4w-pager" id="m4w-pager"></div>
     </section>
+    <div class="m4w-splitter" id="m4w-splitter" role="separator" tabindex="0" aria-controls="m4w-list" aria-label="<?= te('mail.splitter') ?>" title="<?= te('mail.splitter_hint') ?>"></div>
 
     <section class="m4w-panel m4w-reader" id="m4w-reader" aria-label="<?= te('mail.reader') ?>">
       <?php $rbg = (string) M4W\Core\Settings::get('brand.reader_bg', ''); $rfit = (string) M4W\Core\Settings::get('brand.reader_bg_fit', 'cover'); ?>

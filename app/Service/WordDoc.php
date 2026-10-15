@@ -723,7 +723,7 @@ final class DocxWriter
     {
         $dom = new \DOMDocument();
         $prev = libxml_use_internal_errors(true);
-        $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>', LIBXML_NONET | LIBXML_HTML_NODEFDTD);
+        $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . html_ascii($html) . '</body></html>', LIBXML_NONET | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         $body = $dom->getElementsByTagName('body')->item(0);

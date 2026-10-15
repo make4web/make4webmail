@@ -262,6 +262,13 @@
     $(document).on('change', 'input[name=db_driver]', syncDb); syncDb();
 
     // Quick settings
+    // Display size: applied at once, remembered for the account (every device).
+    $(document).on('change', 'input[name=qs_zoom], input[name=zoom]', function () {
+      var z = parseInt(this.value, 10) || 100;
+      document.documentElement.setAttribute('data-zoom', String(z));
+      $(window).trigger('resize');
+      if (this.name === 'qs_zoom') M4W.savePrefs({ zoom: z });
+    });
     $(document).on('change', 'input[name=qs_theme]', function () {
       var v = this.value; if (window.M4W_THEME) M4W_THEME.set(v); M4W.savePrefs({ theme: v });
     });

@@ -123,3 +123,13 @@ function audit_label(string $action): string
     $s = t($key);
     return $s === $key ? $action : $s;
 }
+
+/**
+ * UTF-8 HTML made pure ASCII (characters as &#NNN;) before DOMDocument::loadHTML: a
+ * <meta charset="windows-1252"> left in the content (Outlook, forwarded mail) would otherwise
+ * make libxml switch encoding half-way and turn "créée" into "crÃ©Ã©e".
+ */
+function html_ascii(string $html): string
+{
+    return mb_encode_numericentity($html, [0x80, 0x10FFFF, 0, 0x1FFFFF], 'UTF-8');
+}
