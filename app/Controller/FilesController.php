@@ -245,7 +245,7 @@ final class FilesController extends Controller
             'Content-Disposition' => Response::disposition($inline ? 'inline' : 'attachment', $name),
             'Cache-Control' => 'private, max-age=0, no-store',
             // Nothing served from the file space may run script or be framed elsewhere.
-            'Content-Security-Policy' => "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+            'Content-Security-Policy' => \M4W\Core\Response::fileCsp($inline ? $mime : ''),
             'X-Frame-Options' => 'SAMEORIGIN',
             'Cross-Origin-Resource-Policy' => 'same-origin',
         ], static function () use ($blob) {

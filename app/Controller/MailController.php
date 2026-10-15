@@ -398,6 +398,10 @@ final class MailController extends Controller
         if ($inline && !in_array($mime, $safeInline, true)) {
             $inline = false;
         }
+        // Shown by the browser's PDF viewer outside the sandbox: only if it really is a PDF.
+        if ($inline && $mime === 'application/pdf' && !str_contains(substr($content, 0, 1024), '%PDF-')) {
+            $inline = false;
+        }
         // Pictures shown in the page are re-encoded too (metadata and hidden payloads dropped).
         if ($inline && str_starts_with($mime, 'image/') && \M4W\Service\MailAssets::enabled()) {
             $a = \M4W\Service\MailAssets::inline((int) $m['id'], (int) $m['user_id'], 'part:' . $part, $content);
@@ -414,7 +418,7 @@ final class MailController extends Controller
             $content = $p->text();
         }
         $r = Response::download($content, $inline ? $mime : 'application/octet-stream', $name, $inline);
-        $r->header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox");
+        $r->header('Content-Security-Policy', Response::fileCsp($inline ? $mime : ''));
         $r->header('X-Frame-Options', 'SAMEORIGIN');
         return $r;
     }

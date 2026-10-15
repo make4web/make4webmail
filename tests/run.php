@@ -826,6 +826,13 @@ test('search operators', function () use ($alice) {
     $r = Mailbox::list((int) $alice['id'], ['q' => 'has:attachment']);
     eq($r['total'], 0);
 });
+test('files handed out: sandboxed, except a PDF shown by the browser viewer (still kept off other origins)', function () {
+    $pdf = M4W\Core\Response::fileCsp('application/pdf');
+    ok(!str_contains($pdf, 'sandbox') && str_contains($pdf, "frame-ancestors 'self'") && str_contains($pdf, "default-src 'none'"), 'PDF');
+    foreach (['image/png', 'text/plain', 'image/svg+xml', ''] as $m) {
+        ok(str_contains(M4W\Core\Response::fileCsp($m), 'sandbox'), "sandboxed: $m");
+    }
+});
 test('pinned messages stay at the top of their folder, not in search results', function () use ($alice) {
     $uid = (int) $alice['id'];
     $inbox = (int) Folders::byRole($uid, 'inbox')['id'];

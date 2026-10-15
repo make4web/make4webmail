@@ -66,6 +66,19 @@ final class Response
         return sprintf('%s; filename="%s"; filename*=UTF-8\'\'%s', $type, $fallback, rawurlencode($filename));
     }
 
+    /**
+     * Policy for a file handed out by the application: nothing in it may run script or be
+     * framed elsewhere. A PDF shown in the page cannot be sandboxed (the browser's PDF viewer
+     * refuses to start in a sandbox), so it is only kept off any other origin.
+     */
+    public static function fileCsp(string $mime): string
+    {
+        if ($mime === 'application/pdf') {
+            return "default-src 'none'; object-src 'self'; frame-ancestors 'self'";
+        }
+        return "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox";
+    }
+
     public function header(string $name, string $value): self
     {
         $this->headers[$name] = $value;

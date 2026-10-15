@@ -370,7 +370,8 @@
     if (/^image\//.test(f.mime)) M4W.zoomable($('<img alt="">').attr({ src: src, alt: f.name, title: t('zoom_hint') }).appendTo($b)[0]);
     else if (/^audio\//.test(f.mime)) $b.append($('<audio controls></audio>').attr('src', src));
     else if (/^video\//.test(f.mime)) $b.append($('<video controls></video>').attr('src', src));
-    else $b.append($('<iframe sandbox="" referrerpolicy="no-referrer"></iframe>').attr('title', f.name).attr('src', src));
+    // PDF: the browser's viewer does not start in a sandboxed frame (the server still forbids any other origin).
+    else $b.append($('<iframe referrerpolicy="no-referrer"' + (f.mime === 'application/pdf' ? '' : ' sandbox=""') + '></iframe>').attr('title', f.name).attr('src', src));
     bootstrap.Modal.getOrCreateInstance($m[0]).show();
   }
   $('#fs-preview-modal').on('hidden.bs.modal', function () { $('#fs-preview-body').empty(); });
