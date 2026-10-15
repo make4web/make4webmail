@@ -1318,3 +1318,7 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-cal-sum-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .m4w-idn { font-size: 1.05rem; word-break: break-all; }
 .m4w-idn mark { background: #fde68a; color: #7c2d12; padding: 0 .1em; border-radius: var(--m4w-radius-xs); font-weight: 700; }
+/* Address of the mailbox shown, next to the folder name (highlighted when it is not one's own). */
+.m4w-folder-box { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; color: var(--m4w-muted); margin-left: .5rem; flex: 0 1 auto; }
+.m4w-folder-box.is-other { color: var(--m4w-primary); background: var(--m4w-primary-soft); padding: .15rem .55rem; border-radius: var(--m4w-radius-pill); font-weight: 600; }
+.m4w-list.has-selection .m4w-folder-box { display: none; }

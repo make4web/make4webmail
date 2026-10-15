@@ -37,10 +37,13 @@ final class MailController extends Controller
             $actor = $this->actor();
             if ($mbx === (int) $actor['id'] || \M4W\Service\SharedMailboxes::linked((int) $actor['id'], $mbx)) {
                 \M4W\Service\SharedMailboxes::open($actor, $mbx);
+                // The banners were worked out before the switch: the page must show the mailbox it opens.
+                \M4W\Core\View::share('delegation', \M4W\Service\Delegation::banner($actor));
+                \M4W\Core\View::share('sharedBox', \M4W\Service\SharedMailboxes::banner($actor));
             }
         }
         $u = $this->user();
-        return $this->view('mail/app', ['user' => $u], 'layouts/mail');
+        return $this->view('mail/app', ['user' => $u, 'other' => (int) $u['id'] !== (int) $this->actor()['id']], 'layouts/mail');
     }
 
     public function bootstrap(): Response

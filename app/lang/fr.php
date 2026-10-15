@@ -2164,4 +2164,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'own.deleted_none' => 'Make4WebMail n\'a jamais effacé de message dans cette boîte.',
     'own.deleted_n' => 'Make4WebMail a effacé :n message(s) dans cette boîte (dernière fois le :date).',
     'own.same_as_collector' => 'Cette boîte est aussi la boîte collectrice : son réglage de conservation est respecté, la collectrice n\'y efface rien. Mieux vaut une boîte collectrice dédiée.',
+    'mail.viewing_box' => 'Boîte affichée :',
 ];
