@@ -367,8 +367,41 @@
       var v = this.value; if (window.M4W_THEME) M4W_THEME.set(v); M4W.savePrefs({ theme: v });
     });
 
-    // Search outside mail page: navigate to /mail?q=
     $('#m4w-search').on('input', function () { $('[data-action=clear-search]').toggleClass('d-none', !this.value); }).trigger('input');
+    // Search, from any page. The form holds the advanced fields too, so browsers do not submit it
+    // on Enter by themselves (no submit button): Enter is handled here. On the mail page the
+    // results show in place (M4W.searchHere), elsewhere the mail page opens with them.
+    function runSearch() {
+      var q = String($('#m4w-search').val() || '').trim();
+      if (M4W.searchHere) { M4W.searchHere(q); return; }
+      if (q) location.href = M4W.url('mail', { q: q });
+    }
+    $('#m4w-search-form').on('submit', function (e) { e.preventDefault(); runSearch(); });
+    $(document).on('keydown', '#m4w-search', function (e) {
+      if (e.key === 'Enter' && !e.originalEvent.isComposing) { e.preventDefault(); runSearch(); }
+    });
+    // Advanced search: the fields become operators in the search box (from:, subject:, has:…).
+    $(document).on('click', '[data-action=adv-search]', function () {
+      var $a = $('#m4w-adv-search'), parts = [];
+      var q = function (n) { return String($a.find('[name=' + n + ']').val() || '').trim(); };
+      var quote = function (v) { return /\s/.test(v) ? '"' + v.replace(/"/g, '') + '"' : v; };
+      if (q('adv_from')) parts.push('from:' + quote(q('adv_from')));
+      if (q('adv_to')) parts.push('to:' + quote(q('adv_to')));
+      if (q('adv_subject')) parts.push('subject:' + quote(q('adv_subject')));
+      if (q('adv_after')) parts.push('after:' + q('adv_after'));
+      if (q('adv_before')) parts.push('before:' + q('adv_before'));
+      if ($a.find('[name=adv_att]').is(':checked')) parts.push('has:attachment');
+      if ($a.find('[name=adv_unread]').is(':checked')) parts.push('is:unread');
+      if ($a.find('[name=adv_flag]').is(':checked')) parts.push('is:starred');
+      if (q('adv_words')) parts.push(q('adv_words'));
+      $('#m4w-search').val(parts.join(' ')).trigger('input');
+      var t = $a.prev('[data-bs-toggle]')[0];
+      if (t && window.bootstrap) bootstrap.Dropdown.getOrCreateInstance(t).hide();
+      runSearch();
+    });
+    $(document).on('keydown', '#m4w-adv-search input', function (e) {
+      if (e.key === 'Enter' && !e.originalEvent.isComposing) { e.preventDefault(); $('[data-action=adv-search]').trigger('click'); }
+    });
 
     // Password strength meters
     $(document).on('input', 'input[data-strength]', function () {

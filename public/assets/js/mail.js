@@ -1012,30 +1012,12 @@
     });
 
     // search
-    $('#m4w-search-form').on('submit', function (e) {
-      e.preventDefault();
-      var q = String($('#m4w-search').val() || '').trim();
+    // On this page a search stays here (the common script calls this on Enter or "Search").
+    M4W.searchHere = function (q) {
       if (q) location.hash = 'q/' + encodeURIComponent(q); else if (S.byRole.inbox) go(S.byRole.inbox.id);
       $('#m4w-search').trigger('blur');
-    });
+    };
     $(document).on('click', '[data-action=clear-search]', function () { $('#m4w-search').val('').trigger('input'); if (S.q && S.byRole.inbox) go(S.byRole.inbox.id); });
-    $(document).on('click', '[data-action=adv-search]', function () {
-      var $a = $('#m4w-adv-search'), parts = [];
-      var q = function (n) { return String($a.find('[name=' + n + ']').val() || '').trim(); };
-      var quote = function (v) { return /\s/.test(v) ? '"' + v + '"' : v; };
-      if (q('adv_from')) parts.push('from:' + quote(q('adv_from')));
-      if (q('adv_to')) parts.push('to:' + quote(q('adv_to')));
-      if (q('adv_subject')) parts.push('subject:' + quote(q('adv_subject')));
-      if (q('adv_after')) parts.push('after:' + q('adv_after'));
-      if (q('adv_before')) parts.push('before:' + q('adv_before'));
-      if ($a.find('[name=adv_att]').is(':checked')) parts.push('has:attachment');
-      if ($a.find('[name=adv_unread]').is(':checked')) parts.push('is:unread');
-      if ($a.find('[name=adv_flag]').is(':checked')) parts.push('is:starred');
-      if (q('adv_words')) parts.push(q('adv_words'));
-      $('#m4w-search').val(parts.join(' ')).trigger('input');
-      bootstrap.Dropdown.getOrCreateInstance($a.prev('[data-bs-toggle]')[0]).hide();
-      $('#m4w-search-form').trigger('submit');
-    });
 
     // quick settings
     $(document).on('change', 'input[name=qs_density]', function () { $('body').attr('data-density', this.value); S.prefs.density = this.value; M4W.savePrefs({ density: this.value }); });
