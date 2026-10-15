@@ -43,6 +43,13 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 ### Fichiers (espace partagé)
 - **Mes fichiers** (privé, invisible même pour les administrateurs), **Partagés avec moi**, **Espaces d'équipe** et **Corbeille**.
 - Droits par dossier, hérités par tout le contenu : **Lecture** (consulter, télécharger), **Modification** (ajouter, renommer, déplacer, supprimer), **Gestion** (modifier aussi les accès). Ils s'accordent à une personne, à un service (champ « service » des utilisateurs) ou à tout le monde. Les administrateurs gèrent tous les espaces d'équipe.
+- **Tableur intégré, à plusieurs** (sans serveur bureautique) : xlsx, xls, ods, csv.
+  - Formules Excel calculées par le serveur (PhpSpreadsheet, plus de 400 fonctions), écrites à la française (`=SOMME(A1;B1)`, `1,5`) et enregistrées en anglais dans le fichier ; saisie « 1 234,5 », « 25 % », « 12 € », « 15/10/2026 » reconnue.
+  - Mise en forme (gras, couleurs, alignement, formats nombre, monétaire, date, %, bordures, fusion), lignes et colonnes, feuilles, redimensionnement, copier-coller avec Excel, annuler/rétablir, somme de la sélection.
+  - Plusieurs personnes modifient en même temps : chacun voit les cellules des autres se mettre à jour, avec leur nom et leur curseur.
+  - Le travail est conservé sur le serveur à chaque frappe (copie de travail, incluse dans les sauvegardes). « Enregistrer » crée une nouvelle version ; un classeur laissé ouvert est enregistré automatiquement deux minutes après le départ du dernier éditeur.
+  - Ce que l'éditeur ne sait pas conserver (graphiques, tableaux croisés, macros, ancien format .xls) part dans une copie, comme une version enregistrée ailleurs entre-temps : l'original n'est jamais écrasé.
+  - Si un serveur Collabora / ONLYOFFICE est configuré, il prend le relais ; le tableur intégré reste proposé.
 - **Aperçu intégré** sans télécharger : images, PDF, audio, vidéo, et rendu HTML côté serveur des .docx, .xlsx, .pptx, .odt, CSV et fichiers texte. Ce rendu n'utilise aucun service externe ; il est protégé contre les bombes zip et les entités XML, et servi sous CSP `sandbox`. Les anciens formats (.doc, .xls, .ppt) passent par le serveur bureautique s'il y en a un.
 - **Édition en ligne collaborative** (Word, Excel, PowerPoint, OpenDocument, texte) par un serveur **Collabora Online** ou **ONLYOFFICE Docs**, via le protocole WOPI. Make4WebMail est l'hôte WOPI :
   - jetons d'accès aléatoires, conservés hachés, propres à un document et à une personne, valables 10 h ;

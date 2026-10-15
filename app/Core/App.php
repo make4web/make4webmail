@@ -265,6 +265,12 @@ final class App
         $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
         $r->get('/api/messages/{id}/img/{asset}', [Controller\MailController::class, 'image']);
         $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
+        $r->get('/files/sheet/{id}', [Controller\SheetController::class, 'page']);
+        $r->get('/api/sheets/{id}', [Controller\SheetController::class, 'data']);
+        $r->post('/api/sheets/{id}/ops', [Controller\SheetController::class, 'ops']);
+        $r->get('/api/sheets/{id}/poll', [Controller\SheetController::class, 'poll']);
+        $r->post('/api/sheets/{id}/save', [Controller\SheetController::class, 'save']);
+        $r->post('/api/sheets/{id}/leave', [Controller\SheetController::class, 'leave']);
         $r->get('/api/files/file/{id}/text', [Controller\OfficeController::class, 'text']);
         $r->post('/api/files/file/{id}/text', [Controller\OfficeController::class, 'saveText']);
         // WOPI host, called by the office server: authenticated by access token, no session, no CSRF.

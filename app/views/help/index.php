@@ -233,6 +233,9 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>
     <h3>Avec la messagerie</h3>
     <p>En rédaction, <?= $ui('folder2-open', '') ?> joint un fichier de l'espace. Dans un message reçu, <?= $ui('folder-plus', '') ?> enregistre une pièce jointe dans le dossier de votre choix.</p>
+  <h3>Tableur intégré</h3>
+    <p>Les classeurs (xlsx, xls, ods, csv) s'ouvrent avec <em>Modifier en ligne</em>, à plusieurs en même temps : les cellules modifiées par vos collègues apparaissent en direct, avec leur nom. Les formules s'écrivent comme dans Excel en français (<code>=SOMME(B2:B10)</code>, <code>=SI(C2>0;"oui";"non")</code>). Vos modifications sont conservées sur le serveur au fil de l'eau ; <strong>Enregistrer</strong> (Ctrl+S) en fait une nouvelle version du fichier. Raccourcis : Entrée / Tab pour valider, F2 pour modifier, Suppr pour effacer, Ctrl+C / Ctrl+V avec Excel, Ctrl+Z pour annuler. Double-cliquez sur le bord d'une colonne pour l'ajuster à son contenu.</p>
+    <p>Un classeur avec graphiques, tableaux croisés ou macros, ou au format .xls, est enregistré dans une copie : l'original reste intact.</p>
   </section>
 
   <section id="mobile" class="m4w-help-section">

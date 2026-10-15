@@ -613,5 +613,36 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX backup_runs_started ON backup_runs(started_at)",
 ],
+17 => [
+// Built-in spreadsheet: one working copy per file being edited, the operations everyone
+// applied to it (polled by the other editors) and who is looking at which cell.
+"CREATE TABLE sheet_sessions (
+  file_id INTEGER NOT NULL PRIMARY KEY,
+  base_version INTEGER NOT NULL DEFAULT 0,
+  mode VARCHAR(10) NOT NULL DEFAULT 'edit',
+  reason VARCHAR(40) NOT NULL DEFAULT '',
+  dirty INTEGER NOT NULL DEFAULT 0,
+  last_user INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  published_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE TABLE sheet_ops (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NULL,
+  op {TEXT},
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX sheet_ops_file ON sheet_ops(file_id, id)",
+"CREATE TABLE sheet_presence (
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  sheet INTEGER NOT NULL DEFAULT 0,
+  cell VARCHAR(20) NOT NULL DEFAULT '',
+  seen_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (file_id, user_id)
+) {OPT}",
+],
 ];
 

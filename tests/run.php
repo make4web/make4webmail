@@ -2158,6 +2158,103 @@ test('push: a device moves to whoever signs in on it, and leaves with a deleted 
     eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
 });
 
+// ------------------------------------------------------------------ built-in spreadsheet
+echo "\nBuilt-in spreadsheet (several editors at once)\n";
+use M4W\Service\Sheet;
+$xlsx = static function (array $rows, ?callable $more = null): string {
+    $s = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $s->getActiveSheet()->setTitle('Budget')->fromArray($rows);
+    if ($more) { $more($s); }
+    $p = tempnam(sys_get_temp_dir(), 'x') . '.xlsx';
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($s))->save($p);
+    return $p;
+};
+test('spreadsheet: French input and formulas', function () {
+    M4W\Core\I18n::setLanguage('fr');
+    eq(Sheet::parseInput('3,5')[0], 3.5);
+    eq(Sheet::parseInput('1 234,5')[0], 1234.5);
+    eq(Sheet::parseInput("1\u{202F}000")[0], 1000);
+    eq([Sheet::parseInput('25 %')[0], Sheet::parseInput('25 %')[2]], [0.25, '0%']);
+    eq([Sheet::parseInput('12,50 €')[0], Sheet::parseInput('12,50 €')[2]], [12.5, Sheet::FORMATS['currency']]);
+    eq(Sheet::parseInput('15/10/2026')[2], 'dd/mm/yyyy');
+    eq(Sheet::parseInput('31/02/2026')[0], '31/02/2026', 'not a date');
+    eq(Sheet::parseInput('VRAI')[0], true);
+    eq(Sheet::parseInput("'0612345678")[0], '0612345678', 'apostrophe keeps text');
+    eq(Sheet::parseInput('0612345678')[0], 612345678);
+    eq(Sheet::toEnglish('=SOMME(A1;1,5)+SI(B1>2;"a,b";"c")'), '=SUM(A1,1.5)+IF(B1>2,"a,b","c")');
+    eq(Sheet::toLocale('=ROUND(A1*1.5,2)'), '=ARRONDI(A1*1,5;2)');
+});
+test('spreadsheet: two editors, recalculation, patches, version saved', function () use ($fsBob, $fsCarol, $fsAdmin, $xlsx) {
+    M4W\Core\I18n::setLanguage('fr');
+    $space = Files::createSpace($fsAdmin, 'Compta ' . bin2hex(random_bytes(3)));
+    Files::setAcl($fsAdmin, $space, [['type' => 'user', 'principal' => $fsCarol['id'], 'level' => 'write'], ['type' => 'user', 'principal' => $fsBob['id'], 'level' => 'write']]);
+    $f = Files::addFromPath($fsBob, $space, $xlsx([['Poste', 'Montant'], ['Loyer', 1200], ['Total', '=SUM(B2:B2)']]), 'Budget.xlsx');
+    $o = Sheet::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['can_write']], ['edit', true]);
+    eq((array) $o['workbook']['sheets'][0]['cells']->B3, ['1200', '=SOMME(B2:B2)', 0, 1], 'formula shown in French');
+    $o2 = Sheet::open($fsCarol, Files::file((int) $f['id']));
+    $seq = $o2['seq'];
+    Sheet::poll($fsBob, Files::file((int) $f['id']), 0, 0, 'B2');
+    Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'B2', 'v' => '1 350,5'], ['t' => 'set', 's' => 0, 'c' => 'B3', 'v' => '=SOMME(B2:B2)*2']]);
+    $p = Sheet::poll($fsCarol, Files::file((int) $f['id']), $seq, 0, 'A1');
+    $cells = $p['ops'][0]['cells'];
+    eq($cells['B2'][1], '1350,5');
+    eq($cells['B3'][0], '2701', 'the other editor gets the recalculated value');
+    ok(!isset($cells['A1']), 'only what changed');
+    eq(count($p['people']), 1, 'Bob is seen');
+    // Structure: everyone reloads.
+    Sheet::applyOps($fsCarol, Files::file((int) $f['id']), [['t' => 'ins_row', 's' => 0, 'at' => 2, 'n' => 1]]);
+    eq(end(Sheet::poll($fsBob, Files::file((int) $f['id']), 0, 0, '')['ops'])['k'], 'reload');
+    $thrown = false;
+    try { Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'ZZZZ1', 'v' => 'x']]); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'invalid cell refused');
+    $r = Sheet::publish($fsCarol, Files::file((int) $f['id']));
+    eq([$r['copy'], (int) $r['file']['version']], [false, 2], 'new version');
+    $saved = \PhpOffice\PhpSpreadsheet\IOFactory::load((function ($f) { $t = tempnam(sys_get_temp_dir(), 'r') . '.xlsx'; file_put_contents($t, Files::contents($f['blob_id'])); return $t; })(Files::file((int) $f['id'])));
+    eq($saved->getActiveSheet()->getCell('B4')->getValue(), '=SUM(B3:B3)*2', 'formula kept in English in the file, row inserted');
+    eq($saved->getActiveSheet()->getCell('B4')->getCalculatedValue(), 2701.0);
+    // Read-only for someone without write access.
+    $GLOBALS['sheetFile'] = (int) $f['id'];
+});
+test('spreadsheet: complex workbooks and changes made elsewhere go to a copy', function () use ($fsBob, $xlsx) {
+    M4W\Core\I18n::setLanguage('fr');
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $p = $xlsx([['A', 1]]);
+    $z = new \ZipArchive(); $z->open($p); $z->addFromString('xl/charts/chart1.xml', '<c:chartSpace/>'); $z->close();
+    $f = Files::addFromPath($fsBob, $root, $p, 'Graphique.xlsx');
+    $o = Sheet::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['reason']], ['copy', 'charts']);
+    Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'B1', 'v' => '2']]);
+    $r = Sheet::publish($fsBob, Files::file((int) $f['id']));
+    ok($r['copy'] && str_contains($r['file']['name'], 'Graphique (modifié)'), $r['file']['name']);
+    eq((int) Files::file((int) $f['id'])['version'], 1, 'the original is untouched');
+    // Someone saved another version meanwhile: never overwritten.
+    $g = Files::addFromPath($fsBob, $root, $xlsx([['x', 1]]), 'Plan.xlsx');
+    Sheet::open($fsBob, Files::file((int) $g['id']));
+    Sheet::applyOps($fsBob, Files::file((int) $g['id']), [['t' => 'set', 's' => 0, 'c' => 'A2', 'v' => 'y']]);
+    Files::putContent($fsBob, (int) $g['id'], $xlsx([['autre', 2]]));
+    $r = Sheet::publish($fsBob, Files::file((int) $g['id']));
+    ok($r['copy'], 'conflict saved as a copy');
+    // CSV keeps its format and the French separator.
+    $csv = tempnam(sys_get_temp_dir(), 'c');
+    file_put_contents($csv, "Nom;Montant\nA;3,5\n");
+    $c = Files::addFromPath($fsBob, $root, $csv, 'liste.csv');
+    $oc = Sheet::open($fsBob, Files::file((int) $c['id']));
+    eq($oc['workbook']['sheets'][0]['cells']->B2[1], '3,5', 'separator detected');
+    Sheet::applyOps($fsBob, Files::file((int) $c['id']), [['t' => 'set', 's' => 0, 'c' => 'B3', 'v' => '4,25']]);
+    Sheet::publish($fsBob, Files::file((int) $c['id']));
+    ok(str_contains(Files::contents(Files::file((int) $c['id'])['blob_id']), '"4,25"') || str_contains(Files::contents(Files::file((int) $c['id'])['blob_id']), '4,25'), 'CSV written back with French decimals');
+});
+test('spreadsheet: unsaved work is saved once everyone has left', function () use ($fsBob) {
+    $fid = $GLOBALS['sheetFile'];
+    Sheet::applyOps($fsBob, Files::file($fid), [['t' => 'set', 's' => 0, 'c' => 'A9', 'v' => 'oublié']]);
+    DB::run('UPDATE sheet_sessions SET updated_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $fid]);
+    DB::run('UPDATE sheet_presence SET seen_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $fid]);
+    $v = (int) Files::file($fid)['version'];
+    ok(Sheet::housekeeping() >= 1);
+    eq((int) Files::file($fid)['version'], $v + 1, 'saved as a new version');
+});
+
 // ------------------------------------------------------------------ backups
 echo "\nBackups (zip to a backup disk)\n";
 use M4W\Service\Backup;

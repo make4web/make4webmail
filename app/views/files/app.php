@@ -1,5 +1,5 @@
 <?php /** @var int $maxFile */ ?>
-<div id="fs-app" data-max-file="<?= (int) $maxFile ?>" data-office-edit="<?= e(implode(',', M4W\Service\Office::editable())) ?>" data-office-view="<?= e(implode(',', M4W\Service\Office::viewable())) ?>">
+<div id="fs-app" data-max-file="<?= (int) $maxFile ?>" data-office-edit="<?= e(implode(',', M4W\Service\Office::editable())) ?>" data-office-view="<?= e(implode(',', M4W\Service\Office::viewable())) ?>" data-sheet-edit="<?= e(implode(',', M4W\Service\Sheet::EXT)) ?>">
   <div class="fs-header">
     <nav aria-label="<?= te('files.path') ?>" class="fs-crumbs-wrap"><ol class="fs-crumbs" id="fs-crumbs"></ol></nav>
     <div class="fs-header-tools">
