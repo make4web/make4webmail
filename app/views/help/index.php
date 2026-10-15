@@ -304,6 +304,12 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Pour désactiver la double authentification, il faut votre mot de passe <em>et</em> un code de l'application.</p>
     <h3>Sessions et activité</h3>
     <p>La liste des appareils connectés permet de déconnecter un appareil perdu ou tous les autres. L'historique montre les dernières connexions réussies et échouées : si vous voyez une connexion inconnue, changez votre mot de passe et prévenez votre administrateur.</p>
+    <h3>Alertes automatiques</h3>
+    <ul>
+      <li>Une connexion depuis un <strong>réseau inhabituel</strong>, des <strong>mots de passe erronés</strong> à répétition, un <strong>transfert</strong> de vos messages vers une adresse extérieure ou un <strong>changement de mot de passe</strong> vous sont signalés par un message dans votre boîte (et une notification).</li>
+      <li>La rubrique « Appareils et lieux de connexion habituels » liste d'où vous vous connectez. Un élément inconnu ? <?= $ui('x-octagon', 'Ce n\'était pas moi') ?> déconnecte toutes les autres sessions et vos appareils synchronisés, et prévient l'administrateur ; changez ensuite votre mot de passe.</li>
+      <li>Les envois vers l'extérieur sont limités par heure et par jour. Si votre compte envoie soudain un grand nombre de messages, l'envoi est <strong>suspendu</strong> par précaution jusqu'à vérification par l'administrateur : vous lisez toujours votre courrier.</li>
+    </ul>
     <div class="m4w-help-note warn"><i class="bi bi-shield-exclamation"></i><div>Personne, ni l'équipe informatique ni l'administrateur, ne vous demandera jamais votre mot de passe par e-mail ou par téléphone.</div></div>
   </section>
 
@@ -591,6 +597,13 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Liens et hameçonnage</strong> : vérification des liens au clic, clé Google Safe Browsing (ou Web Risk pour un usage commercial), flux public URLhaus mis à jour chaque jour, domaines bloqués.</li>
       <li><strong>Messagerie</strong> : blocage des images distantes, transfert externe autorisé ou limité à une liste de domaines, taille maximale des pièces jointes.</li>
       <li><strong>Fonctions</strong> : complément de signature par l'utilisateur, comptes externes, délai d'annulation d'envoi, langue par défaut.</li>
+    </ul>
+    <h3 id="a-guard">Comptes compromis</h3>
+    <ul>
+      <li><strong>Limites d'envoi</strong> par personne et par heure / par jour, en destinataires extérieurs (les collègues ne comptent pas). Au-delà, le message est refusé avec une explication.</li>
+      <li><strong>Rafale suspecte</strong> (par défaut 80 destinataires extérieurs en 10 minutes) : l'envoi du compte est suspendu, ses messages en attente sont retenus, la personne et les administrateurs sont prévenus. Vous pouvez aussi choisir de désactiver le compte et de déconnecter toutes ses sessions.</li>
+      <li>Dans « Comptes dont l'envoi est suspendu » : après avoir fait changer le mot de passe, <?= $ui('unlock', 'Rétablir l\'envoi') ?> relâche les messages retenus, ou supprimez-les s'il s'agit de spam.</li>
+      <li>« Alertes de sécurité » regroupe les connexions inhabituelles, mots de passe erronés, transferts vers l'extérieur et « Ce n'était pas moi » ; marquez-les traitées une fois vérifiées.</li>
     </ul>
     <p>En bas de page, la liste des adresses IP en échec de connexion permet de repérer une attaque et de débloquer les comptes.</p>
   </section>

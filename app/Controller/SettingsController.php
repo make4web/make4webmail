@@ -116,6 +116,12 @@ final class SettingsController extends Controller
         }
         $id = (int) ($in['id'] ?? 0);
         $data['updated_at'] = time();
+        $redirects = static fn(string $json) => array_column(array_filter((array) json_decode($json, true), static fn($a) => ($a['type'] ?? '') === 'redirect'), 'to');
+        $before = $id ? $redirects((string) DB::value('SELECT actions FROM rules WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $uid])) : [];
+        $targets = array_diff($redirects((string) $data['actions']), $before);
+        if ($targets) {
+            \M4W\Service\AccountGuard::onForwarding($this->user(), $targets, t('guard.how_rule', ['name' => (string) $data['name']]));
+        }
         if ($id && DB::value('SELECT COUNT(*) FROM rules WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $uid])) {
             DB::update('rules', $data, 'id = :id AND user_id = :u', ['id' => $id, 'u' => $uid]);
         } else {
@@ -220,12 +226,17 @@ final class SettingsController extends Controller
         if (Mailbox::$privacy) {
             return $this->back('/settings/forwarding', 'danger', t('deleg.no_redirect'));
         }
+        $was = Forwarding::get($this->uid());
+        $was = $was['enabled'] ? $was['addresses'] : [];
         try {
             Forwarding::save($this->uid(), $r->bool('enabled'), preg_split('/[\s,;]+/', $r->str('addresses')) ?: [], $r->str('keep_copy', '1') === '1');
         } catch (\InvalidArgumentException $e) {
             return $this->back('/settings/forwarding', 'danger', $e->getMessage());
         }
         Audit::log('forwarding.saved', $r->bool('enabled') ? $r->str('addresses') : 'off');
+        if ($r->bool('enabled')) {
+            \M4W\Service\AccountGuard::onForwarding($this->user(), array_diff(Forwarding::get($this->uid())['addresses'], $was), t('guard.how_forwarding'));
+        }
         return $this->back('/settings/forwarding', 'success', t('settings.saved'));
     }
 
@@ -242,6 +253,21 @@ final class SettingsController extends Controller
 
     // ---- Security ----------------------------------------------------------
 
+    /** "It wasn't me": the place is forgotten, every other session is signed out, the administrators are told. */
+    public function forgetPlace(): Response
+    {
+        $u = $this->user();
+        $place = DB::one('SELECT * FROM known_logins WHERE id = :id AND user_id = :u', ['id' => $this->req->int('id'), 'u' => $u['id']]);
+        if ($place) {
+            \M4W\Service\AccountGuard::forgetLogin((int) $u['id'], (int) $place['id']);
+            Auth::revokeOtherSessions((int) $u['id'], (int) $u['_session_id']);
+            DB::run('DELETE FROM app_passwords WHERE user_id = :u', ['u' => $u['id']]);
+            \M4W\Service\AccountGuard::alert((int) $u['id'], 'not_me', 'high', $place['agent'] . ' — ' . $place['last_ip'], (string) $place['last_ip']);
+            Audit::log('guard.not_me', $place['last_ip']);
+        }
+        return $this->back('/settings/security', 'warning', t('guard.not_me_done'));
+    }
+
     public function security(): Response
     {
         $u = $this->user();
@@ -252,7 +278,7 @@ final class SettingsController extends Controller
         $recovery = Session::get('recovery_codes_once');
         Session::forget('recovery_codes_once');
         return $this->page('security', [
-            'sessions' => $sessions, 'logins' => $logins, 'currentSession' => (int) $u['_session_id'],
+            'sessions' => $sessions, 'logins' => $logins, 'currentSession' => (int) $u['_session_id'], 'places' => \M4W\Service\AccountGuard::knownLogins((int) $u['id']),
             'totpSetup' => is_string($pending) ? ['secret' => $pending, 'uri' => Totp::uri($pending, $u['email'], (string) Settings::get('brand.name'))] : null,
             'recovery' => $recovery,
             'delegates' => \M4W\Service\Delegation::delegates((int) $u['id']),
@@ -276,6 +302,7 @@ final class SettingsController extends Controller
         Users::update((int) $u['id'], ['password' => $pw, 'must_change_password' => 0]);
         Auth::revokeOtherSessions((int) $u['id'], (int) $u['_session_id']);
         Audit::log('password.changed');
+        \M4W\Service\AccountGuard::onPasswordChanged($u);
         return $this->back('/settings/security', 'success', t('pw.changed'));
     }
 

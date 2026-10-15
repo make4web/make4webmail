@@ -25,6 +25,10 @@ final class Transport
      */
     public static function send(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, bool $sign = true, bool $fromQueue = false, string $kind = 'mail'): array
     {
+        // Sending limits and blocked accounts (what was queued was checked when queued).
+        if ($userId && !$fromQueue) {
+            AccountGuard::checkSend($userId, $recipients, $kind, true);
+        }
         // Webmail mode: the provider signs and delivers everything, colleagues included,
         // so their own mailbox (and their phone) receives it too.
         $webmail = RemoteMailbox::active();
@@ -195,6 +199,11 @@ final class Transport
     /** Queue a message for asynchronous delivery (forwards, auto-replies, retries). */
     public static function enqueue(string $raw, string $envelopeFrom, array $recipients, ?int $userId = null, string $kind = 'mail', int $at = 0, string $note = ''): int
     {
+        // Forwards, invitations, automatic answers of a blocked or over-limit account do not leave.
+        // (Messages deferred by send() were counted there.)
+        if ($userId && $note === '' && !AccountGuard::checkSend($userId, $recipients, $kind, false)) {
+            return 0;
+        }
         $rel = 'queue/' . date('Ymd') . '-' . bin2hex(random_bytes(10)) . '.eml';
         $path = storage_path($rel);
         if (!is_dir(dirname($path))) {

@@ -1,5 +1,8 @@
 <?php $u = $currentUser; ?>
 <div class="m4w-page-header"><div><h1><?= te('sec.title') ?></h1><p><?= te('sec.desc') ?></p></div></div>
+<?php if (M4W\Service\AccountGuard::blocked($u)): ?>
+<div class="alert alert-danger" role="alert"><i class="bi bi-send-x"></i><div><strong><?= te('guard.you_blocked') ?></strong> <?= e($u['send_block_reason']) ?><div class="small mt-1"><?= te('guard.you_blocked_help') ?></div></div></div>
+<?php endif; ?>
 
 <div class="row g-4">
   <div class="col-xl-6">
@@ -74,6 +77,20 @@
         <?php endforeach; ?>
         </tbody>
       </table></div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card" id="places">
+      <div class="card-header"><i class="bi bi-geo me-2 text-primary"></i><?= te('guard.places') ?></div>
+      <div class="card-body pb-0"><p class="small text-muted mb-2"><?= te('guard.places_desc') ?></p></div>
+      <ul class="list-group list-group-flush">
+        <?php foreach ($places as $p): ?>
+        <li class="list-group-item d-flex align-items-center gap-3 small flex-wrap"><i class="bi bi-pc-display text-muted"></i><span class="flex-grow-1"><?= e($p['agent']) ?> · <span class="m4w-code"><?= e($p['last_ip']) ?></span></span>
+          <span class="text-muted"><?= te('guard.place_seen', ['first' => format_datetime((int) $p['first_at'], false), 'last' => format_datetime((int) $p['last_at'])]) ?></span>
+          <form method="post" action="<?= e(url('settings/security/places/forget')) ?>" data-confirm="<?= te('guard.not_me_confirm') ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $p['id'] ?>"><button class="btn btn-ghost btn-sm text-danger"><?= te('guard.not_me') ?></button></form></li>
+        <?php endforeach; ?>
+        <?php if (!$places): ?><li class="list-group-item small text-muted"><?= te('common.none') ?></li><?php endif; ?>
+      </ul>
     </div>
   </div>
   <div class="col-12">

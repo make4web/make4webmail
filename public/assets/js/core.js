@@ -242,7 +242,14 @@
       var f = this;
       if (f._confirmed) return;
       e.preventDefault();
-      M4W.confirm($(f).data('confirm'), $(f).data('confirm-text') || '', $(f).data('confirm-ok')).done(function () { f._confirmed = true; $(f).trigger('submit'); f.submit(); });
+      e.stopImmediatePropagation();
+      // form.submit() drops the clicked button: carry its name and value over.
+      var by = e.originalEvent && e.originalEvent.submitter;
+      M4W.confirm($(f).data('confirm'), $(f).data('confirm-text') || '', $(f).data('confirm-ok')).done(function () {
+        f._confirmed = true;
+        if (by && by.name) $('<input type="hidden">').attr('name', by.name).val(by.value).appendTo(f);
+        $(f).trigger('submit'); f.submit();
+      });
     });
     // Busy state on submit
     $(document).on('submit', 'form:not([data-no-busy])', function () {

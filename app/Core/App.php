@@ -375,6 +375,7 @@ final class App
         $r->post('/settings/forwarding', [Controller\SettingsController::class, 'saveForwarding']);
         $r->get('/settings/signature', [Controller\SettingsController::class, 'signature']);
         $r->get('/settings/security', [Controller\SettingsController::class, 'security']);
+        $r->post('/settings/security/places/forget', [Controller\SettingsController::class, 'forgetPlace']);
         $r->post('/settings/security/password', [Controller\SettingsController::class, 'changePassword']);
         $r->post('/settings/security/2fa/start', [Controller\SettingsController::class, 'start2fa']);
         $r->post('/settings/security/2fa/enable', [Controller\SettingsController::class, 'enable2fa']);
@@ -428,6 +429,7 @@ final class App
         $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
+        $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $admin);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
         $r->post('/admin/queue/retry', [Controller\AdminController::class, 'retryQueue'], $admin);
         $r->post('/admin/queue/delete', [Controller\AdminController::class, 'deleteQueue'], $admin);

@@ -720,5 +720,40 @@ static function (): void {
 "ALTER TABLE contacts ADD COLUMN vcard {TEXT}",
 "ALTER TABLE contacts ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
 ],
+20 => [
+// Compromised accounts: where people usually sign in from, what they send, what looked wrong.
+"CREATE TABLE known_logins (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  net VARCHAR(64) NOT NULL DEFAULT '',
+  agent VARCHAR(120) NOT NULL DEFAULT '',
+  first_at INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX known_logins_user ON known_logins(user_id, net)",
+"CREATE TABLE guard_sends (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'mail',
+  recipients INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX guard_sends_user ON guard_sends(user_id, created_at)",
+"CREATE TABLE security_alerts (
+  id {PK},
+  user_id INTEGER NULL,
+  kind VARCHAR(30) NOT NULL,
+  severity VARCHAR(10) NOT NULL DEFAULT 'info',
+  details {TEXT},
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  resolved_at INTEGER NOT NULL DEFAULT 0,
+  resolved_by INTEGER NULL
+) {OPT}",
+"CREATE INDEX security_alerts_time ON security_alerts(resolved_at, created_at)",
+"ALTER TABLE users ADD COLUMN send_blocked_until INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE users ADD COLUMN send_block_reason VARCHAR(255) NOT NULL DEFAULT ''",
+],
 ];
 

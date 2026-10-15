@@ -187,6 +187,7 @@ En mode boîte collectrice :
 - Journaux : flux de messages, file d'attente (avec relance et suppression) et audit.
 
 ### Sécurité
+- **Comptes compromis** : limites d'envoi par personne (destinataires extérieurs par heure et par jour), suspension automatique de l'envoi en cas de rafale (messages en attente retenus, administrateurs et personne prévenus), alertes de connexion depuis un réseau inhabituel, de mots de passe erronés, de transfert vers l'extérieur et de changement de mot de passe, bouton « Ce n'était pas moi ».
 - Mots de passe hachés en Argon2id, comparaisons à temps constant et anti-force brute (par compte et par IP).
 - Sessions durcies : cookie `HttpOnly`/`SameSite`/`Secure`, régénération à la connexion, table de sessions révocables, expiration sur inactivité et durée absolue.
 - Jeton CSRF sur toutes les requêtes qui modifient des données. CSP stricte sans script inline, `X-Frame-Options`, `nosniff`, `Referrer-Policy: no-referrer` et HSTS en HTTPS.
@@ -301,7 +302,7 @@ Publiez-le ensuite derrière votre proxy HTTPS (par ex. `https://office.exemple.
 
 ## Tests
 ```bash
-php tests/run.php   # 154 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 157 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 

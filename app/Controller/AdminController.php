@@ -851,7 +851,34 @@ final class AdminController extends Controller
     public function security(): Response
     {
         $blocked = DB::all('SELECT ip, COUNT(*) AS n, MAX(created_at) AS last FROM login_attempts WHERE success = 0 AND created_at > :t GROUP BY ip ORDER BY n DESC LIMIT 20', ['t' => time() - 86400]);
-        return $this->page('security', ['blocked' => $blocked]);
+        $sendBlocked = DB::all('SELECT id, email, send_blocked_until, send_block_reason, status FROM users WHERE send_blocked_until > :t ORDER BY email', ['t' => time()]);
+        $held = [];
+        foreach ($sendBlocked as $b) {
+            $held[(int) $b['id']] = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE user_id = :u AND status = 'held'", ['u' => $b['id']]);
+        }
+        return $this->page('security', ['blocked' => $blocked, 'sendBlocked' => $sendBlocked, 'held' => $held, 'alerts' => \M4W\Service\AccountGuard::openAlerts(40)]);
+    }
+
+    /** Blocked accounts and security alerts: unblock, discard the held mail, mark as handled. */
+    public function guardAction(): Response
+    {
+        $admin = (int) $this->user()['id'];
+        $uid = $this->req->int('user_id');
+        switch ($this->req->str('action')) {
+            case 'unblock':
+                \M4W\Service\AccountGuard::unblock($uid, $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.unblocked'));
+            case 'discard':
+                $n = \M4W\Service\AccountGuard::discardHeld($uid, $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.discarded', ['n' => $n]));
+            case 'resolve':
+                \M4W\Service\AccountGuard::resolve($this->req->int('alert_id'), $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.resolved'));
+            case 'block':
+                \M4W\Service\AccountGuard::block($uid, 'admin', t('guard.reason_admin', ['name' => $this->user()['email']]));
+                return $this->back('/admin/security#guard', 'success', t('guard.blocked_by_admin'));
+        }
+        return $this->back('/admin/security#guard');
     }
 
     public function saveSecurity(): Response
@@ -898,6 +925,14 @@ final class AdminController extends Controller
             'push.preview' => $r->int('push_preview', 1) === 0 ? 0 : 1,
             'features.undo_send_seconds' => max(0, min(30, $r->int('undo_send_seconds', 5))),
             'features.default_language' => isset(I18n::LANGUAGES[$r->str('default_language')]) ? $r->str('default_language') : 'fr',
+            'guard.enabled' => $r->bool('guard_enabled') ? 1 : 0,
+            'guard.hour_limit' => max(1, min(100000, $r->int('guard_hour', 200))),
+            'guard.day_limit' => max(1, min(1000000, $r->int('guard_day', 1000))),
+            'guard.burst' => max(5, min(100000, $r->int('guard_burst', 80))),
+            'guard.burst_minutes' => max(1, min(120, $r->int('guard_burst_minutes', 10))),
+            'guard.on_burst' => $r->str('guard_on_burst') === 'lock' ? 'lock' : 'block_send',
+            'guard.new_login_mail' => $r->bool('guard_login_mail') ? 1 : 0,
+            'guard.alert_admins_all' => $r->bool('guard_admins_all') ? 1 : 0,
         ];
         if ($values['security.allowed_ips_admin'] !== '') {
             $ok = false;

@@ -2656,6 +2656,73 @@ test('CalDAV / CardDAV: app passwords, own and shared calendars, read-only respe
     ok($thrown, 'directory read-only');
 });
 
+echo "\nCompromised accounts\n";
+test('guard: limits count outside recipients only; a burst suspends sending and holds the queue', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'pirate@test.local', 'password' => 'Secret!Pass123']));
+    Settings::setMany(['guard.enabled' => 1, 'guard.hour_limit' => 6, 'guard.day_limit' => 100, 'guard.burst' => 9, 'guard.burst_minutes' => 10]);
+    $ext = static fn(int $n, string $p = 'x') => array_map(static fn($i) => "$p$i@ext.com", range(1, $n));
+    ok($g::checkSend((int) $u['id'], array_merge($ext(4), ['bob@test.local']), 'mail', true), 'within limits');
+    ok($g::checkSend((int) $u['id'], ['bob@test.local', 'admin@test.local'], 'mail', true), 'colleagues are not counted');
+    $msg = '';
+    try { $g::checkSend((int) $u['id'], $ext(3, 'y'), 'mail', true); } catch (\RuntimeException $e) { $msg = $e->getMessage(); }
+    ok(str_contains($msg, '6'), 'hourly limit explained: ' . $msg);
+    ok(!$g::blocked(Users::find((int) $u['id'])), 'a limit is not a block');
+    ok(!$g::checkSend((int) $u['id'], $ext(3, 'z'), 'forward', false), 'automatic mail over the limit is not sent');
+    // Something already waiting in the queue, then a burst.
+    DB::insert('mail_queue', ['user_id' => $u['id'], 'kind' => 'mail', 'envelope_from' => $u['email'], 'recipients' => '["a@ext.com"]', 'raw_path' => 'queue/none.eml', 'status' => 'pending', 'created_at' => time(), 'next_attempt_at' => time()]);
+    Settings::set('guard.hour_limit', 1000);
+    $thrown = false;
+    try { $g::checkSend((int) $u['id'], $ext(6, 'w'), 'mail', true); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'burst refused');
+    $u = Users::find((int) $u['id']);
+    ok($g::blocked($u), 'sending suspended');
+    eq((string) DB::value("SELECT status FROM mail_queue WHERE user_id = :u", ['u' => $u['id']]), 'held', 'queued mail held');
+    eq(Transport::enqueue("Subject: x\r\n\r\nx", $u['email'], ['bob@test.local'], (int) $u['id'], 'forward'), 0, 'nothing more leaves, even to colleagues');
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'send_blocked' AND severity = 'high'", ['u' => $u['id']]), 'alert recorded');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $u['id'], 's' => '%suspendu%']), 'the person is told');
+    $admin = Users::findByEmail('admin@test.local');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $admin['id'], 's' => '%pirate@test.local%']), 'administrators are told');
+    $g::unblock((int) $u['id'], (int) $admin['id']);
+    ok(!$g::blocked(Users::find((int) $u['id'])), 'restored by an administrator');
+    eq((string) DB::value("SELECT status FROM mail_queue WHERE user_id = :u", ['u' => $u['id']]), 'pending', 'held mail released');
+    ok($g::checkSend((int) $u['id'], $ext(2, 'v'), 'mail', true), 'counters start again');
+    DB::run('DELETE FROM mail_queue WHERE user_id = :u', ['u' => $u['id']]);
+    Settings::setMany(['guard.hour_limit' => 200, 'guard.burst' => 80]);
+});
+test('guard: a burst can also disable the account and sign it out', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'pirate2@test.local', 'password' => 'Secret!Pass123']));
+    DB::insert('user_sessions', ['user_id' => $u['id'], 'token_hash' => hash('sha256', 'p2'), 'created_at' => time(), 'last_seen_at' => time()]);
+    Settings::setMany(['guard.on_burst' => 'lock', 'guard.burst' => 3]);
+    try { $g::checkSend((int) $u['id'], ['a@ext.com', 'b@ext.com', 'c@ext.com', 'd@ext.com'], 'mail', true); } catch (\RuntimeException) {}
+    eq(Users::find((int) $u['id'])['status'], 'disabled');
+    eq((int) DB::value('SELECT revoked FROM user_sessions WHERE user_id = :u', ['u' => $u['id']]), 1);
+    Settings::setMany(['guard.on_burst' => 'block_send', 'guard.burst' => 80]);
+});
+test('guard: unusual sign-ins, repeated wrong passwords, forwarding to the outside are reported', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'nomade@test.local', 'password' => 'Secret!Pass123']));
+    $chrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+    $notices = static fn() => (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
+    ok(!$g::onLogin($u, '82.64.10.20', $chrome), 'first sign-in: nothing to report');
+    ok(!$g::onLogin($u, '82.64.10.77', $chrome), 'same network');
+    ok(!$g::onLogin($u, '82.64.10.21', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1'), 'new device on a usual network');
+    eq($notices(), 0);
+    ok($g::onLogin($u, '185.220.101.4', $chrome), 'new network');
+    eq($notices(), 1, 'the person gets a message');
+    ok(!$g::onLogin($u, '185.220.101.9', $chrome), 'known since');
+    eq($g::network('2a01:e0a:1f:2c40::1'), '2a01:e0a:1f::/48');
+    $g::onLocked('nomade@test.local', '203.0.113.9');
+    $g::onLocked('nomade@test.local', '203.0.113.9');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'brute_force'", ['u' => $u['id']]), 1, 'once an hour');
+    $g::onForwarding($u, ['bob@test.local'], 'règle');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'forwarding'", ['u' => $u['id']]), 0, 'to a colleague: nothing');
+    $g::onForwarding($u, ['me@gmail.com'], 'règle');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'forwarding'", ['u' => $u['id']]), 1);
+    eq($notices(), 3);
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);
