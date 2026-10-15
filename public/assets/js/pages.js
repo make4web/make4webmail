@@ -427,6 +427,7 @@
   // ================================================================ branding
   function initBranding($f) {
     var $pv = $('#brand-preview');
+    var brandImg = { url: $f.data('sidebar-img') || '', avg: $f.data('sidebar-avg') || '' };
     function hexToRgb(h) { h = h.replace('#', ''); return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; }
     function shade(h, p) { var c = hexToRgb(h); return '#' + c.map(function (v) { v = Math.round(p < 0 ? v * (1 + p) : v + (255 - v) * p); return ('0' + Math.max(0, Math.min(255, v)).toString(16)).slice(-2); }).join(''); }
     function contrast(h) { var c = hexToRgb(h).map(function (v) { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return (.2126 * c[0] + .7152 * c[1] + .0722 * c[2]) > .45 ? '#0f172a' : '#ffffff'; }
@@ -447,10 +448,20 @@
       $pv.find('[data-pv-mark]').css({ background: 'linear-gradient(135deg,' + p + ',' + a + ')', borderRadius: (r ? Math.max(4, r - 2) : 0) + 'px' });
       $pv.find('[data-pv-avatar]').css('background', a);
       $pv.find('[data-pv-primary-text]').css('color', p);
-      var sideBg = side === 'brand' ? p : (side === 'dark' ? '#0f172a' : 'transparent'), sideFg = side === 'brand' ? contrast(p) : (side === 'dark' ? '#e2e8f0' : 'var(--m4w-text-2)');
+      // Same colours as theme.css (Branding::chromeCss), so the preview keeps the contrast of the result.
+      $f.find('[data-sidebar-opt]').each(function () { $(this).toggleClass('d-none', $(this).data('sidebar-opt') !== side); });
+      var base = { brand: p, accent: a, custom: $f.find('[name=sidebar_color]').val(), image: brandImg.avg || '#334155', dark: '#0f172a' }[side] || '';
+      var sideFg = side === 'light' ? 'var(--m4w-text-2)' : (side === 'dark' ? '#e2e8f0' : (contrast(base) === '#ffffff' ? '#ffffff' : '#0f172a'));
+      var lightText = sideFg !== '#0f172a' && side !== 'light';
+      var sideBg = side === 'light' ? 'transparent' : base;
+      if (side === 'image' && brandImg.url) {
+        var veil = lightText ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.45)';
+        sideBg = 'linear-gradient(' + veil + ',' + veil + '), url("' + brandImg.url + '") center/' + ($f.find('[name=sidebar_bg_fit]').val() === 'tile' ? 'auto repeat' : 'cover no-repeat') + ', ' + base;
+      }
       $pv.find('[data-pv-side]').css({ background: sideBg, color: sideFg });
-      // Same tints as the real sidebar (theme.css), so the preview keeps the WCAG AA contrast of the result.
-      var activeBg = side === 'light' ? 'rgba(' + rgb + ',.12)' : (side === 'brand' ? (contrast(p) === '#ffffff' ? 'rgba(0,0,0,.24)' : 'rgba(255,255,255,.35)') : 'rgba(255,255,255,.12)');
+      var head = side !== 'light' && $f.find('[name=sidebar_header]').is(':checked');
+      $pv.find('.pv-top').css({ background: head ? sideBg : '', color: head ? sideFg : '' });
+      var activeBg = side === 'light' ? 'rgba(' + rgb + ',.12)' : (side === 'dark' ? 'rgba(' + rgb + ',.35)' : (lightText ? 'rgba(0,0,0,.22)' : 'rgba(0,0,0,.1)'));
       $pv.find('[data-pv-active]').css({ background: activeBg, color: side === 'light' ? 'var(--m4w-primary)' : (side === 'dark' ? '#ffffff' : sideFg) });
       $('[data-radius-val]').text(r + 'px');
       $pv.find('[data-pv-name]').text($f.find('[name=name]').val());
@@ -461,11 +472,19 @@
     });
     $f.on('input', 'input[type=color]', function () { $f.find('[data-hex-for=' + this.name + ']').val(this.value); });
     $f.on('click', '[data-preset]', function () { var k = $(this).data('preset'), c = $(this).data('color'); $f.find('[name=' + k + ']').val(c); $f.find('[data-hex-for=' + k + ']').val(c); apply(); });
+    $f.on('change', '[name=sidebar_bg_fit]', apply);
     $f.on('change', '[data-preview-img]', function () {
       var k = $(this).data('preview-img'), file = this.files[0];
       if (!file) return;
       var reader = new FileReader();
-      reader.onload = function () { $f.find('[data-thumb=' + k + ']').html($('<img alt="">').attr('src', reader.result)); if (k === 'logo') $pv.find('[data-pv-mark]').replaceWith($('<img alt="" style="max-height:26px;max-width:110px">').attr('src', reader.result)); };
+      reader.onload = function () { $f.find('[data-thumb=' + k + ']').html($('<img alt="">').attr('src', reader.result));
+        if (k === 'sidebar_bg') {
+          // Average colour, as the server will work it out, for the text colour of the preview.
+          var im = new Image();
+          im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1; var x = c.getContext('2d'); x.drawImage(im, 0, 0, 1, 1); var d = x.getImageData(0, 0, 1, 1).data;
+            brandImg = { url: reader.result, avg: '#' + [d[0], d[1], d[2]].map(function (v) { return ('0' + v.toString(16)).slice(-2); }).join('') }; apply(); };
+          im.src = reader.result;
+        } if (k === 'logo') $pv.find('[data-pv-mark]').replaceWith($('<img alt="" style="max-height:26px;max-width:110px">').attr('src', reader.result)); };
       reader.readAsDataURL(file);
     });
     apply();

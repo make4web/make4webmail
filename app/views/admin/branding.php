@@ -20,7 +20,7 @@ $img = static function (string $key, string $label, string $hint) {
 $presets = ['#2563eb', '#4f46e5', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#d97706', '#16a34a', '#0d9488', '#0891b2', '#0f172a'];
 ?>
 <div class="m4w-page-header"><div><h1><?= te('admin.brand_title') ?></h1><p><?= te('admin.brand_desc') ?></p></div></div>
-<form method="post" action="<?= e(url('admin/branding')) ?>" enctype="multipart/form-data" id="brand-form">
+<form method="post" action="<?= e(url('admin/branding')) ?>" enctype="multipart/form-data" id="brand-form" data-sidebar-img="<?= S::get('brand.sidebar_bg', '') !== '' ? e(url('brand/' . S::get('brand.sidebar_bg'))) : '' ?>" data-sidebar-avg="<?= e((string) S::get('brand.sidebar_bg_avg', '')) ?>">
   <?= csrf_field() ?>
   <div class="row g-4">
     <div class="col-xl-7">
@@ -51,7 +51,13 @@ $presets = ['#2563eb', '#4f46e5', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#
           </div></div>
         <?php endforeach; ?>
         <div class="row g-3">
-          <div class="col-md-6"><label class="form-label"><?= te('admin.brand_sidebar') ?></label><select class="form-select" name="sidebar" data-live="sidebar"><?php foreach (['light', 'dark', 'brand'] as $s): ?><option value="<?= $s ?>" <?= S::get('brand.sidebar') === $s ? 'selected' : '' ?>><?= te('admin.sidebar_' . $s) ?></option><?php endforeach; ?></select></div>
+          <div class="col-md-6"><label class="form-label" for="b-sidebar"><?= te('admin.brand_sidebar') ?></label><select class="form-select" id="b-sidebar" name="sidebar" data-live="sidebar"><?php foreach (M4W\Service\Branding::SIDEBAR_STYLES as $s): ?><option value="<?= $s ?>" <?= S::get('brand.sidebar') === $s ? 'selected' : '' ?>><?= te('admin.sidebar_' . $s) ?></option><?php endforeach; ?></select>
+            <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="sidebar_header" value="1" id="b-sidebar-header" data-live="sidebar_header" <?= S::get('brand.sidebar_header', 1) ? 'checked' : '' ?>><label class="form-check-label" for="b-sidebar-header"><?= te('admin.sidebar_header') ?></label></div></div>
+          <div class="col-12" data-sidebar-opt="custom"><label class="form-label" for="b-sidebar-color"><?= te('admin.sidebar_color') ?></label>
+            <div class="d-flex gap-3 flex-wrap align-items-center"><div class="m4w-swatch-input"><input type="color" id="b-sidebar-color" name="sidebar_color" value="<?= e((string) S::get('brand.sidebar_color', '#0f766e')) ?>" data-live="sidebar_color"><input class="form-control m4w-code" style="width:110px" value="<?= e((string) S::get('brand.sidebar_color', '#0f766e')) ?>" data-hex-for="sidebar_color" maxlength="7" aria-label="<?= te('admin.sidebar_color') ?> (hex)"></div>
+            <div class="d-flex gap-2 m4w-presets"><?php foreach ($presets as $c): ?><button type="button" style="background:<?= $c ?>" data-preset="sidebar_color" data-color="<?= $c ?>" title="<?= $c ?>"></button><?php endforeach; ?></div></div></div>
+          <div class="col-12" data-sidebar-opt="image"><?= $img('sidebar_bg', 'admin.sidebar_image', 'admin.sidebar_image_hint') ?>
+            <div class="mb-1 ms-md-5 ps-md-4"><label class="form-label small" for="b-sidebar-fit"><?= te('admin.brand_reader_fit') ?></label><select class="form-select form-select-sm" id="b-sidebar-fit" name="sidebar_bg_fit" style="max-width:260px"><?php foreach (['cover', 'tile'] as $fit): ?><option value="<?= $fit ?>" <?= S::get('brand.sidebar_bg_fit') === $fit ? 'selected' : '' ?>><?= te('admin.fit_' . $fit) ?></option><?php endforeach; ?></select></div></div>
           <div class="col-md-6"><label class="form-label"><?= te('admin.brand_font') ?></label><select class="form-select" name="font"><option value="inter" <?= S::get('brand.font') === 'inter' ? 'selected' : '' ?>>Inter</option><option value="system" <?= S::get('brand.font') === 'system' ? 'selected' : '' ?>><?= te('admin.font_system') ?></option></select></div>
           <div class="col-12"><label class="form-label d-flex justify-content-between"><span><?= te('admin.brand_radius') ?></span><span class="text-muted" data-radius-val><?= (int) S::get('brand.radius') ?>px</span></label><input type="range" class="form-range" min="0" max="20" name="radius" value="<?= (int) S::get('brand.radius') ?>" data-live="radius"></div>
         </div>
