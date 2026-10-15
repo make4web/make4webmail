@@ -2034,8 +2034,34 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     ok(in_array('\\Flagged', $flag['flags'], true), 'flagged here → flagged there');
     // Nothing comes back, nothing is imported twice, and a further pass changes nothing.
     eq($sync(), '');
-    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %'", ['u' => $uid]), 7, 'no duplicate');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %' AND subject <> 'Deux sens renum'", ['u' => $uid]), 7, 'no duplicate');
     eq([$local('tw-del')['role'], $local('tw-here-del')['role']], ['trash', 'trash']);
+    // Same message under another number at the provider (redirection, filter): nothing deleted.
+    $colState(static function (array &$st) use ($colMsg) {
+        $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 3100, 'raw' => $colMsg("To: contact@test.local\r\n", 'Deux sens renum', 'tw-renum'), 'flags' => []];
+    });
+    eq($sync(), '');
+    eq($local('tw-renum')['role'], 'inbox');
+    $colState(static function (array &$st) {
+        foreach ($st['boxes']['paul@test.local']['INBOX']['msgs'] as &$m) { if ($m['uid'] === 3100) { $m['uid'] = 3101; } }
+    });
+    eq($sync(), '');
+    eq($local('tw-renum')['role'], 'inbox', 'renumbered at the provider: stays in the inbox');
+    // A message the client cannot read in the provider answer: asked again, never trashed.
+    $colState(static function (array &$st) { $st['hide_in_fetch'] = [3101]; });
+    eq($sync(), '');
+    eq($local('tw-renum')['role'], 'inbox', 'not in the index but found by Message-ID: stays');
+    $colState(static function (array &$st) { unset($st['hide_in_fetch']); });
+    // Trashed here by mistake, then (again) in the provider inbox: back in the inbox here.
+    Mailbox::move($uid, [(int) $local('tw-renum')['id']], (int) Folders::byRole($uid, 'trash')['id']);
+    DB::delete('remote_uids', "msgid = 'tw-renum@ext.com'");
+    $colState(static function (array &$st) {
+        foreach ($st['boxes']['paul@test.local']['INBOX']['msgs'] as &$m) { if ($m['uid'] === 3101) { $m['uid'] = 3102; } }
+    });
+    eq($sync(), '');
+    eq($local('tw-renum')['role'], 'inbox', 'back in the provider inbox: back in the inbox here');
+    ok($has('INBOX', 'tw-renum') && !$has('Corbeille', 'tw-renum'), 'and left in the provider inbox');
+    ok((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'sync.trashed_here'") >= 2, 'moves made by the synchronisation are logged');
     // The webmail's own clean-up is not taken for a deletion on the phone.
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => 0, 'save_sent' => 1], 1);
     eq($sync(), '');

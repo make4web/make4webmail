@@ -449,7 +449,15 @@ final class RemoteMailbox
             $mid = $msg !== null && preg_match('/^Message-ID:\s*<([^>\r\n]+)>/mi', substr($msg['raw'], 0, (int) (strpos($msg['raw'], "\r\n\r\n") ?: 65536)), $mm) ? $mm[1] : '';
             if ($msg !== null && $user !== null && self::haveLocally((int) $user['id'], $mid)) {
                 // Already here (moved back to the inbox at the provider, copied back, sent to
-                // oneself through another way…): followed, not imported twice.
+                // oneself through another way…): followed, not imported twice. Back in the provider's
+                // inbox while its copy here is in the Trash: it comes back here too.
+                if ($trash = Folders::byRole((int) $user['id'], 'trash')) {
+                    $back = DB::one('SELECT id FROM messages WHERE user_id = :u AND message_id = :m AND folder_id = :t AND is_draft = 0 LIMIT 1', ['u' => $user['id'], 'm' => $mid, 't' => $trash['id']]);
+                    if ($back && ($to = Folders::byRole((int) $user['id'], $local))) {
+                        Mailbox::move((int) $user['id'], [(int) $back['id']], (int) $to['id']);
+                        Audit::log('sync.restored_here', mb_substr((string) DB::value('SELECT subject FROM messages WHERE id = :id', ['id' => $back['id']]), 0, 150), ['box' => (string) $acc['login']], (int) $user['id']);
+                    }
+                }
                 DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time(),
                     'msgid' => mb_substr($mid, 0, 255), 'seen' => (int) in_array('\\seen', $msg['flags'], true), 'flagged' => (int) in_array('\\flagged', $msg['flags'], true)]);
             } elseif ($msg !== null) {
@@ -773,6 +781,14 @@ final class RemoteMailbox
             $report['followed'] += count($rows);
             $report['provider'] += count($index);
             DB::update('remote_accounts', ['empty_streak' => 0], 'id = :id', ['id' => $acc['id']]);
+            // The same message may come back under another number (redirections, filters at the
+            // provider): what counts is the message, not its number.
+            $byMsgid = [];
+            foreach ($index as $iu => $it) {
+                if ($it['msgid'] !== '' && !in_array('\\deleted', $it['flags'], true)) {
+                    $byMsgid[$it['msgid']] ??= $iu;
+                }
+            }
             // Messages here, by Message-ID (the copy outside Sent / Drafts).
             $ids = array_values(array_unique(array_filter(array_map(static fn($r) => (string) ($r['msgid'] !== '' ? $r['msgid'] : ($index[(int) $r['uid']]['msgid'] ?? '')), $rows))));
             $here = [];
@@ -809,7 +825,26 @@ final class RemoteMailbox
                 $m = $msgid !== '' ? ($here[$msgid] ?? null) : null;
                 // 1. Gone from the provider folder, or marked deleted there (many mail apps only
                 //    set \Deleted and erase later): deleted (or archived) on the phone.
-                if (!isset($index[$ruid]) || in_array('\\deleted', $index[$ruid]['flags'], true)) {
+                $gone = !isset($index[$ruid]) || in_array('\\deleted', $index[$ruid]['flags'], true);
+                if ($gone && $msgid !== '' && isset($byMsgid[$msgid])) {
+                    // Still there under another number: follow the new one, nothing was deleted.
+                    $taken = (bool) DB::value('SELECT 1 FROM remote_uids WHERE account_id = :a AND folder = :f AND validity = :v AND uid = :u', ['a' => $acc['id'], 'f' => $local, 'v' => $info['uidvalidity'], 'u' => $byMsgid[$msgid]]);
+                    $taken ? DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]) : DB::update('remote_uids', ['uid' => $byMsgid[$msgid]], 'id = :id', ['id' => $r['id']]);
+                    continue;
+                }
+                if ($gone && $msgid !== '' && !isset($index[$ruid])) {
+                    // Before touching anything here, ask the provider once more, by Message-ID.
+                    try {
+                        $still = array_filter($client->searchMessageId($msgid), static fn($x) => !in_array('\\deleted', $index[$x]['flags'] ?? [], true));
+                    } catch (\RuntimeException) {
+                        continue; // not sure: next time
+                    }
+                    if ($still) {
+                        DB::update('remote_uids', ['uid' => (int) reset($still)], 'id = :id', ['id' => $r['id']]);
+                        continue;
+                    }
+                }
+                if ($gone) {
                     // Wherever its copy is here (inbox, a folder of one's own…), unless already in the Trash.
                     if ($m && (int) $m['folder_id'] !== $roles['trash']) {
                         $archived = false;
@@ -823,6 +858,9 @@ final class RemoteMailbox
                         }
                         Mailbox::move($uid, [(int) $m['id']], $archived ? $roles['archive'] : $roles['trash']);
                         $report[$archived ? 'archived' : 'trashed']++;
+                        // Traced in the logs, so that one can always tell why a message moved.
+                        Audit::log($archived ? 'sync.archived_here' : 'sync.trashed_here', mb_substr((string) DB::value('SELECT subject FROM messages WHERE id = :id', ['id' => $m['id']]), 0, 150),
+                            ['box' => (string) $acc['login'], 'uid' => $ruid, 'flags' => isset($index[$ruid]) ? implode(' ', $index[$ruid]['flags']) : 'absent'], $uid);
                         $actions++;
                     }
                     DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
@@ -860,6 +898,7 @@ final class RemoteMailbox
                         }
                         DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
                         $report['moved']++;
+                        Audit::log('sync.moved_there', mb_substr((string) ($m ? DB::value('SELECT subject FROM messages WHERE id = :id', ['id' => $m['id']]) : $msgid), 0, 150), ['box' => (string) $acc['login'], 'to' => $target !== '' ? $target : 'deleted'], $uid);
                         $actions++;
                     } catch (\RuntimeException $e) {
                         error_log('[m4w] two-way move: ' . $e->getMessage());
