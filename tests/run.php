@@ -833,6 +833,42 @@ test('files handed out: sandboxed, except a PDF shown by the browser viewer (sti
         ok(str_contains(M4W\Core\Response::fileCsp($m), 'sandbox'), "sandboxed: $m");
     }
 });
+test('list: attachments marked when one is blocked (red) or needs care (yellow)', function () use ($alice) {
+    $uid = (int) $alice['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $mk = static function (string $name, string $mime, string $data) use ($uid, $inbox) {
+        $b = 'b' . bin2hex(random_bytes(4));
+        return Mailbox::store($uid, $inbox, "From: x@ext.com\r\nSubject: PJ $name\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"$b\"\r\n\r\n--$b\r\nContent-Type: text/plain\r\n\r\nx\r\n--$b\r\n"
+            . "Content-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . base64_encode($data) . "\r\n--$b--\r\n");
+    };
+    $ids = ['block' => $mk('facture.exe', 'application/octet-stream', "MZ\x90\0" . str_repeat("\0", 60)), 'warn' => $mk('rapport.pdf', 'application/pdf', 'bonjour'), '' => $mk('note.txt', 'text/plain', 'bonjour')];
+    $rows = [];
+    foreach (Mailbox::list($uid, ['folder' => $inbox, 'limit' => 200])['items'] as $it) { $rows[$it['id']] = $it['att_risk']; }
+    foreach ($ids as $risk => $id) { eq($rows[$id] ?? null, $risk, "row $risk"); }
+    $th = [];
+    foreach (Mailbox::list($uid, ['folder' => $inbox, 'limit' => 200, 'threads' => 1])['items'] as $it) { $th[$it['id']] = $it['att_risk']; }
+    eq($th[$ids['block']] ?? 'absent', 'block', 'conversation view too');
+    Mailbox::delete($uid, array_values($ids), true);
+});
+test('antivirus unreachable: the reason is explained and a daemon elsewhere is found', function () {
+    $prev = M4W\Core\Settings::get('security.clamd');
+    M4W\Core\Settings::set('security.clamd', 'unix:///nonexistent/clamd.ctl');
+    $d = M4W\Service\Antivirus::diagnose();
+    ok(!$d['ok'] && str_contains($d['reason'], '/nonexistent/clamd.ctl'), 'missing socket explained');
+    // A clamd answering on another usual address.
+    $sock = '/tmp/clamd.socket';
+    @unlink($sock);
+    $code = '$s = stream_socket_server("unix://' . $sock . '"); for ($i = 0; $i < 20; $i++) { $c = @stream_socket_accept($s, 5); if (!$c) break; fread($c, 64); fwrite($c, "PONG\0"); fclose($c); }';
+    $proc = proc_open([PHP_BINARY, '-r', $code], [], $pipes);
+    for ($i = 0; $i < 30 && !file_exists($sock); $i++) { usleep(100000); }
+    $d = M4W\Service\Antivirus::diagnose();
+    ok(in_array('unix://' . $sock, $d['found'], true), 'found at ' . $sock);
+    M4W\Core\Settings::set('security.clamd', 'unix://' . $sock);
+    ok(M4W\Service\Antivirus::diagnose()['ok'], 'answers once chosen');
+    proc_terminate($proc);
+    @unlink($sock);
+    M4W\Core\Settings::set('security.clamd', $prev);
+});
 test('pinned messages stay at the top of their folder, not in search results', function () use ($alice) {
     $uid = (int) $alice['id'];
     $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
@@ -1496,8 +1532,28 @@ file_put_contents($wm['state'], json_encode([
     ],
 ]));
 @unlink($wm['log']);
-$wmProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_provider.php', (string) $wm['imap'], (string) $wm['smtp'], $wm['state'], $wm['log']], [], $wmPipes);
-usleep(400000);
+// Random ports: try others if these are taken, and wait until both really listen.
+for ($try = 0; $try < 5; $try++) {
+    $wmProc = proc_open([PHP_BINARY, __DIR__ . '/fixtures/fake_provider.php', (string) $wm['imap'], (string) $wm['smtp'], $wm['state'], $wm['log']], [], $wmPipes);
+    $up = false;
+    for ($i = 0; $i < 50 && !$up; $i++) {
+        usleep(100000);
+        $a = @stream_socket_client('tcp://127.0.0.1:' . $wm['imap'], $e1, $s1, 1);
+        $b = @stream_socket_client('tcp://127.0.0.1:' . $wm['smtp'], $e2, $s2, 1);
+        $up = $a && $b;
+        $a && fclose($a);
+        $b && fclose($b);
+        if (!$up && !proc_get_status($wmProc)['running']) {
+            break;
+        }
+    }
+    if ($up) {
+        break;
+    }
+    proc_terminate($wmProc);
+    $wm['imap'] = random_int(41000, 45000);
+    $wm['smtp'] = random_int(45001, 49000);
+}
 Settings::setMany([
     'mail.mode' => 'webmail', 'webmail.imap_host' => '127.0.0.1', 'webmail.imap_port' => $wm['imap'], 'webmail.imap_security' => 'none',
     'webmail.smtp_host' => '127.0.0.1', 'webmail.smtp_port' => $wm['smtp'], 'webmail.smtp_security' => 'none', 'webmail.verify_peer' => 0,

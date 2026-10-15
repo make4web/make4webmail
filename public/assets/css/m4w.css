@@ -1297,3 +1297,22 @@ body.m4w-editor-open { overflow: hidden; }
 .rounded-circle { border-radius: var(--m4w-radius-round) !important; }
 .form-check-input[type=checkbox] { border-radius: var(--m4w-radius-xs); }
 .btn-close { border-radius: var(--m4w-radius-sm); }
+.m4w-row-att { position: relative; }
+.m4w-row-att-risk { position: absolute; left: .55rem; top: -.3rem; font-size: .62rem !important; background: var(--m4w-surface); border-radius: var(--m4w-radius-round); line-height: 1; }
+.m4w-row-att.risk-block .m4w-row-att-risk { color: var(--m4w-danger); }
+.m4w-row-att.risk-warn .m4w-row-att-risk { color: #d97706; }
+
+/* Event window: summary tab (when, where, who, what at a glance) */
+.m4w-cal-tabs { border-bottom: 1px solid var(--m4w-border); margin-top: -.25rem; }
+.m4w-cal-tabs .nav-link { border: 0; border-bottom: 2px solid transparent; color: var(--m4w-muted); font-weight: 550; padding: .6rem .9rem; border-radius: 0; }
+.m4w-cal-tabs .nav-link.active { color: var(--m4w-primary); border-bottom-color: var(--m4w-primary); background: transparent; }
+.m4w-cal-sum-head { border-left: 4px solid var(--ev); padding: .1rem 0 .1rem .9rem; margin-bottom: 1.1rem; }
+.m4w-cal-sum-title { font-size: 1.35rem; font-weight: 650; margin: 0 0 .15rem; overflow-wrap: anywhere; }
+.m4w-cal-sum-row { display: flex; gap: .9rem; padding: .8rem 0; border-top: 1px solid var(--m4w-border); }
+.m4w-cal-sum-row > .bi { font-size: 1.15rem; color: var(--m4w-primary); width: 1.4rem; text-align: center; flex: none; margin-top: .1rem; }
+.m4w-cal-sum-label { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--m4w-muted); margin-bottom: .2rem; }
+.text-capitalize-first::first-letter { text-transform: uppercase; }
+.m4w-cal-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .35rem .9rem; }
+.m4w-cal-people li { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+.m4w-cal-people .m4w-avatar { --size: 30px; font-size: .72rem; flex: none; }
+.m4w-cal-sum-notes { white-space: pre-wrap; overflow-wrap: anywhere; }

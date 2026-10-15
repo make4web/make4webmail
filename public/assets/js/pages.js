@@ -73,6 +73,8 @@
     $(document).on('change', '[data-own-toggle]', function () {
       $('[data-own-fields]').toggleClass('d-none', !this.checked);
     });
+    // Antivirus diagnostic: use the address where a daemon answers (saved with the form).
+    $(document).on('click', '[data-av-use]', function () { $('[data-av-input]').val($(this).attr('data-av-use')).trigger('focus'); M4W.toast(t('av_use_save'), 'info'); });
     $(document).on('click', '[data-remote-action]', function () {
       var $b = $(this);
       if ($b.data('remote-confirm') && !$b.data('confirmed')) {

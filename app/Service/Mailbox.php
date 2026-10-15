@@ -168,16 +168,19 @@ final class Mailbox
         $sort = ($opts['sort'] ?? 'date') === 'from' ? 'm.from_name' : (($opts['sort'] ?? '') === 'subject' ? 'm.subject' : 'm.date_received');
         $dir = ($opts['dir'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
         $threads = !empty($opts['threads']) && $q === '';
+        // Worst attachment of the row: 2 blocked or removed by the antivirus, 1 needs care.
+        $risk = "CASE WHEN m.attachments LIKE '%\"risk\":\"block\"%' OR m.attachments LIKE '%\"removed\":{%' THEN 2"
+            . " WHEN m.attachments LIKE '%\"risk\":\"warn\"%' THEN 1 ELSE 0 END";
         // Pinned messages stay at the top of their folder (not in search results).
         $pin = $q === '' && $folderId > 0;
 
         if ($threads) {
             $total = (int) DB::value("SELECT COUNT(DISTINCT m.thread_key) FROM messages m WHERE $whereSql", $params);
             $rows = DB::all(
-                "SELECT m.*, t.cnt AS thread_count, t.unread_cnt AS thread_unread, t.flagged_cnt AS thread_flagged, t.att_cnt AS thread_att
+                "SELECT m.*, t.cnt AS thread_count, t.unread_cnt AS thread_unread, t.flagged_cnt AS thread_flagged, t.att_cnt AS thread_att, t.att_risk, t.pin_cnt
                  FROM messages m
                  JOIN (SELECT thread_key, MAX(id) AS last_id, COUNT(*) AS cnt, SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread_cnt,
-                              SUM(is_flagged) AS flagged_cnt, SUM(has_attachments) AS att_cnt, MAX(is_pinned) AS pin_cnt
+                              SUM(is_flagged) AS flagged_cnt, SUM(has_attachments) AS att_cnt, MAX(is_pinned) AS pin_cnt, MAX($risk) AS att_risk
                        FROM messages m WHERE $whereSql GROUP BY thread_key) t ON t.last_id = m.id
                  ORDER BY " . ($pin ? 't.pin_cnt DESC, ' : '') . "$sort $dir, m.id $dir LIMIT $limit OFFSET $offset",
                 $params
@@ -185,7 +188,7 @@ final class Mailbox
         } else {
             $total = (int) DB::value("SELECT COUNT(*) FROM messages m WHERE $whereSql", $params);
             $rows = DB::all(
-                "SELECT m.*, 1 AS thread_count, (1 - m.is_read) AS thread_unread, m.is_flagged AS thread_flagged, m.has_attachments AS thread_att
+                "SELECT m.*, 1 AS thread_count, (1 - m.is_read) AS thread_unread, m.is_flagged AS thread_flagged, m.has_attachments AS thread_att, $risk AS att_risk
                  FROM messages m WHERE $whereSql ORDER BY " . ($pin ? 'm.is_pinned DESC, ' : '') . "$sort $dir, m.id $dir LIMIT $limit OFFSET $offset",
                 $params
             );
@@ -284,6 +287,7 @@ final class Mailbox
             'draft'       => (bool) $m['is_draft'],
             'attachments' => isset($m['thread_att']) ? (int) $m['thread_att'] > 0 : (bool) $m['has_attachments'],
             'att_count'   => (int) $m['has_attachments'] ? count(json_decode((string) $m['attachments'], true) ?: []) : 0,
+            'att_risk'    => ['', 'warn', 'block'][(int) ($m['att_risk'] ?? 0)] ?? '',
             'pinned'      => isset($m['pin_cnt']) ? (int) $m['pin_cnt'] > 0 : (bool) ($m['is_pinned'] ?? 0),
             'priority'    => (int) $m['priority'],
             'scheduled'   => (int) ($m['scheduled_at'] ?? 0),

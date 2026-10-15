@@ -48,8 +48,23 @@
     <div class="m4w-section-title"><i class="bi bi-virus me-2 text-primary"></i><?= te('admin.av_title') ?>
       <?php $avUp = M4W\Service\Antivirus::ping(); ?><span class="badge ms-2 <?= $avUp ? 'badge-soft-success' : 'badge-soft-danger' ?>"><?= $avUp ? e(M4W\Service\Antivirus::version() ?: t('admin.av_up')) : te('admin.av_down') ?></span></div>
     <p class="small text-muted"><?= te('admin.av_desc') ?></p>
+    <?php if (!$avUp && S::get('security.antivirus')): $avd = M4W\Service\Antivirus::diagnose(); ?>
+    <div class="alert alert-warning small" role="status"><div class="w-100">
+      <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-1"></i><?= te('av.diag_title') ?></div>
+      <p class="mb-2"><?= e($avd['reason']) ?></p>
+      <?php if ($avd['found']): ?><p class="mb-2"><?= te('av.found') ?>
+        <?php foreach ($avd['found'] as $fa): ?><button type="button" class="btn btn-sm btn-light ms-1 m4w-code" data-av-use="<?= e($fa) ?>"><?= e($fa) ?></button><?php endforeach; ?></p><?php endif; ?>
+      <details><summary><?= te('av.commands') ?></summary>
+        <pre class="m4w-code small mt-2 mb-0">sudo apt install clamav-daemon clamav-freshclam
+sudo systemctl stop clamav-freshclam &amp;&amp; sudo freshclam &amp;&amp; sudo systemctl start clamav-freshclam
+sudo systemctl enable --now clamav-daemon
+sudo systemctl status clamav-daemon
+ls -l /var/run/clamav/</pre></details>
+      <a class="btn btn-sm btn-warning mt-2" href="<?= e(url('admin/security')) ?>#antivirus"><i class="bi bi-arrow-repeat me-1"></i><?= te('av.retest') ?></a>
+    </div></div>
+    <?php endif; ?>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.av_enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="antivirus" value="1" aria-label="<?= te('admin.av_enable') ?>" <?= S::get('security.antivirus') ? 'checked' : '' ?>></div></div>
-    <div class="m4w-setting-row"><div class="label"><?= te('admin.av_socket') ?><small><?= te('admin.av_socket_hint') ?></small></div><div><input class="form-control m4w-code" style="max-width:340px" name="clamd" aria-label="<?= te('admin.av_socket') ?>" value="<?= e(S::get('security.clamd')) ?>"></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.av_socket') ?><small><?= te('admin.av_socket_hint') ?></small></div><div><input class="form-control m4w-code" style="max-width:340px" name="clamd" data-av-input aria-label="<?= te('admin.av_socket') ?>" value="<?= e(S::get('security.clamd')) ?>"></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.block_exec') ?><small><?= te('admin.block_exec_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="block_executables" value="1" aria-label="<?= te('admin.block_exec') ?>" <?= S::get('security.block_executables') ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.ext_forward') ?><small><?= te('admin.ext_forward_desc') ?></small></div><div><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="allow_external_forward" value="1" <?= S::get('security.allow_external_forward') ? 'checked' : '' ?>></div><input class="form-control" name="forward_whitelist" value="<?= e(S::get('security.forward_whitelist')) ?>" placeholder="<?= te('admin.fwd_wl_ph') ?>"></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.max_attach') ?></div><div class="input-group" style="max-width:180px"><input class="form-control" type="number" name="max_attachment_mb" value="<?= (int) S::get('security.max_attachment_mb') ?>"><span class="input-group-text">Mo</span></div></div>
