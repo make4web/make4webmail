@@ -930,12 +930,14 @@ test('antivirus unreachable: the reason is explained and a daemon elsewhere is f
 });
 test('branding: side menu (and header) in a colour of choice or a picture, readable text', function () {
     $B = M4W\Service\Branding::class;
-    $keep = array_map(static fn($k) => Settings::get($k), $keys = ['brand.sidebar', 'brand.sidebar_color', 'brand.sidebar_header', 'brand.sidebar_bg', 'brand.sidebar_bg_avg', 'brand.accent']);
+    $keep = array_map(static fn($k) => Settings::get($k), $keys = ['brand.sidebar', 'brand.sidebar_color', 'brand.sidebar_header', 'brand.sidebar_main', 'brand.sidebar_bg', 'brand.sidebar_bg_avg', 'brand.accent']);
     Settings::setMany(['brand.sidebar' => 'light']);
     eq($B::bodyClasses(), '', 'light: nothing');
     Settings::setMany(['brand.sidebar' => 'custom', 'brand.sidebar_color' => '#0f766e', 'brand.sidebar_header' => 1]);
     ok(str_contains($B::css(), '--m4w-sidebar-bg:#0f766e;--m4w-sidebar-fg:#ffffff'), 'custom colour, white text');
-    eq($B::bodyClasses(), 'has-chrome chrome-on-dark chrome-header');
+    eq($B::bodyClasses(), 'has-chrome chrome-on-dark chrome-header chrome-main');
+    Settings::set('brand.sidebar_main', 0);
+    eq($B::bodyClasses(), 'has-chrome chrome-on-dark chrome-header', 'work area left alone');
     Settings::setMany(['brand.sidebar' => 'custom', 'brand.sidebar_color' => '#fde68a', 'brand.sidebar_header' => 0]);
     ok(str_contains($B::css(), '--m4w-sidebar-fg:#0f172a'), 'dark text on a light colour');
     eq($B::bodyClasses(), 'has-chrome', 'header left alone');

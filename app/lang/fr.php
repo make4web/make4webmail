@@ -2171,4 +2171,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'admin.sidebar_header' => 'Appliquer aussi à la barre du haut',
     'admin.sidebar_color' => 'Couleur du menu',
     'admin.sidebar_image_hint' => 'PNG, JPEG, WebP. La couleur du texte (clair ou foncé) est choisie d\'après la luminosité de l\'image, avec un léger voile pour rester lisible.',
+    'admin.sidebar_main' => 'Étendre au fond de la zone de travail',
 ];
