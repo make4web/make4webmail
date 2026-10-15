@@ -131,6 +131,9 @@ final class CalendarController extends Controller
             'i_organize' => $org === '' || in_array($org, $mine, true), 'my_partstat' => Scheduling::myPartstat($cal, $user),
             'writable' => Calendar::level($user, $c) >= 2,
             'meeting' => ($mt = Meetings::of($cal)) ? $mt['provider'] : '', 'meeting_url' => $mt['url'] ?? '',
+            // For whoever opens it: their name already filled in; and the fixed connection details.
+            'meeting_join' => $mt ? Meetings::joinUrl($mt, (string) ($user['name'] ?? ''), (string) $user['email'], (string) ($ev->SUMMARY ?? '')) : '',
+            'meeting_details' => $mt ? array_slice(Meetings::details($mt), 1) : [], 'meeting_howto' => $mt ? Meetings::howTo($mt['provider']) : '',
             'room_id' => Rooms::roomOf($cal), 'room_status' => strtolower((string) ($master->{'X-M4W-ROOM-STATUS'} ?? '')),
             'room_name' => ($r = Rooms::find(Rooms::roomOf($cal))) ? $r['name'] : '',
         ]]);
