@@ -64,7 +64,8 @@ while (true) {
                     $out("$tag OK [READ-WRITE] selected");
                 } elseif ($cmd === 'LIST' && $user) {
                     foreach (array_keys($st['boxes'][$user] ?? []) as $name) {
-                        $out('* LIST (' . ($name === ($st['sent_special'][$user] ?? '') ? '\\Sent' : '') . ') "/" "' . $name . '"');
+                        $attr = $name === ($st['sent_special'][$user] ?? '') ? '\\Sent' : (string) ($st['special'][$user][$name] ?? '');
+                        $out('* LIST (' . $attr . ') "/" "' . $name . '"');
                     }
                     $out("$tag OK list done");
                 } elseif ($cmd === 'APPEND' && $user) {
@@ -93,6 +94,40 @@ while (true) {
                         $uids = array_map(static fn($x) => $x['uid'], array_filter($f['msgs'], static fn($x) => $x['uid'] >= (int) $m[1]));
                         $out('* SEARCH' . ($uids ? ' ' . implode(' ', $uids) : ''));
                         $out("$tag OK search done");
+                    } elseif (preg_match('/^SEARCH HEADER Message-ID "(.*)"$/i', $args, $m)) {
+                        $want = stripcslashes($m[1]);
+                        $uids = array_map(static fn($x) => $x['uid'], array_filter($f['msgs'], static fn($x) => stripos($x['raw'], 'Message-ID: ' . $want) !== false));
+                        $out('* SEARCH' . ($uids ? ' ' . implode(' ', $uids) : ''));
+                        $out("$tag OK search done");
+                    } elseif (preg_match('/^FETCH ([\d,]+) \(.*HEADER\.FIELDS/i', $args, $m)) {
+                        $set = array_map('intval', explode(',', $m[1]));
+                        foreach ($f['msgs'] as $i => $msg) {
+                            if (in_array($msg['uid'], $set, true)) {
+                                $hdr = (preg_match('/^Message-ID:[^\n]*/mi', str_replace("\r\n", "\n", $msg['raw']), $h) ? rtrim($h[0]) . "\r\n" : '') . "\r\n";
+                                fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' FLAGS (' . implode(' ', $msg['flags'] ?? []) . ') BODY[HEADER.FIELDS (MESSAGE-ID)] {' . strlen($hdr) . "}\r\n" . $hdr . ")\r\n");
+                            }
+                        }
+                        $out("$tag OK fetch done");
+                    } elseif (preg_match('/^(MOVE|COPY) (\d+) "(.*)"$/i', $args, $m)) {
+                        $to = stripcslashes($m[3]);
+                        if (!isset($st['boxes'][$user][$to])) {
+                            $out("$tag NO [TRYCREATE] no such mailbox");
+                        } else {
+                            foreach ($f['msgs'] as $k => $msg) {
+                                if ($msg['uid'] === (int) $m[2]) {
+                                    $t = &$st['boxes'][$user][$to];
+                                    $t['next'] ??= ($t['msgs'] ? max(array_column($t['msgs'], 'uid')) : 0) + 1;
+                                    $t['msgs'][] = ['uid' => $t['next']++] + $msg;
+                                    unset($t);
+                                    if (strtoupper($m[1]) === 'MOVE') {
+                                        unset($f['msgs'][$k]);
+                                        $f['msgs'] = array_values($f['msgs']);
+                                    }
+                                }
+                            }
+                            $save($st);
+                            $out("$tag OK done");
+                        }
                     } elseif (preg_match('/^FETCH (\d+) /i', $args, $m)) {
                         foreach ($f['msgs'] as $i => $msg) {
                             if ($msg['uid'] === (int) $m[1]) {
@@ -102,10 +137,18 @@ while (true) {
                             }
                         }
                         $out("$tag OK fetch done");
-                    } elseif (preg_match('/^STORE (\d+) \+FLAGS/i', $args, $m)) {
+                    } elseif (preg_match('/^STORE (\d+) ([+-])FLAGS(?:\.SILENT)? \(([^)]*)\)/i', $args, $m)) {
                         foreach ($f['msgs'] as &$msg) {
                             if ($msg['uid'] === (int) $m[1]) {
-                                $msg['deleted'] = true;
+                                foreach (array_filter(explode(' ', $m[3])) as $fl) {
+                                    if (strcasecmp($fl, '\\Deleted') === 0) {
+                                        $msg['deleted'] = $m[2] === '+';
+                                    } elseif ($m[2] === '+') {
+                                        $msg['flags'] = array_values(array_unique(array_merge($msg['flags'] ?? [], [$fl])));
+                                    } else {
+                                        $msg['flags'] = array_values(array_filter($msg['flags'] ?? [], static fn($x) => strcasecmp($x, $fl) !== 0));
+                                    }
+                                }
                             }
                         }
                         unset($msg);

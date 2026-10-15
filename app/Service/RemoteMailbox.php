@@ -210,6 +210,9 @@ final class RemoteMailbox
             'smtp_host' => $host($d['smtp_host'] ?? ''), 'smtp_port' => max(0, min(65535, (int) ($d['smtp_port'] ?? 0))), 'smtp_security' => $sec($d['smtp_security'] ?? ''),
             'enabled' => !empty($d['enabled']) ? 1 : 0, 'updated_at' => time(),
         ];
+        if (array_key_exists('two_way', $d)) {
+            $data['two_way'] = !empty($d['two_way']) ? 1 : 0;
+        }
         if (array_key_exists('forced', $d)) {
             $data['forced'] = !empty($d['forced']) ? 1 : 0;
             $data['overflow'] = !empty($d['overflow']) ? 1 : 0;
@@ -407,6 +410,9 @@ final class RemoteMailbox
             if ($user !== null && self::isOwn($acc)) {
                 self::restoreBatch($client, DB::one('SELECT * FROM remote_accounts WHERE id = :id', ['id' => $acc['id']]) ?? $acc, $user);
             }
+            if ($user !== null && (int) ($acc['two_way'] ?? 1)) {
+                self::reconcile($client, DB::one('SELECT * FROM remote_accounts WHERE id = :id', ['id' => $acc['id']]) ?? $acc, $user);
+            }
             $client->logout();
         } catch (\Throwable $e) {
             $client?->logout();
@@ -440,12 +446,19 @@ final class RemoteMailbox
         $boundary = (int) Settings::get($boundaryKey, 0);
         foreach (array_slice($uids, 0, $max) as $uid) {
             $msg = $client->fetchMessage($uid);
-            if ($msg !== null) {
+            $mid = $msg !== null && preg_match('/^Message-ID:\s*<([^>\r\n]+)>/mi', substr($msg['raw'], 0, (int) (strpos($msg['raw'], "\r\n\r\n") ?: 65536)), $mm) ? $mm[1] : '';
+            if ($msg !== null && $user !== null && self::haveLocally((int) $user['id'], $mid)) {
+                // Already here (moved back to the inbox at the provider, copied back, sent to
+                // oneself through another way…): followed, not imported twice.
+                DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time(),
+                    'msgid' => mb_substr($mid, 0, 255), 'seen' => (int) in_array('\\seen', $msg['flags'], true), 'flagged' => (int) in_array('\\flagged', $msg['flags'], true)]);
+            } elseif ($msg !== null) {
                 // Where it was collected, shown in the message details (and stripped when copied back).
                 $kind = (int) $acc['user_id'] === Collector::ACCOUNT ? 'collector' : (self::isOwn($acc) ? 'own' : 'webmail');
                 $trace = 'X-M4W-Fetched: ' . preg_replace('/[^\w.@+\-]/', '', (string) self::effective($acc)['login']) . '; ' . $kind . '; ' . preg_replace('/[^\w.\-\/ ]/', '', $remote) . '; uid=' . $uid . '; ' . date('r') . "\r\n";
                 self::import($user, $trace . Delivery::stripHeader(str_replace(["\r\n", "\r"], "\n", $msg['raw']), 'X-M4W-Fetched'), $local, $msg, $uid <= $boundary);
-                DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time()]);
+                DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time(),
+                    'msgid' => mb_substr($mid, 0, 255), 'seen' => (int) in_array('\\seen', $msg['flags'], true), 'flagged' => (int) in_array('\\flagged', $msg['flags'], true)]);
                 $n++;
             }
             DB::update('remote_accounts', [$uidCol => $uid, $valCol => $info['uidvalidity']], 'id = :id', ['id' => $acc['id']]);
@@ -682,6 +695,195 @@ final class RemoteMailbox
             Audit::log('own.restore_finished', (string) $acc['login'], ['done' => $st['done'], 'skipped' => $st['skipped'], 'failed' => $st['failed']], $uid);
         }
         DB::update('remote_accounts', ['restore_state' => json_encode($st)], 'id = :id', ['id' => $acc['id']]);
+    }
+
+    // --------------------------------------------------------- two-way synchronisation
+
+    /** A message with this Message-ID is already in the person's mailbox (outside Sent and Drafts). */
+    private static function haveLocally(int $userId, string $msgid): bool
+    {
+        if ($msgid === '') {
+            return false;
+        }
+        return (bool) DB::value("SELECT 1 FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.message_id = :m AND m.is_draft = 0 AND (f.role IS NULL OR f.role <> 'sent') LIMIT 1",
+            ['u' => $userId, 'm' => $msgid]);
+    }
+
+    /** A folder of the provider by role, found once and remembered ('-' = it has none). */
+    private static function providerFolder(ImapClient $client, array &$acc, string $col): string
+    {
+        $f = (string) ($acc[$col] ?? '');
+        if ($f === '') {
+            $f = ($col === 'trash_folder' ? $client->trashFolder() : $client->archiveFolder()) ?: '-';
+            DB::update('remote_accounts', [$col => mb_substr($f, 0, 190)], 'id = :id', ['id' => $acc['id']]);
+            $acc[$col] = $f;
+        }
+        return $f === '-' ? '' : $f;
+    }
+
+    /**
+     * The same mailbox seen from the phone and from the webmail. For each message collected:
+     *  - gone from the provider (deleted on the phone): to the Trash here, or to the Archives
+     *    when it was archived there;
+     *  - deleted, archived or marked as junk here: moved likewise at the provider (its Trash at
+     *    least, never erased);
+     *  - read / flagged: whichever side changed since they last agreed wins.
+     * What this webmail removes itself (clean-up) is no longer followed, so never mistaken for
+     * a deletion on the phone. An inbox that suddenly looks empty must look so twice in a row.
+     */
+    private static function reconcile(ImapClient $client, array $acc, array $user, int $max = 300): void
+    {
+        $uid = (int) $user['id'];
+        $roles = [];
+        foreach (['inbox', 'spam', 'trash', 'archive', 'sent', 'drafts'] as $r) {
+            $roles[$r] = (int) (Folders::byRole($uid, $r)['id'] ?? 0);
+        }
+        $spamRemote = trim((string) Settings::get('webmail.spam_folder', ''));
+        $actions = 0;
+        foreach (['inbox' => 'INBOX', 'spam' => $spamRemote] as $local => $remote) {
+            if ($remote === '') {
+                continue;
+            }
+            try {
+                $info = $client->select($remote);
+            } catch (\RuntimeException) {
+                continue;
+            }
+            if ((int) $acc[$local . '_validity'] !== $info['uidvalidity']) {
+                continue; // renumbered: pullFolder starts again from there
+            }
+            $rows = DB::all('SELECT * FROM remote_uids WHERE account_id = :a AND folder = :f AND validity = :v', ['a' => $acc['id'], 'f' => $local, 'v' => $info['uidvalidity']]);
+            if (!$rows) {
+                continue;
+            }
+            $index = $client->index();
+            if (!$index && count($rows) > 20) {
+                // Empty all of a sudden: believed only when seen twice in a row.
+                if ((int) $acc['empty_streak'] < 1) {
+                    DB::update('remote_accounts', ['empty_streak' => (int) $acc['empty_streak'] + 1], 'id = :id', ['id' => $acc['id']]);
+                    continue;
+                }
+            }
+            DB::update('remote_accounts', ['empty_streak' => 0], 'id = :id', ['id' => $acc['id']]);
+            // Messages here, by Message-ID (the copy outside Sent / Drafts).
+            $ids = array_values(array_unique(array_filter(array_map(static fn($r) => (string) ($r['msgid'] !== '' ? $r['msgid'] : ($index[(int) $r['uid']]['msgid'] ?? '')), $rows))));
+            $here = [];
+            foreach (array_chunk($ids, 400) as $chunk) {
+                [$in, $p] = DB::in('m', $chunk);
+                foreach (DB::all("SELECT id, message_id, folder_id, is_read, is_flagged FROM messages WHERE user_id = :u AND is_draft = 0 AND message_id IN $in AND folder_id <> :s", $p + ['u' => $uid, 's' => $roles['sent']]) as $m) {
+                    $here[$m['message_id']] ??= $m;
+                    if ((int) $m['folder_id'] === $roles[$local]) {
+                        $here[$m['message_id']] = $m; // the copy where it was put wins
+                    }
+                }
+            }
+            foreach ($rows as $r) {
+                if ($actions >= $max) {
+                    return; // the rest at the next synchronisation
+                }
+                $ruid = (int) $r['uid'];
+                $msgid = (string) $r['msgid'];
+                if ($msgid === '' && isset($index[$ruid]) && $index[$ruid]['msgid'] !== '') {
+                    $msgid = $index[$ruid]['msgid'];
+                    DB::update('remote_uids', ['msgid' => mb_substr($msgid, 0, 255)], 'id = :id', ['id' => $r['id']]);
+                }
+                $m = $msgid !== '' ? ($here[$msgid] ?? null) : null;
+                // 1. Gone from the provider folder: deleted (or archived) on the phone.
+                if (!isset($index[$ruid])) {
+                    if ($m && (int) $m['folder_id'] === $roles[$local]) {
+                        $archived = false;
+                        if (($arch = self::providerFolder($client, $acc, 'archive_folder')) !== '' && $roles['archive']) {
+                            try {
+                                $client->select($arch);
+                                $archived = (bool) $client->searchMessageId($msgid);
+                            } catch (\RuntimeException) {
+                            }
+                            $client->select($remote);
+                        }
+                        Mailbox::move($uid, [(int) $m['id']], $archived ? $roles['archive'] : $roles['trash']);
+                        $actions++;
+                    }
+                    DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
+                    continue;
+                }
+                if ($msgid === '') {
+                    continue; // nothing to tie it to here
+                }
+                // 2. Deleted, archived or classified here: the provider follows.
+                $where = $m ? (int) $m['folder_id'] : 0;
+                if ((int) $r['seen'] === -1 && (!$m || $where !== $roles[$local])) {
+                    // Collected before both sides were followed: what was done here back then is
+                    // not replayed at the provider; followed from now on.
+                    DB::update('remote_uids', ['seen' => (int) in_array('\\seen', $index[$ruid]['flags'], true), 'flagged' => (int) in_array('\\flagged', $index[$ruid]['flags'], true)], 'id = :id', ['id' => $r['id']]);
+                    continue;
+                }
+                $target = null;
+                if (!$m || $where === $roles['trash']) {
+                    $target = self::providerFolder($client, $acc, 'trash_folder');
+                } elseif ($where === $roles['archive'] && $roles['archive']) {
+                    $target = self::providerFolder($client, $acc, 'archive_folder') ?: null;
+                } elseif ($local === 'inbox' && $where === $roles['spam'] && $spamRemote !== '') {
+                    $target = $spamRemote;
+                } elseif ($local === 'spam' && $where === $roles['inbox']) {
+                    $target = 'INBOX';
+                }
+                if ($target !== null) {
+                    try {
+                        if ($target === '') {
+                            // No Trash folder at the provider: marked deleted, as a mail app would.
+                            $client->markDeleted($ruid);
+                            $client->expunge();
+                        } else {
+                            $client->moveTo($ruid, $target);
+                        }
+                        DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
+                        $actions++;
+                    } catch (\RuntimeException $e) {
+                        error_log('[m4w] two-way move: ' . $e->getMessage());
+                    }
+                    continue;
+                }
+                if (!$m || $where !== $roles[$local]) {
+                    continue; // moved to one of the person's own folders: left alone at the provider
+                }
+                // 3. Read / flagged: the side that changed since they last agreed wins.
+                $pf = $index[$ruid]['flags'];
+                $set = [];
+                $store = [];
+                foreach (['seen' => ['\\seen', 'is_read', '\\Seen'], 'flagged' => ['\\flagged', 'is_flagged', '\\Flagged']] as $col => [$flag, $field, $imapFlag]) {
+                    $remoteOn = (int) in_array($flag, $pf, true);
+                    $localOn = (int) $m[$field];
+                    $last = (int) $r[$col];
+                    if ($remoteOn === $localOn) {
+                        if ($last !== $remoteOn) {
+                            DB::update('remote_uids', [$col => $remoteOn], 'id = :id', ['id' => $r['id']]);
+                        }
+                        continue;
+                    }
+                    if ($last === -1) {
+                        // Never compared before: read / flagged on either side counts.
+                        $on = 1;
+                        $localOn ? $store[] = [$imapFlag, true] : $set[$field] = 1;
+                    } elseif ($remoteOn !== $last) {
+                        $on = $remoteOn;
+                        $set[$field] = $remoteOn;
+                    } else {
+                        $on = $localOn;
+                        $store[] = [$imapFlag, (bool) $localOn];
+                    }
+                    DB::update('remote_uids', [$col => $on], 'id = :id', ['id' => $r['id']]);
+                }
+                if ($set) {
+                    Mailbox::setFlags($uid, [(int) $m['id']], $set);
+                }
+                foreach ($store as [$f, $on]) {
+                    try {
+                        $client->storeFlags($ruid, $on, [$f]);
+                    } catch (\RuntimeException) {
+                    }
+                }
+            }
+        }
     }
 
     /** Remove imported messages from the provider after the configured delay. */

@@ -184,14 +184,17 @@ final class ImapClient
         }
     }
 
-    /**
-     * The folder the provider uses for sent mail (special-use \Sent, else a usual name).
-     */
-    public function sentFolder(): string
+    /** Folder list (LIST "" "*"), read once per connection: name => attributes. */
+    private ?array $folders = null;
+
+    /** @return array<string,string> */
+    public function folders(): array
     {
-        $res = $this->command('LIST "" "*"');
-        $names = [];
-        foreach ($res['lines'] as $l) {
+        if ($this->folders !== null) {
+            return $this->folders;
+        }
+        $this->folders = [];
+        foreach ($this->command('LIST "" "*"')['lines'] as $l) {
             if (!preg_match('/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (.+)$/i', $l, $m)) {
                 continue;
             }
@@ -199,20 +202,107 @@ final class ImapClient
             if (str_starts_with($name, '"')) {
                 $name = stripcslashes(substr($name, 1, -1));
             }
-            if (stripos($m[1], '\\Sent') !== false) {
+            $this->folders[$name] = $m[1];
+        }
+        return $this->folders;
+    }
+
+    /**
+     * A folder by its role: special-use attribute (\Sent, \Trash, \Archive, \Junk) first,
+     * else a usual name. Names as the server lists them (modified UTF-7), as APPEND expects them.
+     */
+    public function specialFolder(string $use, array $guesses): string
+    {
+        $folders = $this->folders();
+        foreach ($folders as $name => $attrs) {
+            if (stripos($attrs, $use) !== false) {
                 return $name;
             }
-            $names[] = $name;
         }
-        // Names as the server lists them (modified UTF-7), as APPEND expects them.
-        foreach (['Sent', 'INBOX.Sent', 'Sent Items', 'Sent Messages', 'Envoy&AOk-s', 'INBOX.Envoy&AOk-s', '&AMk-l&AOk-ments envoy&AOk-s'] as $guess) {
-            foreach ($names as $n) {
-                if (strcasecmp($n, $guess) === 0) {
-                    return $n;
+        foreach ($guesses as $guess) {
+            foreach (array_keys($folders) as $n) {
+                if (strcasecmp((string) $n, $guess) === 0) {
+                    return (string) $n;
                 }
             }
         }
         return '';
+    }
+
+    /** The folder the provider uses for sent mail. */
+    public function sentFolder(): string
+    {
+        return $this->specialFolder('\\Sent', ['Sent', 'INBOX.Sent', 'Sent Items', 'Sent Messages', 'Envoy&AOk-s', 'INBOX.Envoy&AOk-s', '&AMk-l&AOk-ments envoy&AOk-s']);
+    }
+
+    public function trashFolder(): string
+    {
+        return $this->specialFolder('\\Trash', ['Trash', 'INBOX.Trash', 'Deleted Items', 'Deleted Messages', 'Corbeille', 'INBOX.Corbeille', '&AMk-l&AOk-ments supprim&AOk-s', 'Bin']);
+    }
+
+    public function archiveFolder(): string
+    {
+        return $this->specialFolder('\\Archive', ['Archive', 'Archives', 'INBOX.Archive', 'INBOX.Archives']);
+    }
+
+    /**
+     * Every message of the selected folder: UID => Message-ID (without <>) and flags.
+     * @return array<int,array{msgid:string,flags:string[]}>
+     */
+    public function index(int $max = 20000): array
+    {
+        $out = [];
+        $uids = array_slice($this->searchUidsAbove(0), -$max);
+        foreach (array_chunk($uids, 300) as $chunk) {
+            $res = $this->command('UID FETCH ' . implode(',', $chunk) . ' (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])');
+            $i = 0;
+            foreach ($res['lines'] as $line) {
+                if (!preg_match('/\{\d+\}$/', $line)) {
+                    continue;
+                }
+                $hdr = $res['literals'][$i++] ?? '';
+                if (preg_match('/\bUID (\d+)/i', $line, $u)) {
+                    $out[(int) $u[1]] = ['msgid' => preg_match('/Message-ID:\s*<([^>]+)>/i', $hdr, $m) ? $m[1] : '', 'flags' => self::flags($line)];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** Add or remove flags (\Seen, \Flagged…) on one message of the selected folder. */
+    public function storeFlags(int $uid, bool $add, array $flags): void
+    {
+        $flags = array_values(array_filter($flags, static fn($f) => preg_match('/^\\\\?[A-Za-z$]+$/', $f) === 1));
+        if ($flags) {
+            $this->command('UID STORE ' . $uid . ' ' . ($add ? '+' : '-') . 'FLAGS.SILENT (' . implode(' ', $flags) . ')');
+        }
+    }
+
+    /** Move one message of the selected folder to another (MOVE, else COPY + delete). */
+    public function moveTo(int $uid, string $folder): void
+    {
+        try {
+            $this->command('UID MOVE ' . $uid . ' ' . self::quote($folder));
+        } catch (\RuntimeException) {
+            $this->command('UID COPY ' . $uid . ' ' . self::quote($folder));
+            $this->markDeleted($uid);
+            $this->expunge();
+        }
+    }
+
+    /** UIDs of the selected folder holding this Message-ID. @return int[] */
+    public function searchMessageId(string $msgid): array
+    {
+        if ($msgid === '' || preg_match('/[\r\n"\\\\]/', $msgid)) {
+            return [];
+        }
+        $res = $this->command('UID SEARCH HEADER Message-ID ' . self::quote('<' . $msgid . '>'));
+        foreach ($res['lines'] as $l) {
+            if (preg_match('/^\* SEARCH(.*)$/i', $l, $m)) {
+                return array_map('intval', array_filter(preg_split('/\s+/', trim($m[1])) ?: []));
+            }
+        }
+        return [];
     }
 
     public function markDeleted(int $uid): void
