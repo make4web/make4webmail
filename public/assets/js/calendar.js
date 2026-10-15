@@ -65,6 +65,7 @@
   }
 
   function render() {
+    if (S.view === 'month' || S.view === 'list') S.scroll = null;
     var $b = $('[data-cal-body]').empty().attr('data-view', S.view);
     if (S.view === 'month') renderMonth($b);
     else if (S.view === 'list') renderList($b);
@@ -185,8 +186,18 @@
     $scroll.append($grid);
     $wrap.append($head, $all, $scroll);
     $b.append($wrap);
-    var first = S.events.filter(function (e) { return !e.all_day; }).map(function (e) { return new Date(e.start * 1000).getHours(); });
-    $scroll.scrollTop(Math.max(0, (first.length ? Math.min(7, Math.min.apply(null, first)) : 7) * HOUR - 8));
+    // Same days shown again (refresh, event saved): the position stays where the person left it.
+    // Otherwise: today on screen → the current hour, a third down; else the first event (7:00 at the latest).
+    var key = S.view + ymd(r[0]);
+    if (S.scroll && S.scroll.key === key) { $scroll.scrollTop(S.scroll.top); }
+    else if (days.some(function (d) { return sameDay(d, today); })) {
+      $scroll.scrollTop(Math.max(0, (today.getHours() + today.getMinutes() / 60) * HOUR - $scroll.innerHeight() / 3));
+    } else {
+      var first = S.events.filter(function (e) { return !e.all_day; }).map(function (e) { return new Date(e.start * 1000).getHours(); });
+      $scroll.scrollTop(Math.max(0, (first.length ? Math.min(7, Math.min.apply(null, first)) : 7) * HOUR - 8));
+    }
+    S.scroll = { key: key, top: $scroll.scrollTop() };
+    $scroll.on('scroll', function () { S.scroll = { key: key, top: this.scrollTop }; });
   }
 
   // ---------------------------------------------------------------- list view
@@ -266,7 +277,7 @@
   }
   $(document).on('click', '[data-cal-prev]', function () { go(-1); });
   $(document).on('click', '[data-cal-next]', function () { go(1); });
-  $(document).on('click', '[data-cal-today]', function () { S.date = startOfDay(new Date()); S.miniDate = null; load(); });
+  $(document).on('click', '[data-cal-today]', function () { S.date = startOfDay(new Date()); S.miniDate = null; S.scroll = null; load(); });
   $(document).on('click', '[data-cal-view]', function () { S.view = $(this).data('cal-view'); saveState(); load(); });
   $(document).on('click', '[data-goto]', function (ev) {
     ev.stopPropagation();
@@ -474,7 +485,9 @@
     if (data.meeting && !meets[data.meeting]) $ms.append($('<option></option>').val(data.meeting).text(data.meeting));
     $ms.val(data.meeting || '').prop('disabled', guest || !F.writable);
     F.meetingUrl = data.meeting_url || '';
-    $f.find('[data-cal-join]').toggleClass('d-none', !F.meetingUrl).attr('href', F.meetingUrl || '#');
+    F.meetingJoin = data.meeting_join || F.meetingUrl;
+    renderMeetBlock(data);
+    $f.find('[data-cal-join]').toggleClass('d-none', !F.meetingUrl).attr('href', F.meetingJoin || F.meetingUrl || '#');
     $f.find('[data-cal-copyjoin]').toggleClass('d-none', !F.meetingUrl);
     $f.find('[data-cal-meetrow]').toggleClass('d-none', !Object.keys(meets).length && !F.meetingUrl);
     refreshRooms(true);
@@ -486,6 +499,27 @@
     bootstrap.Modal.getOrCreateInstance($modal[0]).show();
   }
   $modal.on('shown.bs.modal', function () { if (!F.uri) $f.find('[name=title]').trigger('focus'); });
+
+  // ---------------------------------------------------------------- online meeting block
+  // Written by the application into the invitation, under the description: shown here as it
+  // will be sent, and never editable (no typo can slip into a link, an ID or a code).
+  function renderMeetBlock(d) {
+    var $b = $f.find('[data-cal-meetblock]').empty(), chosen = $f.find('[name=meeting]').val() || '';
+    var meets = BOOT.meetings || {};
+    if (!chosen) { $b.addClass('d-none'); return; }
+    var label = meets[chosen] || chosen;
+    $b.removeClass('d-none').append($('<div class="m4w-meet-block-head"></div>').append('<i class="bi bi-lock me-1" aria-hidden="true"></i>').append(document.createTextNode(t('cal_meet_block', { provider: label }))));
+    if (d && d.meeting === chosen && d.meeting_url) {
+      var $dl = $('<dl class="mb-1"></dl>');
+      $dl.append($('<dt></dt>').text(t('cal_meet_link'))).append($('<dd class="m4w-code"></dd>').append($('<a target="_blank" rel="noopener noreferrer"></a>').attr('href', d.meeting_join || d.meeting_url).text(d.meeting_url)));
+      (d.meeting_details || []).forEach(function (r) { $dl.append($('<dt></dt>').text(r[0])).append($('<dd class="m4w-code"></dd>').text(r[1])); });
+      $b.append($dl);
+      if (d.meeting_howto) $b.append($('<div class="small text-muted"></div>').text(d.meeting_howto));
+    } else {
+      $b.append($('<div class="small text-muted"></div>').text(t('cal_meet_pending', { provider: label })));
+    }
+  }
+  $f.on('change', '[name=meeting]', function () { renderMeetBlock(F.data || {}); });
 
   // ---------------------------------------------------------------- summary tab
   function setTab(name) {
@@ -572,8 +606,13 @@
     if (d.meeting_url) {
       any = true;
       $where.append($('<div class="d-flex flex-wrap align-items-center gap-2"></div>')
-        .append($('<a class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer"></a>').attr('href', d.meeting_url).append('<i class="bi bi-camera-video me-1"></i>').append(document.createTextNode(t('cal_join_with', { name: (BOOT.meetings || {})[d.meeting] || d.meeting || '' }).trim())))
+        .append($('<a class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer"></a>').attr('href', d.meeting_join || d.meeting_url).append('<i class="bi bi-camera-video me-1"></i>').append(document.createTextNode(t('cal_join_with', { name: (BOOT.meetings || {})[d.meeting] || d.meeting || '' }).trim())))
         .append($('<button type="button" class="btn btn-ghost btn-sm" data-cal-copyjoin></button>').append('<i class="bi bi-clipboard me-1"></i>').append(document.createTextNode(t('cal_copy_link')))));
+    }
+    if (d.meeting_url && (d.meeting_details || []).length) {
+      var $md = $('<dl class="m4w-meet-dl small mb-0"></dl>');
+      d.meeting_details.forEach(function (r) { $md.append($('<dt></dt>').text(r[0])).append($('<dd class="m4w-code"></dd>').text(r[1])); });
+      $where.append($md);
     }
     if (!any) $where.append($('<span class="text-muted"></span>').text(t('cal_no_place')));
     $p.append(row('geo-alt', t('cal_where'), $where));

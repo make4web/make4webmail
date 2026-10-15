@@ -77,10 +77,10 @@ final class Meetings
             $base = rtrim((string) Settings::get('meet.jitsi_url', 'https://meet.jit.si'), '/');
             // Unguessable room name: anyone with the link can join, nobody can find it.
             $room = 'M4W-' . bin2hex(random_bytes(10));
-            return ['provider' => 'jitsi', 'url' => $base . '/' . $room, 'id' => $room];
+            return ['provider' => 'jitsi', 'url' => $base . '/' . $room, 'id' => $room, 'code' => $room];
         }
         if (self::mode($provider) === 'personal') {
-            return ['provider' => $provider, 'url' => self::personalLink($user, $provider), 'id' => ''];
+            return ['provider' => $provider, 'url' => self::personalLink($user, $provider), 'id' => ''] + self::fromUrl($provider, self::personalLink($user, $provider));
         }
         try {
             return match ($provider) {
@@ -138,7 +138,9 @@ final class Meetings
         if (!$m || !isset($m->{'X-M4W-MEETING'})) {
             return null;
         }
-        return ['provider' => (string) $m->{'X-M4W-MEETING'}, 'url' => (string) ($m->{'X-M4W-MEETING-URL'} ?? ''), 'id' => (string) ($m->{'X-M4W-MEETING-ID'} ?? '')];
+        $extra = json_decode((string) base64_decode((string) ($m->{'X-M4W-MEETING-INFO'} ?? '')), true);
+        $info = ['provider' => (string) $m->{'X-M4W-MEETING'}, 'url' => (string) ($m->{'X-M4W-MEETING-URL'} ?? ''), 'id' => (string) ($m->{'X-M4W-MEETING-ID'} ?? '')];
+        return $info + (is_array($extra) ? array_intersect_key($extra, array_flip(['code', 'passcode', 'phones', 'phone_code'])) : []);
     }
 
     /** Write the meeting into the event: standard CONFERENCE property and a line in the description. */
@@ -152,11 +154,23 @@ final class Meetings
             if ($info['id'] !== '') {
                 $v->{'X-M4W-MEETING-ID'} = $info['id'];
             }
-            $v->add('CONFERENCE', $info['url'], ['VALUE' => 'URI', 'FEATURE' => ['AUDIO', 'VIDEO'], 'LABEL' => $label]);
+            $extra = array_filter(array_intersect_key($info, array_flip(['code', 'passcode', 'phones', 'phone_code'])));
+            if ($extra) {
+                $v->{'X-M4W-MEETING-INFO'} = base64_encode((string) json_encode($extra));
+            }
+            // Typed as URI so that the commas of "tel:…,,code#" are not escaped like text.
+            $v->add($cal->createProperty('CONFERENCE', $info['url'], ['VALUE' => 'URI', 'FEATURE' => ['AUDIO', 'VIDEO'], 'LABEL' => $label], 'URI'));
+            foreach ((array) ($info['phones'] ?? []) as $ph) {
+                // The number alone: vobject escapes the "," pauses of a one-tap link, the code goes in the label.
+                $tel = 'tel:' . preg_replace('/[^\d+]/', '', $ph['number']);
+                $v->add($cal->createProperty('CONFERENCE', $tel, ['VALUE' => 'URI', 'FEATURE' => ['PHONE'],
+                    'LABEL' => trim($label . ' ' . $ph['label'] . (!empty($info['phone_code']) ? ' — ' . t('meet.d_then', ['code' => $info['phone_code']]) : ''))], 'URI'));
+            }
             $v->URL = $info['url'];
-            // Every calendar shows the description: the link is there for Outlook and phones too.
+            // Every calendar shows the description: the connection details are there for Outlook
+            // and phones too, in a block of their own that the form never offers for editing.
             $desc = rtrim((string) ($v->DESCRIPTION ?? ''));
-            $v->DESCRIPTION = ($desc !== '' ? $desc . "\n\n" : '') . t('meet.join_line', ['provider' => $label]) . "\n" . $info['url'];
+            $v->DESCRIPTION = ($desc !== '' ? $desc . "\n\n" : '') . self::textBlock($info);
             if (trim((string) ($v->LOCATION ?? '')) === '') {
                 $v->LOCATION = $label;
             }
@@ -167,6 +181,7 @@ final class Meetings
     public static function userDescription($v): string
     {
         $d = (string) ($v->DESCRIPTION ?? '');
+        $d = rtrim(preg_replace('/\n*' . preg_quote(self::MARK, '/') . '.*?' . preg_quote(self::MARK, '/') . '\s*/us', "\n", $d) ?? $d);
         $url = (string) ($v->{'X-M4W-MEETING-URL'} ?? '');
         return $url !== '' ? rtrim(preg_replace('/\n*[^\n]*\n' . preg_quote($url, '/') . '\s*$/u', '', $d) ?? $d) : $d;
     }
@@ -187,8 +202,8 @@ final class Meetings
     {
         $url = (string) ($v->{'X-M4W-MEETING-URL'} ?? '');
         if ($url !== '' && isset($v->DESCRIPTION)) {
-            // Remove the line we added (and only it).
-            $d = preg_replace('/\n*[^\n]*\n' . preg_quote($url, '/') . '\s*$/u', '', (string) $v->DESCRIPTION) ?? (string) $v->DESCRIPTION;
+            // Remove what we added (and only it): the block, or the single line of earlier versions.
+            $d = self::userDescription($v);
             if (trim($d) === '') {
                 unset($v->DESCRIPTION);
             } else {
@@ -198,7 +213,99 @@ final class Meetings
         if ($url !== '' && (string) ($v->URL ?? '') === $url) {
             unset($v->URL);
         }
-        unset($v->{'X-M4W-MEETING'}, $v->{'X-M4W-MEETING-URL'}, $v->{'X-M4W-MEETING-ID'}, $v->CONFERENCE);
+        unset($v->{'X-M4W-MEETING'}, $v->{'X-M4W-MEETING-URL'}, $v->{'X-M4W-MEETING-ID'}, $v->{'X-M4W-MEETING-INFO'}, $v->CONFERENCE);
+    }
+
+    // ---------------------------------------------------------------- connection details
+
+    /** Fences the connection details in the description (as Google Calendar and Teams do). */
+    public const MARK = '-::~:~::~:~::~:~::~:~::~:~::-';
+
+    /** "85412345678" → "854 1234 5678", grouped as Zoom and Teams print them (easier to type). */
+    private static function spaced(string $digits): string
+    {
+        $groups = [9 => [3, 3, 3], 10 => [3, 3, 4], 11 => [3, 4, 4], 12 => [3, 3, 3, 3]][preg_match('/^\d+$/', $digits) ? strlen($digits) : 0] ?? null;
+        if (!$groups) {
+            return $digits;
+        }
+        $out = [];
+        $at = 0;
+        foreach ($groups as $n) {
+            $out[] = substr($digits, $at, $n);
+            $at += $n;
+        }
+        return implode(' ', $out);
+    }
+
+    /** What a meeting link itself says: Zoom meeting ID, Google Meet code, Jitsi room. */
+    public static function fromUrl(string $provider, string $url): array
+    {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        return match (true) {
+            $provider === 'zoom' && (bool) preg_match('#/(?:j|my|wc/join)/(\d{9,12})#', $path, $m) => ['code' => self::spaced($m[1]), 'phone_code' => $m[1] . '#'],
+            $provider === 'meet' && (bool) preg_match('#^/([a-z]{3}-[a-z]{4}-[a-z]{3})#', $path, $m) => ['code' => $m[1]],
+            $provider === 'jitsi' && $path !== '' => ['code' => ltrim($path, '/')],
+            default => [],
+        };
+    }
+
+    /**
+     * The rows shown to everybody: link, ID, code, phone numbers, how to join.
+     * @return array<int,array{0:string,1:string}>
+     */
+    public static function details(array $info): array
+    {
+        $rows = [[t('meet.d_link'), $info['url']]];
+        if (!empty($info['code'])) {
+            $rows[] = [t($info['provider'] === 'jitsi' ? 'meet.d_room' : 'meet.d_id'), (string) $info['code']];
+        }
+        if (!empty($info['passcode'])) {
+            $rows[] = [t('meet.d_passcode'), (string) $info['passcode']];
+        }
+        foreach ((array) ($info['phones'] ?? []) as $ph) {
+            $rows[] = [t('meet.d_phone') . ($ph['label'] !== '' ? ' (' . $ph['label'] . ')' : ''), $ph['number'] . (!empty($info['phone_code']) ? ' — ' . t('meet.d_then', ['code' => $info['phone_code']]) : '')];
+        }
+        return $rows;
+    }
+
+    /** One line on how to join, for this provider. */
+    public static function howTo(string $provider): string
+    {
+        return t('meet.howto_' . (in_array($provider, self::PROVIDERS, true) ? $provider : 'jitsi'));
+    }
+
+    /** The block written in the event description (plain text, same for everybody). */
+    public static function textBlock(array $info): string
+    {
+        $label = self::LABELS[$info['provider']] ?? 'Visio';
+        $out = self::MARK . "\n" . t('meet.join_line', ['provider' => $label]) . "\n" . $info['url'] . "\n";
+        foreach (array_slice(self::details($info), 1) as [$k, $v]) {
+            $out .= $k . ' : ' . $v . "\n";
+        }
+        return $out . self::howTo($info['provider']) . "\n" . self::MARK;
+    }
+
+    /**
+     * The join link for one person: their name already filled in (and the meeting subject for
+     * Jitsi, the right Google account for Meet), so they arrive straight in the waiting room.
+     */
+    public static function joinUrl(array $info, string $name = '', string $email = '', string $title = ''): string
+    {
+        $url = (string) $info['url'];
+        if (!preg_match('#^https://#', $url)) {
+            return $url;
+        }
+        $q = static fn(string $u, array $p) => $u . (str_contains($u, '?') ? '&' : '?') . http_build_query(array_filter($p, static fn($v) => $v !== ''), '', '&', PHP_QUERY_RFC3986);
+        return match ($info['provider']) {
+            // Jitsi reads its settings after "#": name, e-mail (avatar) and the subject shown.
+            'jitsi' => ($name === '' && $email === '' && $title === '') ? $url : preg_replace('/#.*$/', '', $url) . '#' . implode('&', array_map(static fn($k, $v) => $k . '=' . rawurlencode((string) json_encode($v, JSON_UNESCAPED_UNICODE)),
+                array_keys($p = array_filter(['userInfo.displayName' => $name, 'userInfo.email' => $email, 'config.subject' => $title], static fn($v) => $v !== '')), $p)),
+            // Zoom: the name the browser client fills in.
+            'zoom' => $q($url, ['uname' => $name]),
+            // Google Meet: open it with that person's Google account, in their language.
+            'meet' => $q($url, ['authuser' => $email, 'hl' => \M4W\Core\I18n::language()]),
+            default => $url,
+        };
     }
 
     // ---------------------------------------------------------------- providers
@@ -228,7 +335,16 @@ final class Meetings
         if ($st !== 201 || empty($r['join_url'])) {
             throw new \RuntimeException('Zoom: ' . self::err($body, $st));
         }
-        return ['provider' => 'zoom', 'url' => (string) $r['join_url'], 'id' => (string) $r['id']];
+        $phones = [];
+        foreach (array_slice((array) ($r['settings']['global_dial_in_numbers'] ?? []), 0, 12) as $d) {
+            if (!empty($d['number'])) {
+                $phones[] = ['number' => (string) $d['number'], 'label' => trim((string) ($d['country_name'] ?? '') . (!empty($d['city']) ? ' (' . $d['city'] . ')' : ''))];
+            }
+        }
+        // Numbers of the organizer's country first.
+        usort($phones, static fn($a, $b) => (int) !str_contains(strtolower($a['label']), 'france') <=> (int) !str_contains(strtolower($b['label']), 'france'));
+        return ['provider' => 'zoom', 'url' => (string) $r['join_url'], 'id' => (string) $r['id'], 'code' => self::spaced((string) $r['id']),
+            'passcode' => (string) ($r['password'] ?? ''), 'phones' => array_slice($phones, 0, 3), 'phone_code' => (string) $r['id'] . '#'];
     }
 
     private static function teamsToken(): string
@@ -252,7 +368,16 @@ final class Meetings
         if ($st !== 201 || empty($r['joinWebUrl'])) {
             throw new \RuntimeException('Teams: ' . self::err($body, $st));
         }
-        return ['provider' => 'teams', 'url' => (string) $r['joinWebUrl'], 'id' => (string) $r['id']];
+        $out = ['provider' => 'teams', 'url' => (string) $r['joinWebUrl'], 'id' => (string) $r['id']];
+        if (!empty($r['joinMeetingIdSettings']['joinMeetingId'])) {
+            $out['code'] = self::spaced((string) $r['joinMeetingIdSettings']['joinMeetingId']);
+            $out['passcode'] = (string) ($r['joinMeetingIdSettings']['passcode'] ?? '');
+        }
+        if (!empty($r['audioConferencing']['tollNumber'])) {
+            $out['phones'] = [['number' => (string) $r['audioConferencing']['tollNumber'], 'label' => '']];
+            $out['phone_code'] = (string) ($r['audioConferencing']['conferenceId'] ?? '') . '#';
+        }
+        return $out;
     }
 
     /** Google Meet: a service account with domain-wide delegation acts as the organizer. */
@@ -281,7 +406,7 @@ final class Meetings
         if ($st !== 200 || empty($r['meetingUri'])) {
             throw new \RuntimeException('Google Meet: ' . self::err($body, $st));
         }
-        return ['provider' => 'meet', 'url' => (string) $r['meetingUri'], 'id' => (string) ($r['name'] ?? '')];
+        return ['provider' => 'meet', 'url' => (string) $r['meetingUri'], 'id' => (string) ($r['name'] ?? ''), 'code' => (string) ($r['meetingCode'] ?? self::fromUrl('meet', (string) $r['meetingUri'])['code'] ?? '')];
     }
 
     private static function err(string $body, int $status): string

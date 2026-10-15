@@ -3290,10 +3290,10 @@ test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their AP
         $calls[] = [$method, $url, $body, $h];
         return match (true) {
             str_contains($url, 'zoom.us/oauth/token') => [200, '{"access_token":"ZT"}'],
-            str_contains($url, '/v2/users/bob%40test.local/meetings') => [201, '{"id":987,"join_url":"https://us02web.zoom.us/j/987"}'],
-            str_contains($url, 'api.zoom.us/v2/meetings/987') => [204, ''],
+            str_contains($url, '/v2/users/bob%40test.local/meetings') => [201, '{"id":85412345678,"join_url":"https://us02web.zoom.us/j/85412345678?pwd=Xy","password":"4kP9qz","settings":{"global_dial_in_numbers":[{"number":"+1 646 558 8656","country_name":"US","city":"New York"},{"number":"+33 1 7037 2246","country_name":"France","city":"Paris"}]}}'],
+            str_contains($url, 'api.zoom.us/v2/meetings/85412345678') => [204, ''],
             str_contains($url, 'login.microsoftonline.com/contoso.onmicrosoft.com') => [200, '{"access_token":"MT"}'],
-            str_contains($url, 'graph.microsoft.com/v1.0/users/bob%40test.local/onlineMeetings') && $method === 'POST' => [201, '{"id":"MSO1","joinWebUrl":"https://teams.microsoft.com/l/meetup-join/abc"}'],
+            str_contains($url, 'graph.microsoft.com/v1.0/users/bob%40test.local/onlineMeetings') && $method === 'POST' => [201, '{"id":"MSO1","joinWebUrl":"https://teams.microsoft.com/l/meetup-join/abc","joinMeetingIdSettings":{"joinMeetingId":"376123456789","passcode":"aB3cD4"},"audioConferencing":{"tollNumber":"+33 1 23 45 67 89","conferenceId":"5551234"}}'],
             str_contains($url, 'oauth2.googleapis.com/token') => [200, '{"access_token":"GT"}'],
             str_contains($url, 'meet.googleapis.com/v2/spaces') => [200, '{"name":"spaces/xyz","meetingUri":"https://meet.google.com/abc-defg-hij"}'],
             default => [404, '{"message":"unexpected"}'],
@@ -3301,21 +3301,26 @@ test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their AP
     };
     try {
         $z = $M::create($bob, 'zoom', 'Point', strtotime('2026-11-02 10:00'), strtotime('2026-11-02 11:00'));
-        eq([$z['url'], $z['id']], ['https://us02web.zoom.us/j/987', '987']);
+        eq([$z['url'], $z['id']], ['https://us02web.zoom.us/j/85412345678?pwd=Xy', '85412345678']);
+        // Connection details from the API: spaced ID, passcode, French dial-in first.
+        eq([$z['code'], $z['passcode'], $z['phones'][0]['number'], $z['phone_code']], ['854 1234 5678', '4kP9qz', '+33 1 7037 2246', '85412345678#']);
+        eq($M::joinUrl($z, 'Bob Martin'), 'https://us02web.zoom.us/j/85412345678?pwd=Xy&uname=Bob%20Martin', 'name filled in for the Zoom web client');
         $create = array_values(array_filter($calls, static fn($c) => str_contains($c[1], '/meetings') && $c[0] === 'POST'))[0];
         eq(json_decode($create[2], true)['duration'], 60);
         ok(in_array('Authorization: Bearer ZT', $create[3], true), 'token used');
         $M::delete($bob, $z);
-        ok(in_array(['DELETE', 'https://api.zoom.us/v2/meetings/987'], array_map(static fn($c) => [$c[0], $c[1]], $calls), true), 'cancelled with the event');
+        ok(in_array(['DELETE', 'https://api.zoom.us/v2/meetings/85412345678'], array_map(static fn($c) => [$c[0], $c[1]], $calls), true), 'cancelled with the event');
         $tm = $M::create($bob, 'teams', 'Point', time(), time() + 3600);
         eq($tm['url'], 'https://teams.microsoft.com/l/meetup-join/abc');
+        eq([$tm['code'], $tm['passcode'], $tm['phones'][0]['number'], $tm['phone_code']], ['376 123 456 789', 'aB3cD4', '+33 1 23 45 67 89', '5551234#']);
         // Google Meet through a service account (JWT signed with its key).
         $k = openssl_pkey_new(['private_key_bits' => 2048]);
         openssl_pkey_export($k, $pem);
         Settings::setSecret('meet.google_key', json_encode(['client_email' => 'svc@proj.iam.gserviceaccount.com', 'private_key' => $pem]));
         Settings::set('meet.meet', 'api');
         $g = $M::create($bob, 'meet', 'Point', time(), time() + 3600);
-        eq($g['url'], 'https://meet.google.com/abc-defg-hij');
+        eq([$g['url'], $g['code']], ['https://meet.google.com/abc-defg-hij', 'abc-defg-hij'], 'code read from the link');
+        ok(str_starts_with($M::joinUrl($g, 'Bob', 'bob@test.local'), 'https://meet.google.com/abc-defg-hij?authuser=bob%40test.local&hl='), 'right Google account');
         $tok = array_values(array_filter($calls, static fn($c) => str_contains($c[1], 'oauth2.googleapis.com')))[0];
         parse_str($tok[2], $form);
         [$hd, $cl, $sig] = explode('.', $form['assertion']);
@@ -3341,6 +3346,28 @@ test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their AP
     $M::detach($v);
     eq([(string) $v->VEVENT->DESCRIPTION, isset($v->VEVENT->CONFERENCE), isset($v->VEVENT->LOCATION)], ['Ordre du jour', false, false]);
     Settings::setMany(['meet.zoom' => 'off', 'meet.teams' => 'off', 'meet.meet' => 'off']);
+    // The connection details: a fenced block in the description, never offered for editing.
+    $zi = ['provider' => 'zoom', 'url' => 'https://us02web.zoom.us/j/85412345678?pwd=Xy', 'id' => '85412345678', 'code' => '854 1234 5678', 'passcode' => '4kP9qz',
+        'phones' => [['number' => '+33 1 7037 2246', 'label' => 'France (Paris)']], 'phone_code' => '85412345678#'];
+    $v = M4W\Service\Calendar::fromForm($bob, ['title' => 'Point', 'description' => "Ordre du jour\nPoint 2", 'start' => '2026-11-02 10:00', 'end' => '2026-11-02 11:00']);
+    $M::attach($v, $zi);
+    $desc = (string) $v->VEVENT->DESCRIPTION;
+    eq(substr_count($desc, $M::MARK), 2, 'fenced block');
+    foreach (['854 1234 5678', '4kP9qz', '+33 1 7037 2246', '85412345678#', $zi['url']] as $needle) {
+        ok(str_contains($desc, $needle), $needle);
+    }
+    $ics = str_replace("\r\n ", '', $v->serialize());
+    ok(str_contains($ics, 'FEATURE=PHONE') && str_contains($ics, ':tel:+33170372246') && str_contains($ics, '85412345678#'), 'dial-in for phones');
+    eq($M::userDescription($v->VEVENT), "Ordre du jour\nPoint 2", 'the form shows only what the person wrote');
+    $back = Sabre\VObject\Reader::read($v->serialize());
+    eq($M::of($back), $zi, 'details kept in the event');
+    $M::attach($v, $zi);
+    eq(substr_count((string) $v->VEVENT->DESCRIPTION, $M::MARK), 2, 'saved again: still one block');
+    // A link pasted by hand cannot be altered in the block: it comes from the meeting itself.
+    $jo = $M::joinUrl($j, 'Bob Martin', 'bob@test.local', 'Point & budget');
+    eq($jo, $j['url'] . '#userInfo.displayName=%22Bob%20Martin%22&userInfo.email=%22bob%40test.local%22&config.subject=%22Point%20%26%20budget%22');
+    eq($M::joinUrl($j), $j['url']);
+    eq($M::fromUrl('zoom', 'https://zoom.us/j/1234567890?pwd=a'), ['code' => '123 456 7890', 'phone_code' => '1234567890#']);
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

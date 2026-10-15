@@ -163,12 +163,21 @@ final class Scheduling
             $html .= '<tr><td style="color:#6b7280;padding:3px 16px 3px 0;vertical-align:top">' . e($k) . '</td><td style="padding:3px 0">' . e($v) . '</td></tr>';
         }
         $html .= '</table>';
-        // Online meeting: a real button, not only the link lost in the description.
-        $join = (string) ($ev->{'X-M4W-MEETING-URL'} ?? '');
-        if ($m->method === 'REQUEST' && preg_match('#^https://#', $join)) {
-            $label = Meetings::LABELS[(string) ($ev->{'X-M4W-MEETING'} ?? '')] ?? 'Visio';
-            $html .= '<p style="margin:14px 0"><a href="' . e($join) . '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:9px 18px;border-radius:6px;font-weight:bold">'
-                . e(t('cal.join_with', ['provider' => $label])) . '</a><br><span style="color:#6b7280;font-size:12px">' . e($join) . '</span></p>';
+        // Online meeting: a box with a real button (the guest's name already filled in), the ID,
+        // the code and the phone numbers, written by the application: nothing typed by hand.
+        $meet = Meetings::of($cal);
+        if ($m->method === 'REQUEST' && $meet && preg_match('#^https://#', $meet['url'])) {
+            $label = Meetings::LABELS[$meet['provider']] ?? 'Visio';
+            $join = Meetings::joinUrl($meet, $toName, $to, $title);
+            $html .= '<table role="presentation" style="border-collapse:collapse;margin:16px 0;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><tr><td style="padding:14px 18px">'
+                . '<div style="font-weight:bold;margin-bottom:10px">' . e(t('meet.box_title', ['provider' => $label])) . '</div>'
+                . '<a href="' . e($join) . '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-weight:bold">'
+                . e(t('cal.join_with', ['provider' => $label])) . '</a>'
+                . '<table style="border-collapse:collapse;margin-top:12px;font-size:13px">';
+            foreach (Meetings::details($meet) as [$k, $v]) {
+                $html .= '<tr><td style="color:#6b7280;padding:2px 14px 2px 0;vertical-align:top;white-space:nowrap">' . e($k) . '</td><td style="padding:2px 0;font-family:Consolas,Menlo,monospace;word-break:break-all">' . e($v) . '</td></tr>';
+            }
+            $html .= '</table><div style="color:#6b7280;font-size:12px;margin-top:8px">' . e(Meetings::howTo($meet['provider'])) . '</div></td></tr></table>';
         }
         if ($m->method === 'REQUEST' && trim(Meetings::userDescription($ev)) !== '') {
             $html .= '<p style="white-space:pre-wrap">' . e(Meetings::userDescription($ev)) . '</p>';
@@ -357,7 +366,10 @@ final class Scheduling
             'cancelled' => $method === 'CANCEL' || ($current && strtoupper((string) ($current->VEVENT->STATUS ?? '')) === 'CANCELLED'),
             'outdated' => $current && (int) (string) ($current->VEVENT->SEQUENCE ?? 0) > (int) (string) ($ev->SEQUENCE ?? 0),
             'conflicts' => array_slice($conflicts, 0, 5), 'can_answer' => $method === 'REQUEST' && $partstat !== '',
-            'join' => preg_match('#^https://#', $j = (string) ($ev->{'X-M4W-MEETING-URL'} ?? ($ev->CONFERENCE ?? ''))) ? $j : '',
+            'join' => ($meet = Meetings::of($cal)) && preg_match('#^https://#', $meet['url']) ? Meetings::joinUrl($meet, (string) ($user['name'] ?? ''), (string) $user['email'], (string) ($ev->SUMMARY ?? ''))
+                : (preg_match('#^https://#', $j = (string) ($ev->{'X-M4W-MEETING-URL'} ?? ($ev->CONFERENCE ?? ''))) ? $j : ''),
+            'join_details' => $meet ? array_slice(Meetings::details($meet), 1) : [],
+            'join_howto' => $meet ? Meetings::howTo($meet['provider']) : '',
             'join_label' => Meetings::LABELS[(string) ($ev->{'X-M4W-MEETING'} ?? '')] ?? '',
         ];
     }

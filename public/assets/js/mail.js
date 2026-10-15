@@ -534,6 +534,11 @@
       actions = '<button type="button" class="btn btn-light btn-sm" data-inv-import="' + msg.id + '"><i class="bi bi-calendar-plus me-1"></i>' + esc(t('inv_add')) + '</button>';
     }
     if (v.join && !v.cancelled) actions += ' <a class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(v.join) + '"><i class="bi bi-camera-video me-1"></i>' + esc(v.join_label ? t('inv_join_with', { provider: v.join_label }) : t('inv_join')) + '</a>';
+    // Connection details of the online meeting (ID, code, phone), as the organizer's application wrote them.
+    if (v.join && !v.cancelled && v.join_details && v.join_details.length) {
+      notes += '<div class="m4w-meet-box mb-2"><dl class="m4w-invite-dl mb-1">' + v.join_details.map(function (d) { return '<dt>' + esc(d[0]) + '</dt><dd class="m4w-code">' + esc(d[1]) + '</dd>'; }).join('') + '</dl>'
+        + (v.join_howto ? '<div class="small text-muted">' + esc(v.join_howto) + '</div>' : '') + '</div>';
+    }
     var status = v.in_calendar ? '<span class="small text-muted"><i class="bi bi-calendar-check me-1"></i>' + esc(t('inv_in_calendar'))
       + (v.partstat && v.partstat !== 'NEEDS-ACTION' && v.method === 'REQUEST' ? ' · ' + esc(t('inv_answered', { answer: t('cal_ps_' + v.partstat.toLowerCase().replace('-', '_')) })) : '') + '</span>' : '';
     return '<section class="m4w-invite" aria-label="' + esc(t(head)) + '"><div class="m4w-invite-icon" aria-hidden="true"><i class="bi bi-calendar-event"></i></div><div class="min-w-0 flex-grow-1">'

@@ -82,7 +82,8 @@ $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['ema
           <div class="form-text" id="cal-f-attendee-help"><?= te('cal.f_attendees_help') ?></div>
           <div class="m4w-cal-busy d-none" data-cal-busy></div>
         </div>
-        <div class="mb-1"><label class="form-label" for="cal-f-desc"><?= te('cal.f_description') ?></label><textarea class="form-control" id="cal-f-desc" name="description" rows="3" maxlength="20000"></textarea></div>
+        <div class="mb-1"><label class="form-label" for="cal-f-desc"><?= te('cal.f_description') ?></label><textarea class="form-control" id="cal-f-desc" name="description" rows="3" maxlength="20000" aria-describedby="cal-f-meetblock"></textarea>
+          <div class="m4w-meet-block d-none" id="cal-f-meetblock" data-cal-meetblock aria-live="polite"></div></div>
         </div>
       </div>
       <div class="modal-footer">

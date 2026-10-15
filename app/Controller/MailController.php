@@ -184,6 +184,23 @@ final class MailController extends Controller
 
     private function detail(array $m): array
     {
+        try {
+            return $this->fullDetail($m);
+        } catch (\Throwable $e) {
+            // What the database knows is still shown; the cause goes to the log with the message number.
+            error_log('[m4w] message ' . (int) $m['id'] . ' detail: ' . $e::class . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            return ['id' => (int) $m['id'], 'folder_id' => (int) $m['folder_id'], 'subject' => $m['subject'], 'from' => ['name' => $m['from_name'], 'email' => $m['from_email']],
+                'to' => json_decode((string) $m['to_list'], true) ?: [], 'cc' => json_decode((string) $m['cc_list'], true) ?: [], 'bcc' => [], 'reply_to' => [], 'auth' => null,
+                'date' => (int) ($m['date_sent'] ?: $m['date_received']), 'received' => (int) $m['date_received'], 'size' => (int) $m['size'], 'snippet' => $m['snippet'],
+                'unread' => !$m['is_read'], 'flagged' => (bool) $m['is_flagged'], 'pinned' => (bool) ($m['is_pinned'] ?? 0), 'answered' => (bool) $m['is_answered'],
+                'forwarded' => (bool) $m['is_forwarded'], 'draft' => (bool) $m['is_draft'], 'draft_meta' => null, 'priority' => (int) $m['priority'], 'attachments' => [],
+                'blocked_images' => 0, 'trackers' => 0, 'unsubscribe' => '', 'auto' => false, 'reply_target' => '', 'spam' => null, 'impersonation' => null, 'fetched' => null,
+                'invitation' => null, 'text' => (string) $m['snippet']];
+        }
+    }
+
+    private function fullDetail(array $m): array
+    {
         $parsed = Mailbox::parsed($m);
         $u = $this->user();
         $blockImages = (int) Settings::get('security.block_remote_images', 1) && !(int) $u['prefs']['show_images'];
@@ -313,6 +330,22 @@ final class MailController extends Controller
         $u = $this->user();
         Session::close();
         $m = $this->message($id);
+        try {
+            return $this->bodyDocument($u, $m);
+        } catch (\Throwable $e) {
+            // Never the application's error page in the sandboxed frame: a short notice, the cause in the log.
+            error_log('[m4w] message ' . (int) $m['id'] . ' body: ' . $e::class . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            return new Response('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;font-size:14px;color:#6b7280">'
+                . e(t('mail.body_error')) . '</body></html>', 200, [
+                'Content-Type' => 'text/html; charset=utf-8',
+                'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+                'Cache-Control' => 'private, no-store',
+            ]);
+        }
+    }
+
+    private function bodyDocument(array $u, array $m): Response
+    {
         $parsed = Mailbox::parsed($m);
         $allowImages = !empty($this->req->query['images']) || (int) $u['prefs']['show_images'] || !(int) Settings::get('security.block_remote_images', 1);
         $mid = (int) $m['id'];
