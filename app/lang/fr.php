@@ -2174,4 +2174,7 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'admin.sidebar_main' => 'Étendre au fond de la zone de travail',
     'wm.two_way' => 'Synchroniser dans les deux sens avec la boîte',
     'wm.two_way_hint' => 'Ce qui est supprimé, archivé, lu ou suivi sur le téléphone l\'est aussi ici, et inversement. Un message supprimé va toujours dans la corbeille (jamais effacé directement).',
+    'wm.tw_report' => 'Synchro dans les deux sens (:time) : :followed messages suivis, :provider dans la boîte du fournisseur ; :trashed mis à la corbeille ici, :archived archivés ici, :moved déplacés chez le fournisseur, :flags lu/suivi mis à jour.',
+    'wm.tw_other_way' => ':n message(s) de la boîte de réception sont arrivés par un autre chemin (boîte collectrice, redirection…) : ils ne suivent pas cette boîte. « Relevé dans » (détails d\'un message) indique d\'où vient chacun.',
+    'wm.tw_waiting_empty' => 'La boîte du fournisseur paraît vide : rien n\'est supprimé ici tant que ce n\'est pas confirmé à la relève suivante.',
 ];

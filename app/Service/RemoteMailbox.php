@@ -740,6 +740,11 @@ final class RemoteMailbox
         }
         $spamRemote = trim((string) Settings::get('webmail.spam_folder', ''));
         $actions = 0;
+        // What this pass saw and did, shown on the user form (to tell why something did not follow).
+        $report = ['at' => time(), 'followed' => 0, 'provider' => 0, 'trashed' => 0, 'archived' => 0, 'moved' => 0, 'flags' => 0, 'other_way' => 0, 'waiting_empty' => 0];
+        $save = static function () use (&$report, $acc): void {
+            Settings::set('webmail.twoway.' . (int) $acc['id'], json_encode($report));
+        };
         foreach (['inbox' => 'INBOX', 'spam' => $spamRemote] as $local => $remote) {
             if ($remote === '') {
                 continue;
@@ -761,9 +766,12 @@ final class RemoteMailbox
                 // Empty all of a sudden: believed only when seen twice in a row.
                 if ((int) $acc['empty_streak'] < 1) {
                     DB::update('remote_accounts', ['empty_streak' => (int) $acc['empty_streak'] + 1], 'id = :id', ['id' => $acc['id']]);
+                    $report['waiting_empty'] = 1;
                     continue;
                 }
             }
+            $report['followed'] += count($rows);
+            $report['provider'] += count($index);
             DB::update('remote_accounts', ['empty_streak' => 0], 'id = :id', ['id' => $acc['id']]);
             // Messages here, by Message-ID (the copy outside Sent / Drafts).
             $ids = array_values(array_unique(array_filter(array_map(static fn($r) => (string) ($r['msgid'] !== '' ? $r['msgid'] : ($index[(int) $r['uid']]['msgid'] ?? '')), $rows))));
@@ -777,8 +785,19 @@ final class RemoteMailbox
                     }
                 }
             }
+            if ($local === 'inbox' && $roles['inbox']) {
+                // Messages of the inbox here that this mailbox did not bring (another way in):
+                // they cannot follow what happens to it.
+                $followed = array_flip(array_merge($ids, array_filter(array_column($index, 'msgid'))));
+                foreach (DB::all('SELECT message_id FROM messages WHERE user_id = :u AND folder_id = :f AND is_draft = 0', ['u' => $uid, 'f' => $roles['inbox']]) as $lm) {
+                    if ($lm['message_id'] === '' || !isset($followed[$lm['message_id']])) {
+                        $report['other_way']++;
+                    }
+                }
+            }
             foreach ($rows as $r) {
                 if ($actions >= $max) {
+                    $save();
                     return; // the rest at the next synchronisation
                 }
                 $ruid = (int) $r['uid'];
@@ -788,8 +807,9 @@ final class RemoteMailbox
                     DB::update('remote_uids', ['msgid' => mb_substr($msgid, 0, 255)], 'id = :id', ['id' => $r['id']]);
                 }
                 $m = $msgid !== '' ? ($here[$msgid] ?? null) : null;
-                // 1. Gone from the provider folder: deleted (or archived) on the phone.
-                if (!isset($index[$ruid])) {
+                // 1. Gone from the provider folder, or marked deleted there (many mail apps only
+                //    set \Deleted and erase later): deleted (or archived) on the phone.
+                if (!isset($index[$ruid]) || in_array('\\deleted', $index[$ruid]['flags'], true)) {
                     if ($m && (int) $m['folder_id'] === $roles[$local]) {
                         $archived = false;
                         if (($arch = self::providerFolder($client, $acc, 'archive_folder')) !== '' && $roles['archive']) {
@@ -801,6 +821,7 @@ final class RemoteMailbox
                             $client->select($remote);
                         }
                         Mailbox::move($uid, [(int) $m['id']], $archived ? $roles['archive'] : $roles['trash']);
+                        $report[$archived ? 'archived' : 'trashed']++;
                         $actions++;
                     }
                     DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
@@ -837,6 +858,7 @@ final class RemoteMailbox
                             $client->moveTo($ruid, $target);
                         }
                         DB::delete('remote_uids', 'id = :id', ['id' => $r['id']]);
+                        $report['moved']++;
                         $actions++;
                     } catch (\RuntimeException $e) {
                         error_log('[m4w] two-way move: ' . $e->getMessage());
@@ -876,6 +898,7 @@ final class RemoteMailbox
                 if ($set) {
                     Mailbox::setFlags($uid, [(int) $m['id']], $set);
                 }
+                $report['flags'] += count($set) + count($store);
                 foreach ($store as [$f, $on]) {
                     try {
                         $client->storeFlags($ruid, $on, [$f]);
@@ -884,6 +907,7 @@ final class RemoteMailbox
                 }
             }
         }
+        $save();
     }
 
     /** Remove imported messages from the provider after the configured delay. */
@@ -932,6 +956,13 @@ final class RemoteMailbox
     {
         $d = json_decode((string) Settings::get('webmail.deleted.' . (int) $acc['id'], ''), true);
         return is_array($d) && ($d['n'] ?? 0) > 0 ? $d : null;
+    }
+
+    /** Last two-way pass: what it saw and did, or null. */
+    public static function twoWayReport(array $acc): ?array
+    {
+        $d = json_decode((string) Settings::get('webmail.twoway.' . (int) $acc['id'], ''), true);
+        return is_array($d) ? $d : null;
     }
 
     /** The collector account and an own mailbox are one and the same mailbox. */

@@ -1991,7 +1991,7 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
         $st['boxes']['paul@test.local']['Corbeille'] = ['validity' => 1, 'msgs' => []];
         $st['boxes']['paul@test.local']['Archives'] = ['validity' => 1, 'msgs' => []];
         $st['special']['paul@test.local'] = ['Corbeille' => '\\Trash', 'Archives' => '\\Archive'];
-        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch'] as $k => $id) {
+        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch', 'tw-mark'] as $k => $id) {
             $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 3000 + $k, 'raw' => $colMsg("To: paul@test.local\r\n", "Deux sens $id", $id), 'flags' => []];
         }
     });
@@ -2004,11 +2004,15 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
             if (str_contains($m['raw'], '<tw-del@')) { $st['boxes']['paul@test.local']['Corbeille']['msgs'][] = ['uid' => 1] + $m; unset($in[$k]); }
             elseif (str_contains($m['raw'], '<tw-arch@')) { $st['boxes']['paul@test.local']['Archives']['msgs'][] = ['uid' => 1] + $m; unset($in[$k]); }
             elseif (str_contains($m['raw'], '<tw-read@')) { $in[$k]['flags'] = ['\\Seen']; }
+            elseif (str_contains($m['raw'], '<tw-mark@')) { $in[$k]['flags'] = ['\\Seen', '\\Deleted']; } // marked, not erased yet
         }
         $in = array_values($in);
     });
     eq($sync(), '');
     eq([$local('tw-del')['role'], $local('tw-arch')['role'], (int) $local('tw-read')['is_read']], ['trash', 'archive', 1], 'deleted → Trash, archived → Archives, read → read');
+    eq($local('tw-mark')['role'], 'trash', 'only marked deleted on the phone → Trash too');
+    $rep = RemoteMailbox::twoWayReport(RemoteMailbox::find($uid));
+    ok($rep['trashed'] === 2 && $rep['archived'] === 1 && $rep['followed'] > 0, 'what the pass did is reported: ' . json_encode($rep));
     // Here: one deleted, one flagged, one archived.
     Mailbox::move($uid, [(int) $local('tw-here-del')['id']], (int) Folders::byRole($uid, 'trash')['id']);
     Mailbox::move($uid, [(int) $local('tw-here-arch')['id']], (int) Folders::byRole($uid, 'archive')['id']);
@@ -2020,7 +2024,7 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     ok(in_array('\\Flagged', $flag['flags'], true), 'flagged here → flagged there');
     // Nothing comes back, nothing is imported twice, and a further pass changes nothing.
     eq($sync(), '');
-    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %'", ['u' => $uid]), 6, 'no duplicate');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %'", ['u' => $uid]), 7, 'no duplicate');
     eq([$local('tw-del')['role'], $local('tw-here-del')['role']], ['trash', 'trash']);
     // The webmail's own clean-up is not taken for a deletion on the phone.
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => 0, 'save_sent' => 1], 1);
