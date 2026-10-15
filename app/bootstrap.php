@@ -29,6 +29,7 @@ spl_autoload_register(static function (string $class): void {
 });
 
 require M4W_APP . '/helpers.php';
+require M4W_APP . '/vendor/autoload.php';
 
 mb_internal_encoding('UTF-8');
 date_default_timezone_set('UTC');

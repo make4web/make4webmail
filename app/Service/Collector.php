@@ -96,6 +96,10 @@ final class Collector
         }
         $done = [];
         foreach ($users as $u) {
+            // A user with an own mailbox imposed by the administrator gets mail there (no double copy).
+            if (!$unrouted && RemoteMailbox::personal((int) $u['id'])) {
+                continue;
+            }
             // The provider may deliver one copy per redirected address: each user gets it once.
             try {
                 DB::insert('collector_seen', ['msg_hash' => $hash, 'user_id' => (int) $u['id'], 'created_at' => time()]);
@@ -190,8 +194,10 @@ final class Collector
     /** Addresses the administrator must redirect to the collector at the provider. @return string[] */
     public static function addressesToRedirect(): array
     {
-        $list = array_column(DB::all("SELECT email FROM users WHERE status = 'active' ORDER BY email"), 'email');
-        foreach (DB::all("SELECT a.address FROM aliases a JOIN users u ON u.id = a.user_id WHERE u.status = 'active' ORDER BY a.address") as $a) {
+        // Not the users who keep their own mailbox at the provider: their mail stays there.
+        $own = "NOT EXISTS (SELECT 1 FROM remote_accounts r WHERE r.user_id = u.id AND r.forced = 1 AND r.enabled = 1)";
+        $list = array_column(DB::all("SELECT u.email FROM users u WHERE u.status = 'active' AND $own ORDER BY u.email"), 'email');
+        foreach (DB::all("SELECT a.address FROM aliases a JOIN users u ON u.id = a.user_id WHERE u.status = 'active' AND $own ORDER BY a.address") as $a) {
             $list[] = $a['address'];
         }
         return array_values(array_unique(array_map('mb_strtolower', $list)));
@@ -208,7 +214,7 @@ final class Collector
     public static function used(?int $now = null): int
     {
         $now ??= time();
-        return (int) DB::value('SELECT COALESCE(SUM(recipients), 0) FROM send_log WHERE created_at > :t', ['t' => $now - 3600]);
+        return (int) DB::value('SELECT COALESCE(SUM(recipients), 0) FROM send_log WHERE account = 0 AND created_at > :t', ['t' => $now - 3600]);
     }
 
     /** Messages waiting for the window to reopen. */
@@ -227,7 +233,7 @@ final class Collector
             return $now;
         }
         $block = self::providerBlock();
-        foreach (DB::all('SELECT recipients, created_at FROM send_log WHERE created_at > :t ORDER BY created_at', ['t' => $now - 3600]) as $r) {
+        foreach (DB::all('SELECT recipients, created_at FROM send_log WHERE account = 0 AND created_at > :t ORDER BY created_at', ['t' => $now - 3600]) as $r) {
             $used -= (int) $r['recipients'];
             if ($used < $limit) {
                 return max((int) $r['created_at'] + 3601, $block ? $block['until'] : 0);
@@ -310,7 +316,7 @@ final class Collector
     }
 
     /** Provider wording for a sending cap ("rate limit exceeded", "too many messages"…), not a full mailbox. */
-    private static function isRateLimitText(string $msg): bool
+    public static function isRateLimitText(string $msg): bool
     {
         return (bool) preg_match('/rate.?limit|too many (messages|mails|emails|recipients)|sending limit|limit (exceeded|reached)|exceeded .*limit|throttl|trop de messages|limite d.envoi/i', $msg);
     }
@@ -324,11 +330,11 @@ final class Collector
         $limit = self::limit();
         $used = self::used($now);
         $buckets = array_fill(0, 12, 0);
-        foreach (DB::all('SELECT recipients, created_at FROM send_log WHERE created_at > :t', ['t' => $now - 3600]) as $r) {
+        foreach (DB::all('SELECT recipients, created_at FROM send_log WHERE account = 0 AND created_at > :t', ['t' => $now - 3600]) as $r) {
             $i = min(11, max(0, 11 - intdiv($now - (int) $r['created_at'], 300)));
             $buckets[$i] += (int) $r['recipients'];
         }
-        $top = DB::all('SELECT s.user_id, u.email, SUM(s.recipients) AS n FROM send_log s LEFT JOIN users u ON u.id = s.user_id WHERE s.created_at > :t GROUP BY s.user_id, u.email ORDER BY n DESC LIMIT 5', ['t' => $now - 3600]);
+        $top = DB::all('SELECT s.user_id, u.email, SUM(s.recipients) AS n FROM send_log s LEFT JOIN users u ON u.id = s.user_id WHERE s.account = 0 AND s.created_at > :t GROUP BY s.user_id, u.email ORDER BY n DESC LIMIT 5', ['t' => $now - 3600]);
         $held = self::held();
         $block = self::providerBlock();
         $pct = (int) min(100, round($used / $limit * 100));

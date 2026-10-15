@@ -22,6 +22,7 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
   <nav class="m4w-help-cards" aria-label="Accès rapide">
     <a href="#compose" class="m4w-help-card"><i class="bi bi-pencil-square"></i><span>Écrire un message</span></a>
     <a href="#vacation" class="m4w-help-card"><i class="bi bi-airplane"></i><span>Prévenir de mon absence</span></a>
+    <a href="#calendar" class="m4w-help-card"><i class="bi bi-calendar3"></i><span>Organiser une réunion</span></a>
     <a href="#files" class="m4w-help-card"><i class="bi bi-folder2-open"></i><span>Partager des fichiers</span></a>
     <a href="#mobile" class="m4w-help-card"><i class="bi bi-phone"></i><span>Installer sur mon téléphone</span></a>
     <a href="#security" class="m4w-help-card"><i class="bi bi-shield-lock"></i><span>Sécuriser mon compte</span></a>
@@ -175,11 +176,38 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     </ul>
   </section>
 
+  <section id="calendar" class="m4w-help-section">
+    <h2><i class="bi bi-calendar3"></i>Agenda et invitations</h2>
+    <p>L'<?= $go('calendar', 'Agenda') ?> (menu <?= $ui('grid-3x3-gap', '') ?>) affiche vos rendez-vous par jour, semaine, mois ou en liste. Raccourcis : <?= $kbd('J') ?> jour, <?= $kbd('S') ?> semaine, <?= $kbd('M') ?> mois, <?= $kbd('L') ?> liste, <?= $kbd('T') ?> aujourd'hui, <?= $kbd('N') ?> nouvel événement, <?= $kbd('←') ?> <?= $kbd('→') ?> pour avancer ou reculer.</p>
+    <h3>Créer et modifier</h3>
+    <ul>
+      <li>Cliquez sur un créneau (ou sur <?= $ui('plus-lg', 'Nouvel événement') ?>) : titre, horaires, répétition (tous les jours, du lundi au vendredi, chaque semaine…), lieu ou salle, rappel.</li>
+      <li><strong>Glissez</strong> un événement pour le déplacer, tirez son bord inférieur pour changer sa durée. Pour un événement qui se répète, on vous demande si le changement vaut pour cette fois seulement ou pour toute la série.</li>
+      <li>Les <strong>rappels</strong> arrivent en notification sur les appareils où vous les avez activées (voir « Sur téléphone et notifications »).</li>
+    </ul>
+    <h3>Inviter des participants</h3>
+    <ul>
+      <li>Ajoutez des personnes dans « Inviter des participants » : vos collègues voient aussitôt l'événement dans leur agenda (« à répondre »), et tout le monde, y compris à l'extérieur, reçoit une invitation par e-mail que Outlook, Gmail, Apple ou Thunderbird savent accepter.</li>
+      <li>Si un collègue est déjà occupé à ce moment, un avertissement l'indique avant l'envoi.</li>
+      <li>Les réponses mettent à jour votre événement (coche verte : accepté, croix rouge : refusé). Déplacer ou supprimer l'événement prévient automatiquement les participants.</li>
+      <li>Une invitation reçue s'affiche en tête du message avec <?= $ui('check-lg', 'Accepter') ?> <?= $ui('question-lg', 'Peut-être') ?> <?= $ui('x-lg', 'Refuser') ?> ; votre réponse part à l'organisateur et l'événement s'ajoute à votre agenda. Les conflits avec vos autres rendez-vous sont signalés.</li>
+    </ul>
+    <h3>Partager un agenda, réserver une salle</h3>
+    <ul>
+      <li><?= $ui('plus-circle', 'Nouvel agenda') ?> crée un agenda supplémentaire (projet, équipe…). Le menu <?= $ui('three-dots', '') ?> d'un agenda permet de le partager avec des collègues ou toute l'organisation, en <strong>lecture</strong> ou en <strong>modification</strong>, de l'exporter (.ics) ou d'importer un fichier .ics.</li>
+      <li>Les <strong>salles</strong> (créées par l'administrateur) sont visibles de tous : indiquez la salle comme lieu de la réunion ou créez l'événement dans son agenda. Une salle ne peut pas être réservée deux fois sur le même créneau.</li>
+      <li>Décochez un agenda dans la colonne de gauche pour le masquer.</li>
+    </ul>
+    <h3>Sur le téléphone et dans Thunderbird</h3>
+    <p>Dans <?= $go('settings/sync', 'Paramètres → Téléphone et agenda') ?>, créez un <strong>mot de passe d'application</strong> pour chaque appareil, puis suivez les instructions (profil à installer en un geste sur iPhone, DAVx⁵ sur Android, Thunderbird). Agenda, contacts et annuaire de l'entreprise se synchronisent dans les deux sens. Un appareil perdu se révoque en un clic, sans changer votre mot de passe.</p>
+  </section>
+
   <section id="contacts" class="m4w-help-section">
     <h2><i class="bi bi-people"></i>Contacts et annuaire</h2>
     <ul>
       <li><?= $go('contacts', 'Mes contacts') ?> : vos contacts personnels. Les personnes à qui vous écrivez y sont ajoutées automatiquement (mention « auto »). Ajoutez, modifiez, mettez en favori ou supprimez-les.</li>
       <li><strong>Importer / exporter</strong> : au format vCard (.vcf) ou CSV, depuis le bouton <?= $ui('arrow-down-up', 'Importer / exporter') ?>.</li>
+      <li><strong>Sur le téléphone</strong> : vos contacts et l'annuaire se synchronisent avec le carnet d'adresses du téléphone (voir « Agenda et invitations »).</li>
       <li><?= $go('contacts?tab=directory', 'Annuaire') ?> : tous les collaborateurs de l'organisation, avec leur fonction, leur service et leurs téléphones. <?= $ui('envelope', 'Écrire') ?> ouvre directement un message.</li>
     </ul>
   </section>
@@ -233,6 +261,12 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Les droits s'appliquent au dossier et à tout ce qu'il contient. Le lien « copier le lien interne » ne fonctionne que pour les personnes qui ont déjà accès au dossier.</p>
     <h3>Avec la messagerie</h3>
     <p>En rédaction, <?= $ui('folder2-open', '') ?> joint un fichier de l'espace. Dans un message reçu, <?= $ui('folder-plus', '') ?> enregistre une pièce jointe dans le dossier de votre choix.</p>
+  <h3>Tableur intégré</h3>
+    <p>Les classeurs (xlsx, xls, ods, csv) s'ouvrent avec <em>Modifier en ligne</em>, à plusieurs en même temps : les cellules modifiées par vos collègues apparaissent en direct, avec leur nom. Les formules s'écrivent comme dans Excel en français (<code>=SOMME(B2:B10)</code>, <code>=SI(C2>0;"oui";"non")</code>). Vos modifications sont conservées sur le serveur au fil de l'eau ; <strong>Enregistrer</strong> (Ctrl+S) en fait une nouvelle version du fichier. Raccourcis : Entrée / Tab pour valider, F2 pour modifier, Suppr pour effacer, Ctrl+C / Ctrl+V avec Excel, Ctrl+Z pour annuler. Double-cliquez sur le bord d'une colonne pour l'ajuster à son contenu.</p>
+    <p>Un classeur avec graphiques, tableaux croisés ou macros, ou au format .xls, est enregistré dans une copie : l'original reste intact.</p>
+    <h3>Traitement de texte intégré</h3>
+    <p>Les documents Word (docx, ainsi que odt et doc) s'ouvrent avec <em>Modifier en ligne</em>. Une seule personne écrit à la fois : si un collègue est en train d'écrire, vous voyez ses changements en direct et son nom en haut de la page ; dès qu'il clique sur <strong>Terminer</strong> (ou après 45 secondes d'inactivité), le bouton <strong>Modifier</strong> vous rend la main. <strong>Enregistrer</strong> (Ctrl+S) crée une nouvelle version ; les en-têtes, pieds de page et la mise en page du document d'origine sont conservés.</p>
+    <p>Un document avec suivi des modifications, commentaires, zones de texte ou notes de bas de page, ou au format .odt / .doc, est enregistré dans une copie : l'original reste intact.</p>
   </section>
 
   <section id="mobile" class="m4w-help-section">
@@ -270,6 +304,14 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Pour désactiver la double authentification, il faut votre mot de passe <em>et</em> un code de l'application.</p>
     <h3>Sessions et activité</h3>
     <p>La liste des appareils connectés permet de déconnecter un appareil perdu ou tous les autres. L'historique montre les dernières connexions réussies et échouées : si vous voyez une connexion inconnue, changez votre mot de passe et prévenez votre administrateur.</p>
+    <h3>Message frauduleux ?</h3>
+    <p>Un message vous demande vos identifiants, un paiement urgent, ou imite votre banque ou un collègue ? Ne cliquez sur rien et utilisez <?= $ui('shield-exclamation', 'Signaler un hameçonnage') ?> dans la barre du message : il disparaît de votre boîte et de celles de vos collègues, et l'administrateur est prévenu. Pour un simple message publicitaire, <?= $ui('exclamation-octagon', 'Indésirable') ?> suffit : le filtre apprend de vos choix.</p>
+    <h3>Alertes automatiques</h3>
+    <ul>
+      <li>Une connexion depuis un <strong>réseau inhabituel</strong>, des <strong>mots de passe erronés</strong> à répétition, un <strong>transfert</strong> de vos messages vers une adresse extérieure ou un <strong>changement de mot de passe</strong> vous sont signalés par un message dans votre boîte (et une notification).</li>
+      <li>La rubrique « Appareils et lieux de connexion habituels » liste d'où vous vous connectez. Un élément inconnu ? <?= $ui('x-octagon', 'Ce n\'était pas moi') ?> déconnecte toutes les autres sessions et vos appareils synchronisés, et prévient l'administrateur ; changez ensuite votre mot de passe.</li>
+      <li>Les envois vers l'extérieur sont limités par heure et par jour. Si votre compte envoie soudain un grand nombre de messages, l'envoi est <strong>suspendu</strong> par précaution jusqu'à vérification par l'administrateur : vous lisez toujours votre courrier.</li>
+    </ul>
     <div class="m4w-help-note warn"><i class="bi bi-shield-exclamation"></i><div>Personne, ni l'équipe informatique ni l'administrateur, ne vous demandera jamais votre mot de passe par e-mail ou par téléphone.</div></div>
   </section>
 
@@ -416,6 +458,15 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <div class="m4w-help-note tip"><i class="bi bi-lightbulb"></i><div>Fournissez un logo en PNG ou SVG sur fond transparent, et une variante claire pour le thème sombre. La couleur du texte posé sur vos couleurs (boutons, menu) s'adapte automatiquement pour rester lisible.</div></div>
   </section>
 
+  <section id="a-calendar" class="m4w-help-section admin">
+    <h2><i class="bi bi-calendar3"></i>Agenda : salles et synchronisation</h2>
+    <ul>
+      <li><strong>Salles</strong> : dans l'<?= $go('calendar', 'Agenda') ?>, <?= $ui('door-open', 'Nouvelle salle') ?> crée l'agenda d'une salle de réunion (ou d'un véhicule, d'un vidéoprojecteur…). Tout le monde peut y réserver un créneau ; les doubles réservations sont refusées. Seuls les administrateurs renomment ou suppriment une salle.</li>
+      <li><strong>CalDAV / CardDAV</strong> : les téléphones et Thunderbird se connectent à <code>/dav/</code> (découverte automatique par <code>/.well-known/caldav</code> et <code>/.well-known/carddav</code>) avec un mot de passe d'application, uniquement en HTTPS. Avec Apache, l'en-tête <code>Authorization</code> est transmis par le <code>.htaccess</code> fourni ; avec nginx, rien à faire.</li>
+      <li>Les invitations sont envoyées par le serveur (même depuis un téléphone) et suivent les règles d'envoi habituelles (DKIM, file d'attente, limites).</li>
+    </ul>
+  </section>
+
   <section id="a-files" class="m4w-help-section admin">
     <h2><i class="bi bi-folder2-open"></i>Espace fichiers</h2>
     <ul>
@@ -510,6 +561,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li>Publiez un enregistrement <strong>DMARC</strong>, en commençant par <code>v=DMARC1; p=none; rua=mailto:dmarc@votre-domaine</code>, puis passez à <code>p=quarantine</code> une fois les rapports vérifiés.</li>
     </ol>
     <p>La carte « Enregistrements DNS » de la page récapitule les valeurs à publier (MX, SPF, DKIM, DMARC).</p>
+    <h3>Boîte personnelle imposée</h3>
+    <p>Dans la fiche d'un utilisateur, « Imposer sa propre boîte IMAP/SMTP » relève son courrier dans sa boîte chez le fournisseur et le fait partir par son SMTP, quel que soit le mode. En mode boîte collectrice, ne redirigez pas ses adresses. Indiquez la limite d'envoi de sa boîte : une fois atteinte, ses messages peuvent partir par la boîte collectrice (les deux limites s'additionnent) ou attendre.</p>
     <h3>Réception</h3>
     <p>Le serveur de réception intégré (<code>bin/smtpd.php</code>) vérifie SPF, DKIM et DMARC. Les messages qui usurpent un de vos domaines, ou qui échouent DMARC chez l'expéditeur, sont placés dans les indésirables avec un bandeau d'alerte et ne déclenchent ni règle ni réponse automatique. Derrière Postfix (transport <code>bin/deliver.php</code>), ces contrôles sont à confier à Postfix et à son filtre. Les en-têtes posés par un antispam en amont (SpamAssassin, Rspamd, OVH) s'ajoutent au score du <a href="#a-spam">filtre antispam</a>.</p>
   </section>
@@ -523,6 +576,19 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Supprimé</strong> : le message n'est jamais distribué ; une copie reste consultable dans les <?= $go('admin/deleted', 'Messages supprimés') ?> pendant la durée de conservation.</li>
     </ul>
     <p>Les <strong>expéditeurs autorisés</strong> passent toujours (sauf usurpation), les <strong>bloqués</strong> sont toujours supprimés. Pour régler les seuils, collez la source d'un message dans « Tester un message » : le détail du score s'affiche.</p>
+    <p><strong>Apprentissage</strong> : chaque fois qu'un utilisateur déplace un message dans les Indésirables ou l'en sort (« Pas un spam »), le filtre apprend. Une fois assez d'exemples de chaque côté, il reconnaît les messages qui ressemblent à ce que l'organisation considère comme indésirable (jusqu'à +5 points) ou légitime (jusqu'à −3). Seules des empreintes de mots sont conservées.</p>
+    <p><strong>Signalements d'hameçonnage</strong> : le bouton <?= $ui('shield-exclamation', 'Signaler un hameçonnage') ?> du lecteur retire le message de toutes les boîtes qui l'ont reçu (copies conservées dans les <?= $go('admin/deleted?reason=phishing', 'Messages supprimés') ?>, restaurables), vous alerte et marque l'expéditeur (+6 points sur ses prochains messages ; la liste « Expéditeurs signalés » permet d'en retirer un). Si l'expéditeur est un collègue, c'est son compte qui est signalé comme peut-être piraté.</p>
+  </section>
+
+  <section id="a-backup" class="m4w-help-section admin">
+    <h2><i class="bi bi-cloud-arrow-up"></i>Sauvegarde</h2>
+    <p>Dans <?= $go('admin/files', 'Fichiers') ?>, section « Sauvegarde », indiquez votre disque de sauvegarde (SFTP, FTPS, FTP ou dossier local), l'heure et les jours. Chaque nuit, un zip complet y est envoyé : base de données, courrier, configuration, et l'espace Fichiers rangé par utilisateur et par espace, lisible directement. Les plus anciennes sauvegardes sont supprimées au-delà du nombre choisi.</p>
+    <ul>
+      <li><strong>Tester la connexion</strong> écrit puis supprime un petit fichier sur le disque de sauvegarde.</li>
+      <li><strong>Sauvegarder maintenant</strong> lance une sauvegarde dans la minute ; le résultat s'affiche dans l'historique. Un échec vous est aussi signalé par message.</li>
+      <li><strong>Mot de passe du zip</strong> : recommandé, sinon quiconque lit le disque lit tout le courrier. Conservez-le en lieu sûr : sans lui, aucune restauration n'est possible.</li>
+      <li><strong>Restaurer</strong> : sur le serveur, <code>php bin/restore.php fichier.zip --password=… --yes</code> (voir le fichier LISEZMOI.txt du zip).</li>
+    </ul>
   </section>
 
   <section id="a-security" class="m4w-help-section admin">
@@ -536,7 +602,24 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
       <li><strong>Messagerie</strong> : blocage des images distantes, transfert externe autorisé ou limité à une liste de domaines, taille maximale des pièces jointes.</li>
       <li><strong>Fonctions</strong> : complément de signature par l'utilisateur, comptes externes, délai d'annulation d'envoi, langue par défaut.</li>
     </ul>
+    <h3 id="a-guard">Comptes compromis</h3>
+    <ul>
+      <li><strong>Limites d'envoi</strong> par personne et par heure / par jour, en destinataires extérieurs (les collègues ne comptent pas). Au-delà, le message est refusé avec une explication.</li>
+      <li><strong>Rafale suspecte</strong> (par défaut 80 destinataires extérieurs en 10 minutes) : l'envoi du compte est suspendu, ses messages en attente sont retenus, la personne et les administrateurs sont prévenus. Vous pouvez aussi choisir de désactiver le compte et de déconnecter toutes ses sessions.</li>
+      <li>Dans « Comptes dont l'envoi est suspendu » : après avoir fait changer le mot de passe, <?= $ui('unlock', 'Rétablir l\'envoi') ?> relâche les messages retenus, ou supprimez-les s'il s'agit de spam.</li>
+      <li>« Alertes de sécurité » regroupe les connexions inhabituelles, mots de passe erronés, transferts vers l'extérieur et « Ce n'était pas moi » ; marquez-les traitées une fois vérifiées.</li>
+    </ul>
     <p>En bas de page, la liste des adresses IP en échec de connexion permet de repérer une attaque et de débloquer les comptes.</p>
+  </section>
+
+  <section id="a-health" class="m4w-help-section admin">
+    <h2><i class="bi bi-heart-pulse"></i>Supervision</h2>
+    <p><?= $go('admin/health', 'Supervision') ?> vérifie toutes les heures ce qui peut arrêter la messagerie sans bruit : tâche planifiée, file d'envoi bloquée, espace disque, dernière sauvegarde, antivirus, comptes chez le fournisseur, alertes de sécurité non traitées, expiration du certificat HTTPS et, pour chaque domaine, les enregistrements DNS MX, SPF, DKIM (la clé publiée doit être celle du serveur) et DMARC.</p>
+    <ul>
+      <li>Un point qui passe au rouge est signalé aux administrateurs, puis rappelé chaque jour, et un message confirme quand il est réglé. Le tableau de bord affiche aussi un bandeau.</li>
+      <li>Indiquez une <strong>adresse d'alerte extérieure</strong> : si la messagerie elle-même est en panne, c'est la seule qui sera lue.</li>
+      <li><strong>Rapports DMARC</strong> : ajoutez <code>rua=mailto:postmaster@votre-domaine</code> à l'enregistrement DMARC (avec une adresse de ce serveur). Les rapports quotidiens de Gmail, Microsoft, Yahoo… sont lus automatiquement : taux de messages authentifiés par domaine et serveurs qui envoient sans SPF ni DKIM (un service oublié à ajouter au SPF, ou une usurpation).</li>
+    </ul>
   </section>
 
   <section id="a-logs" class="m4w-help-section admin">

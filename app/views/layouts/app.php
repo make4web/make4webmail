@@ -1,7 +1,7 @@
 <?php
 use M4W\Core\Settings;
 $path = $req->path;
-$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : (str_starts_with($path, '/help') ? 'help' : 'settings')));
+$area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/contacts') ? 'contacts' : (str_starts_with($path, '/files') ? 'files' : (str_starts_with($path, '/help') ? 'help' : (str_starts_with($path, '/calendar') ? 'calendar' : 'settings'))));
 ?>
 <!DOCTYPE html>
 <html lang="<?= e(M4W\Core\I18n::language()) ?>">
@@ -31,6 +31,7 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 <script src="<?= e(asset('vendor/jodit/jodit.min.js')) ?>"></script>
 <script src="<?= e(asset('js/editor.js')) ?>"></script>
 <script src="<?= e(asset('js/pages.js')) ?>"></script>
+<?php if ($area === 'calendar'): ?><script src="<?= e(asset('js/calendar.js')) ?>"></script><?php endif; ?>
 <?php if ($area === 'files'): ?><script src="<?= e(asset('js/files-picker.js')) ?>"></script><script src="<?= e(asset('js/files.js')) ?>"></script><?php endif; ?>
 </body>
 </html>

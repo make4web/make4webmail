@@ -74,6 +74,12 @@
     };
 
     var ed = this.ed = window.Jodit.make($target[0], config);
+    // Jodit puts aria-pressed on its list items (not allowed there): keep it on the buttons only.
+    (function (root) {
+      var strip = function () { $(root).find('[role="listitem"][aria-pressed]').removeAttr('aria-pressed'); };
+      strip();
+      if (window.MutationObserver) new MutationObserver(strip).observe(root, { attributes: true, subtree: true, attributeFilter: ['aria-pressed'] });
+    })(ed.container);
     this.ready = true;
     this.$container = $(ed.container);
 

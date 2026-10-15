@@ -187,8 +187,15 @@ final class Users
                 Retention::keep($m, 'account_deleted');
             }
         }
+        // Calendars: personal ones go with the account; shared access to others is withdrawn.
+        foreach (DB::all("SELECT id FROM calendars WHERE owner_id = :u", ['u' => $id]) as $c) {
+            DB::delete('cal_objects', 'calendar_id = :c', ['c' => $c['id']]);
+            DB::delete('calendar_acl', 'calendar_id = :c', ['c' => $c['id']]);
+            DB::delete('calendars', 'id = :c', ['c' => $c['id']]);
+        }
+        DB::delete('calendar_acl', 'user_id = :u', ['u' => $id]);
         DB::transaction(function () use ($id) {
-            foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases', 'push_subscriptions', 'collector_seen'] as $t) {
+            foreach (['messages', 'folders', 'contacts', 'rules', 'vacation_log', 'fetch_accounts', 'user_sessions', 'uploads', 'aliases', 'push_subscriptions', 'collector_seen', 'app_passwords'] as $t) {
                 DB::delete($t, 'user_id = :u', ['u' => $id]);
             }
             DB::delete('vacations', 'user_id = :u', ['u' => $id]);

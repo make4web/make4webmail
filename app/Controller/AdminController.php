@@ -71,6 +71,29 @@ final class AdminController extends Controller
         return $this->page('dashboard', compact('stats', 'days', 'checks', 'recent', 'top'));
     }
 
+    // ---- Supervision -----------------------------------------------------------
+
+    public function health(): Response
+    {
+        $checks = \M4W\Service\Health::checks(true);
+        $days = max(1, min(365, (int) ($this->req->query['days'] ?? 30)));
+        return $this->page('health', ['checks' => $checks, 'overall' => \M4W\Service\Health::overall($checks), 'dmarc' => \M4W\Service\DmarcReports::summary($days), 'days' => $days,
+            'domains' => array_column(DB::all('SELECT name FROM domains WHERE active = 1 ORDER BY name'), 'name')]);
+    }
+
+    public function saveHealth(): Response
+    {
+        $email = mb_strtolower(trim($this->req->str('alert_email')));
+        if ($email !== '' && !is_valid_email($email)) {
+            return $this->back('/admin/health', 'danger', t('health.bad_email'));
+        }
+        Settings::set('health.alert_email', $email);
+        if ($this->req->bool('refresh')) {
+            DB::run("DELETE FROM settings WHERE name LIKE 'health.dns.%'");
+        }
+        return $this->back('/admin/health', 'success', t('settings.saved'));
+    }
+
     // ---- Users ---------------------------------------------------------------
 
     public function users(): Response
@@ -199,14 +222,18 @@ final class AdminController extends Controller
         }
         $hasAccount = \M4W\Service\RemoteMailbox::find($userId) !== null;
         if (!$hasAccount && $r->raw('remote_password') === '') {
-            return null; // nothing entered yet: the mailbox stays "not linked"
+            // Nothing entered yet: the mailbox stays "not linked" (an own mailbox needs its password).
+            return !\M4W\Service\RemoteMailbox::active() && $r->bool('remote_forced') ? t('wm.need_password') : null;
         }
         try {
             \M4W\Service\RemoteMailbox::save($userId, [
                 'login' => $r->str('remote_login'), 'password' => $r->raw('remote_password'), 'enabled' => $r->bool('remote_enabled') || !$hasAccount,
                 'imap_host' => $r->str('remote_imap_host'), 'imap_port' => $r->int('remote_imap_port'), 'imap_security' => $r->str('remote_imap_security'),
                 'smtp_host' => $r->str('remote_smtp_host'), 'smtp_port' => $r->int('remote_smtp_port'), 'smtp_security' => $r->str('remote_smtp_security'),
-            ], $this->uid());
+            ] + (\M4W\Service\RemoteMailbox::active() ? [] : [
+                // Other modes: the administrator imposes (or not) the user's own mailbox.
+                'forced' => $r->bool('remote_forced'), 'overflow' => $r->bool('remote_overflow'), 'hourly_limit' => $r->int('remote_hourly_limit'),
+            ]), $this->uid());
         } catch (\InvalidArgumentException $e) {
             return $e->getMessage();
         }
@@ -693,6 +720,51 @@ final class AdminController extends Controller
         return $this->back('/admin/files', 'success', t('settings.saved'));
     }
 
+    /** Backup settings; "Back up now" asks the backup task (bin/backup.php) to start within a minute. */
+    public function saveBackup(): Response
+    {
+        $r = $this->req;
+        $protocol = in_array($r->str('protocol'), \M4W\Service\Backup::PROTOCOLS, true) ? $r->str('protocol') : 'sftp';
+        $host = trim($r->str('host'));
+        $path = '/' . trim(str_replace('\\', '/', $r->str('path')), '/');
+        if (($host !== '' && !preg_match('/^[a-z0-9.\-]+$/i', $host)) || preg_match('/[\x00-\x1f]|\.\./', $path)) {
+            return $this->back('/admin/files#backup', 'danger', t('backup.invalid'));
+        }
+        if ($protocol === 'local' && \M4W\Service\Backup::unsafeLocalPath($path)) {
+            return $this->back('/admin/files#backup', 'danger', t('backup.public_path'));
+        }
+        $days = implode('', array_values(array_intersect(['1', '2', '3', '4', '5', '6', '7'], (array) ($r->post['days'] ?? []))));
+        $time = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $r->str('time')) ? $r->str('time') : '03:00';
+        $tz = in_array($r->str('timezone'), \DateTimeZone::listIdentifiers(), true) ? $r->str('timezone') : 'Europe/Paris';
+        Settings::setMany([
+            'backup.enabled' => $r->bool('enabled') ? 1 : 0, 'backup.protocol' => $protocol, 'backup.host' => mb_strtolower($host),
+            'backup.port' => max(0, min(65535, $r->int('port'))), 'backup.user' => mb_substr($r->str('user'), 0, 190), 'backup.path' => mb_substr($path, 0, 250),
+            'backup.tls_verify' => $r->bool('tls_verify') ? 1 : 0, 'backup.time' => $time, 'backup.timezone' => $tz,
+            'backup.days' => $days !== '' ? $days : '1234567', 'backup.keep' => max(1, min(365, $r->int('keep', 7))),
+        ]);
+        if ($r->raw('password') !== '') {
+            Settings::setSecret('backup.password', $r->raw('password'));
+        }
+        if ($r->raw('zip_password') !== '') {
+            Settings::setSecret('backup.zip_password', $r->raw('zip_password'));
+        } elseif ($r->bool('zip_password_clear')) {
+            Settings::set('backup.zip_password', '');
+        }
+        Audit::log('admin.backup_saved');
+        if ($r->bool('now')) {
+            Settings::set('backup.requested', 1);
+            return $this->back('/admin/files#backup', 'success', t('backup.requested'));
+        }
+        return $this->back('/admin/files#backup', 'success', t('settings.saved'));
+    }
+
+    /** Backup server reachable and writable (AJAX, saved settings). */
+    public function testBackup(): Response
+    {
+        $e = \M4W\Service\Backup::test();
+        return $e === '' ? $this->ok(['message' => t('backup.test_ok')]) : $this->fail($e);
+    }
+
     /** Online editing: reach the office server and read its formats (AJAX). */
     public function officeTest(): Response
     {
@@ -740,9 +812,21 @@ final class AdminController extends Controller
         return $this->page('spam', ['stats' => $stats, 'test' => $test]);
     }
 
+    public function forgetReported(): Response
+    {
+        \M4W\Service\PhishReport::forgetSender($this->req->str('address'));
+        Audit::log('admin.reported_forgotten', $this->req->str('address'));
+        return $this->back('/admin/spam#reported', 'success', t('settings.saved'));
+    }
+
     public function saveSpam(): Response
     {
         $r = $this->req;
+        if ($r->bool('bayes_reset')) {
+            \M4W\Service\Bayes::reset();
+            Audit::log('admin.bayes_reset');
+            return $this->back('/admin/spam#bayes', 'success', t('bayes.reset_done'));
+        }
         $sus = max(1, min(100, (float) $r->str('suspect', '5')));
         $qua = (float) $r->str('quarantine', '10');
         $del = (float) $r->str('delete', '20');
@@ -765,6 +849,7 @@ final class AdminController extends Controller
             'spam.dnsbl' => implode("\n", array_slice(array_unique($zones), 0, 5)),
             'spam.keep_days' => max(1, min(365, $r->int('keep_days', 30))),
             'inbound.spam_header' => $r->bool('upstream') ? 1 : 0,
+            'spam.bayes' => $r->bool('bayes') ? 1 : 0,
         ]);
         Audit::log('admin.spam_saved');
         return $this->back('/admin/spam', 'success', t('settings.saved'));
@@ -802,7 +887,34 @@ final class AdminController extends Controller
     public function security(): Response
     {
         $blocked = DB::all('SELECT ip, COUNT(*) AS n, MAX(created_at) AS last FROM login_attempts WHERE success = 0 AND created_at > :t GROUP BY ip ORDER BY n DESC LIMIT 20', ['t' => time() - 86400]);
-        return $this->page('security', ['blocked' => $blocked]);
+        $sendBlocked = DB::all('SELECT id, email, send_blocked_until, send_block_reason, status FROM users WHERE send_blocked_until > :t ORDER BY email', ['t' => time()]);
+        $held = [];
+        foreach ($sendBlocked as $b) {
+            $held[(int) $b['id']] = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE user_id = :u AND status = 'held'", ['u' => $b['id']]);
+        }
+        return $this->page('security', ['blocked' => $blocked, 'sendBlocked' => $sendBlocked, 'held' => $held, 'alerts' => \M4W\Service\AccountGuard::openAlerts(40)]);
+    }
+
+    /** Blocked accounts and security alerts: unblock, discard the held mail, mark as handled. */
+    public function guardAction(): Response
+    {
+        $admin = (int) $this->user()['id'];
+        $uid = $this->req->int('user_id');
+        switch ($this->req->str('action')) {
+            case 'unblock':
+                \M4W\Service\AccountGuard::unblock($uid, $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.unblocked'));
+            case 'discard':
+                $n = \M4W\Service\AccountGuard::discardHeld($uid, $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.discarded', ['n' => $n]));
+            case 'resolve':
+                \M4W\Service\AccountGuard::resolve($this->req->int('alert_id'), $admin);
+                return $this->back('/admin/security#guard', 'success', t('guard.resolved'));
+            case 'block':
+                \M4W\Service\AccountGuard::block($uid, 'admin', t('guard.reason_admin', ['name' => $this->user()['email']]));
+                return $this->back('/admin/security#guard', 'success', t('guard.blocked_by_admin'));
+        }
+        return $this->back('/admin/security#guard');
     }
 
     public function saveSecurity(): Response
@@ -849,6 +961,14 @@ final class AdminController extends Controller
             'push.preview' => $r->int('push_preview', 1) === 0 ? 0 : 1,
             'features.undo_send_seconds' => max(0, min(30, $r->int('undo_send_seconds', 5))),
             'features.default_language' => isset(I18n::LANGUAGES[$r->str('default_language')]) ? $r->str('default_language') : 'fr',
+            'guard.enabled' => $r->bool('guard_enabled') ? 1 : 0,
+            'guard.hour_limit' => max(1, min(100000, $r->int('guard_hour', 200))),
+            'guard.day_limit' => max(1, min(1000000, $r->int('guard_day', 1000))),
+            'guard.burst' => max(5, min(100000, $r->int('guard_burst', 80))),
+            'guard.burst_minutes' => max(1, min(120, $r->int('guard_burst_minutes', 10))),
+            'guard.on_burst' => $r->str('guard_on_burst') === 'lock' ? 'lock' : 'block_send',
+            'guard.new_login_mail' => $r->bool('guard_login_mail') ? 1 : 0,
+            'guard.alert_admins_all' => $r->bool('guard_admins_all') ? 1 : 0,
         ];
         if ($values['security.allowed_ips_admin'] !== '') {
             $ok = false;

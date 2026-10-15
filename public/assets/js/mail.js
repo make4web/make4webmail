@@ -419,10 +419,51 @@
       + '<button class="dropdown-item text-danger" data-msg-act="delete"><i class="bi bi-trash3 text-danger"></i>' + esc(t('delete_this')) + '</button>'
       + '</span></span></span></div></div>'
       + banner
+      + invitationHtml(msg)
       + '<div class="m4w-msg-body">' + (expanded ? iframeHtml(msg.id) : '') + '</div>'
       + attachmentsHtml(msg)
       + '</article>';
   }
+
+  /** Meeting invitation, update, cancellation or reply carried by the message. */
+  function invitationHtml(msg) {
+    var v = msg.invitation;
+    if (!v) return '';
+    var head = { REQUEST: v.in_calendar && v.outdated ? 'inv_update' : 'inv_title', CANCEL: 'inv_cancel', REPLY: 'inv_reply', PUBLISH: 'inv_publish' }[v.method] || 'inv_title';
+    var rows = '<dt>' + esc(t('inv_when')) + '</dt><dd>' + esc(v.when) + (v.recurring ? ' <span class="badge badge-soft-primary">' + esc(t('inv_recurring')) + '</span>' : '') + '</dd>'
+      + (v.location ? '<dt>' + esc(t('inv_where')) + '</dt><dd>' + esc(v.location) + '</dd>' : '')
+      + (v.organizer ? '<dt>' + esc(t('inv_organizer')) + '</dt><dd>' + esc(v.organizer) + '</dd>' : '');
+    var notes = '';
+    if (v.cancelled) notes += '<p class="text-danger mb-2"><i class="bi bi-x-octagon me-1"></i>' + esc(t('inv_cancelled')) + '</p>';
+    if (v.outdated) notes += '<p class="text-muted mb-2"><i class="bi bi-clock-history me-1"></i>' + esc(t('inv_outdated')) + '</p>';
+    if (v.replier) { var r = v.replier.split('|'); notes += '<p class="mb-2">' + esc(t('inv_replied', { name: r[0], answer: t('cal_ps_' + (r[1] || 'needs_action').toLowerCase().replace('-', '_')) })) + '</p>'; }
+    if (v.conflicts && v.conflicts.length) notes += '<p class="text-warning-emphasis mb-2"><i class="bi bi-exclamation-triangle me-1"></i>' + esc(t('inv_conflict', { list: v.conflicts.join(', ') })) + '</p>';
+    var actions = '';
+    if (v.can_answer && !v.cancelled && !v.outdated) {
+      ['ACCEPTED', 'TENTATIVE', 'DECLINED'].forEach(function (ps) {
+        var icon = { ACCEPTED: 'check-lg text-success', TENTATIVE: 'question-lg text-warning', DECLINED: 'x-lg text-danger' }[ps];
+        var on = v.partstat === ps;
+        actions += '<button type="button" class="btn btn-light btn-sm' + (on ? ' active' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" data-inv-answer="' + ps + '" data-inv-msg="' + msg.id + '"><i class="bi bi-' + icon + ' me-1"></i>' + esc(t({ ACCEPTED: 'cal_accept', TENTATIVE: 'cal_maybe', DECLINED: 'cal_decline' }[ps])) + '</button>';
+      });
+      actions = '<div class="btn-group flex-wrap" role="group" aria-label="' + esc(t('inv_title')) + '">' + actions + '</div>';
+    } else if (v.method === 'PUBLISH' && !v.in_calendar) {
+      actions = '<button type="button" class="btn btn-light btn-sm" data-inv-import="' + msg.id + '"><i class="bi bi-calendar-plus me-1"></i>' + esc(t('inv_add')) + '</button>';
+    }
+    var status = v.in_calendar ? '<span class="small text-muted"><i class="bi bi-calendar-check me-1"></i>' + esc(t('inv_in_calendar'))
+      + (v.partstat && v.partstat !== 'NEEDS-ACTION' && v.method === 'REQUEST' ? ' · ' + esc(t('inv_answered', { answer: t('cal_ps_' + v.partstat.toLowerCase().replace('-', '_')) })) : '') + '</span>' : '';
+    return '<section class="m4w-invite" aria-label="' + esc(t(head)) + '"><div class="m4w-invite-icon" aria-hidden="true"><i class="bi bi-calendar-event"></i></div><div class="min-w-0 flex-grow-1">'
+      + '<div class="small text-muted text-uppercase fw-semibold">' + esc(t(head)) + '</div><h3 class="m4w-invite-title">' + esc(v.title) + '</h3><dl class="m4w-invite-dl">' + rows + '</dl>' + notes
+      + '<div class="d-flex flex-wrap align-items-center gap-2">' + actions + status + ' <a class="small" href="' + esc(M4W.url('calendar')) + '">' + esc(t('inv_open')) + '</a></div></div></section>';
+  }
+  $(document).on('click', '[data-inv-answer], [data-inv-import]', function () {
+    var $b = $(this), id = +($b.data('inv-msg') || $b.data('inv-import')), $card = $b.closest('.m4w-invite');
+    var body = $b.data('inv-import') ? { message_id: id, action: 'import' } : { message_id: id, partstat: $b.data('inv-answer') };
+    $card.find('button').prop('disabled', true);
+    M4W.post('api/calendar/respond', body).done(function (r) {
+      $card.replaceWith(invitationHtml({ id: id, invitation: r.invitation }));
+      M4W.toast(body.action ? t('inv_added') : t('inv_sent'), 'success');
+    }).fail(function () { $card.find('button').prop('disabled', false); });
+  });
 
   function iframeHtml(id, images) {
     var src = M4W.url('api/messages/' + id + '/body', images ? { images: 1 } : null);
@@ -463,6 +504,7 @@
     var tb = '<button class="btn btn-ghost btn-icon" data-reader="back" title="' + esc(t('back')) + ' (U)"><i class="bi bi-arrow-left"></i></button>'
       + (folder.role !== 'archive' ? '<button class="btn btn-ghost btn-icon" data-reader="archive" title="' + esc(t('archive')) + ' (E)"><i class="bi bi-archive"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('move_inbox')) + '"><i class="bi bi-inbox"></i></button>')
       + (inSpam ? '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('not_spam')) + '"><i class="bi bi-shield-check"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="spam" title="' + esc(t('spam')) + ' (!)"><i class="bi bi-exclamation-octagon"></i></button>')
+      + (folder.role !== 'sent' && folder.role !== 'drafts' ? '<button class="btn btn-ghost btn-icon" data-reader="phish" title="' + esc(t('phish_report')) + '" aria-label="' + esc(t('phish_report')) + '"><i class="bi bi-shield-exclamation"></i></button>' : '')
       + '<button class="btn btn-ghost btn-icon" data-reader="delete" title="' + esc(inTrash ? t('delete_forever') : t('delete')) + ' (#)"><i class="bi bi-trash3"></i></button>'
       + '<span class="vr"></span>'
       + '<button class="btn btn-ghost btn-icon" data-reader="unread" title="' + esc(t('mark_unread')) + ' (Shift+U)"><i class="bi bi-envelope"></i></button>'
@@ -498,6 +540,19 @@
     renderMoveMenus();
     bindIframes($c);
     $c.find('[data-bs-toggle=dropdown]').each(function () { bootstrap.Dropdown.getOrCreateInstance(this, { popperConfig: { strategy: 'fixed' } }); });
+  }
+
+  /** One person reports, the whole organisation is protected. */
+  function reportPhishing(id) {
+    M4W.confirm(t('phish_confirm_title'), t('phish_confirm_text'), t('phish_report')).done(function () {
+      M4W.post('api/messages/' + id + '/phishing', {}).done(function (r) {
+        rowById(id).slideUp(120);
+        closeReader();
+        setFolders(r.folders);
+        loadList(true);
+        M4W.toast(r.internal ? t('phish_done_internal') : (r.removed ? t('phish_done_n', { n: r.removed }) : t('phish_done')), 'success');
+      });
+    });
   }
 
   // ------------------------------------------------------------- actions
@@ -804,6 +859,7 @@
       if (a === 'next') { moveCursor(1); return; }
       if (a === 'star') { toggleStar(id); return; }
       if (a === 'unread') { action('unread', [id], { thread: S.prefs.conversations && !isSentLike() }); closeReader(); return; }
+      if (a === 'phish') { reportPhishing(id); return; }
       bulk(a, [id]);
     });
     $reader.on('click', '[data-toggle-msg]', function (e) {

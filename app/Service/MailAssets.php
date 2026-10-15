@@ -261,7 +261,7 @@ final class MailAssets
     {
         $sha = hash('sha256', $bytes);
         $existing = DB::one('SELECT * FROM mail_assets WHERE sha256 = :s', ['s' => $sha]);
-        if ($existing) {
+        if ($existing && self::intact($existing)) {
             return $existing;
         }
         $c = self::clean($bytes);
@@ -323,8 +323,23 @@ final class MailAssets
 
     public static function asset(int $messageId, int $assetId): ?array
     {
-        return DB::one("SELECT a.* FROM mail_assets a JOIN mail_asset_refs r ON r.asset_id = a.id WHERE r.message_id = :m AND a.id = :a AND a.kind = 'image' LIMIT 1",
+        $a = DB::one("SELECT a.* FROM mail_assets a JOIN mail_asset_refs r ON r.asset_id = a.id WHERE r.message_id = :m AND a.id = :a AND a.kind = 'image' LIMIT 1",
             ['m' => $messageId, 'a' => $assetId]);
+        return $a && self::intact($a) ? $a : null;
+    }
+
+    /**
+     * The stored copy is still there. If it was lost (storage restored or wiped), the record
+     * goes and its references are fetched again, instead of announcing an empty picture.
+     */
+    private static function intact(array $a): bool
+    {
+        if ((string) $a['blob_id'] === '' || Storage::store()->exists((string) $a['blob_id'])) {
+            return true;
+        }
+        DB::run("UPDATE mail_asset_refs SET asset_id = NULL, status = 'pending', tries = 0 WHERE asset_id = :a", ['a' => $a['id']]);
+        DB::delete('mail_assets', 'id = :id', ['id' => $a['id']]);
+        return false;
     }
 
     public static function stream(array $asset, callable $sink): void

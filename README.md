@@ -43,6 +43,19 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 ### Fichiers (espace partagé)
 - **Mes fichiers** (privé, invisible même pour les administrateurs), **Partagés avec moi**, **Espaces d'équipe** et **Corbeille**.
 - Droits par dossier, hérités par tout le contenu : **Lecture** (consulter, télécharger), **Modification** (ajouter, renommer, déplacer, supprimer), **Gestion** (modifier aussi les accès). Ils s'accordent à une personne, à un service (champ « service » des utilisateurs) ou à tout le monde. Les administrateurs gèrent tous les espaces d'équipe.
+- **Tableur intégré, à plusieurs** (sans serveur bureautique) : xlsx, xls, ods, csv.
+  - Formules Excel calculées par le serveur (PhpSpreadsheet, plus de 400 fonctions), écrites à la française (`=SOMME(A1;B1)`, `1,5`) et enregistrées en anglais dans le fichier ; saisie « 1 234,5 », « 25 % », « 12 € », « 15/10/2026 » reconnue.
+  - Mise en forme (gras, couleurs, alignement, formats nombre, monétaire, date, %, bordures, fusion), lignes et colonnes, feuilles, redimensionnement, copier-coller avec Excel, annuler/rétablir, somme de la sélection.
+  - Plusieurs personnes modifient en même temps : chacun voit les cellules des autres se mettre à jour, avec leur nom et leur curseur.
+  - Le travail est conservé sur le serveur à chaque frappe (copie de travail, incluse dans les sauvegardes). « Enregistrer » crée une nouvelle version ; un classeur laissé ouvert est enregistré automatiquement deux minutes après le départ du dernier éditeur.
+  - Ce que l'éditeur ne sait pas conserver (graphiques, tableaux croisés, macros, ancien format .xls) part dans une copie, comme une version enregistrée ailleurs entre-temps : l'original n'est jamais écrasé.
+  - Si un serveur Collabora / ONLYOFFICE est configuré, il prend le relais ; le tableur intégré reste proposé.
+- **Traitement de texte intégré** (sans serveur bureautique) : docx, odt, doc.
+  - Page façon traitement de texte : titres, gras, couleurs, tailles, listes à puces et numérotées imbriquées, alignement, liens, images, tableaux, sauts de page, collage depuis Word.
+  - Fidélité : seul le corps de `word/document.xml` est réécrit ; styles, en-têtes et pieds de page (numéros de page compris), numérotation, mise en page et propriétés du .docx restent ceux de l'original. Validé avec LibreOffice.
+  - À plusieurs : une personne écrit à la fois, les autres suivent ses changements en direct et voient qui écrit ; la main se passe avec « Terminer », et un rédacteur inactif la perd après 45 secondes.
+  - Le texte est conservé sur le serveur au fil de la frappe ; « Enregistrer » crée une nouvelle version, et un document laissé ouvert est enregistré deux minutes après le départ de chacun.
+  - Ce que l'éditeur ne sait pas conserver (suivi des modifications, commentaires, zones de texte, notes de bas de page, table des matières automatique, équations, plusieurs sections), ainsi que les .odt et .doc, part dans une copie : l'original n'est jamais écrasé.
 - **Aperçu intégré** sans télécharger : images, PDF, audio, vidéo, et rendu HTML côté serveur des .docx, .xlsx, .pptx, .odt, CSV et fichiers texte. Ce rendu n'utilise aucun service externe ; il est protégé contre les bombes zip et les entités XML, et servi sous CSP `sandbox`. Les anciens formats (.doc, .xls, .ppt) passent par le serveur bureautique s'il y en a un.
 - **Édition en ligne collaborative** (Word, Excel, PowerPoint, OpenDocument, texte) par un serveur **Collabora Online** ou **ONLYOFFICE Docs**, via le protocole WOPI. Make4WebMail est l'hôte WOPI :
   - jetons d'accès aléatoires, conservés hachés, propres à un document et à une personne, valables 10 h ;
@@ -63,6 +76,12 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
 - Intégration à la messagerie : **joindre depuis Fichiers** dans la fenêtre de rédaction, **enregistrer dans Fichiers** une pièce jointe reçue, « Envoyer par e-mail » depuis Fichiers.
 - Stockage en base de données (blocs de 1 Mo) derrière une interface `BlobStore` : passer sur disque local se fait dans `config/config.php` (`'files' => ['storage' => 'local', 'path' => '/srv/files']`), et un stockage S3 ne demande qu'une nouvelle classe.
 - Administration : taille maximale, quota total, nombre de versions conservées, durée de la corbeille, création d'espaces par les utilisateurs.
+
+### Agenda, invitations et synchronisation des téléphones
+- Agenda jour / semaine / mois / liste, glisser-déposer pour déplacer ou allonger un événement, répétitions (quotidienne, jours ouvrés, hebdomadaire, mensuelle, annuelle, avec date de fin), « cette occurrence ou toute la série », rappels envoyés en notification sur les appareils.
+- Agendas multiples, **partagés** en lecture ou en modification avec des collègues ou toute l'organisation ; **salles** réservables par tous, sans double réservation ; import / export `.ics`.
+- **Invitations** au standard iTIP / iMIP : les collègues trouvent l'événement directement dans leur agenda, les personnes extérieures reçoivent un e-mail qu'Outlook, Gmail, Apple et Thunderbird savent accepter ; les réponses, modifications et annulations sont appliquées automatiquement (expéditeur vérifié). Une invitation reçue s'affiche en tête du message avec Accepter / Peut-être / Refuser et les conflits d'horaire ; disponibilité des collègues vérifiée avant l'envoi.
+- **CalDAV / CardDAV** (`/dav/`, découverte `/.well-known/caldav`) : agenda, contacts et annuaire de l'entreprise synchronisés dans les deux sens avec iPhone (profil à installer en un geste), Android (DAVx⁵), Thunderbird. Connexion par **mots de passe d'application** (un par appareil, révocables), HTTPS obligatoire.
 
 ### Délégation des boîtes aux lettres
 Dans un cadre professionnel, les boîtes aux lettres appartiennent à l'organisation : en cas d'absence ou d'urgence, il faut pouvoir les gérer.
@@ -121,6 +140,16 @@ En mode webmail :
 - Les messages relevés peuvent être conservés chez le fournisseur (sauvegarde) ou supprimés après 0, 7, 30 ou 90 jours. Comme les utilisateurs ne connaissent pas le mot de passe de leur boîte, ils consultent leur courrier sur téléphone avec l'application Make4WebMail (voir ci-dessous) et non avec une application IMAP. Un dossier indésirables du fournisseur peut être relevé vers les Indésirables.
 - Un test de bout en bout (`tests/run.php`) vérifie le mode webmail contre un faux fournisseur IMAP/SMTP sur de vraies sockets. Ce faux fournisseur, comme les vrais, refuse tout expéditeur autre que la boîte authentifiée.
 
+En mode boîte collectrice :
+- Une seule boîte chez le fournisseur (par ex. `mail@domaine`) reçoit, par des redirections `a@ → mail@`, le courrier de tous les utilisateurs. Make4WebMail la relève et distribue chaque message à son destinataire, retrouvé grâce aux traces du fournisseur (`X-Original-To`, `Delivered-To`, `Received … for`), puis aux champs À et Cc. Les doublons sont écartés, les avis de non-remise reviennent à leur expéditeur, et ce qui ne peut pas être attribué va dans une boîte de rattrapage.
+- Tout part par le SMTP de cette boîte, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues restent internes et ne consomment pas le quota.
+- **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
+- Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
+
+**Boîte personnelle imposée** (fiche utilisateur, dans tous les modes) : l'administrateur peut imposer à un compte sa propre boîte IMAP/SMTP chez le fournisseur. Son courrier y est relevé et part par son SMTP, sans signature DKIM locale et avec réécriture des transferts, comme en mode webmail. Une copie reçue aussi par un autre chemin n'est importée qu'une fois.
+- En mode boîte collectrice, ses adresses ne sont plus à rediriger.
+- Sa boîte a sa propre limite horaire. Une fois atteinte, ou si le fournisseur refuse pour dépassement, les envois **débordent sur la boîte collectrice** (option) : les deux limites s'additionnent. Sans débordement, les messages attendent sa boîte.
+
 ### Application mobile et notifications push
 - Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.
 - **Notifications Web Push** à l'arrivée d'un message non lu dans la boîte de réception, même navigateur fermé. Toucher la notification ouvre le message. Implémentation native en PHP, sans dépendance ni service tiers : clés VAPID (RFC 8292) générées à l'installation, contenu chiffré de bout en bout jusqu'au navigateur (RFC 8291, aes128gcm), vérifié dans les tests avec le vecteur officiel de la RFC.
@@ -130,6 +159,7 @@ En mode webmail :
 - HTTPS est obligatoire (exigence des navigateurs).
 
 ### Administration
+- **Supervision** : tâche planifiée, file d'envoi, disque, sauvegarde, antivirus, certificat HTTPS, DNS (MX, SPF, DKIM, DMARC) vérifiés chaque heure ; alertes aux administrateurs (et à une adresse extérieure) avec rappel quotidien ; lecture automatique des **rapports DMARC** agrégés (taux d'authentification, serveurs non autorisés).
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :
   - création, modification, désactivation et suppression ;
@@ -158,6 +188,8 @@ En mode webmail :
 - Journaux : flux de messages, file d'attente (avec relance et suppression) et audit.
 
 ### Sécurité
+- **Antispam qui apprend** (bayésien, partagé par l'organisation, empreintes de mots seulement) à partir des « Indésirable » / « Pas un spam », et bouton **Signaler un hameçonnage** : message retiré de toutes les boîtes (copies restaurables par l'administrateur), expéditeur marqué, administrateurs alertés, collègue au compte compromis repéré.
+- **Comptes compromis** : limites d'envoi par personne (destinataires extérieurs par heure et par jour), suspension automatique de l'envoi en cas de rafale (messages en attente retenus, administrateurs et personne prévenus), alertes de connexion depuis un réseau inhabituel, de mots de passe erronés, de transfert vers l'extérieur et de changement de mot de passe, bouton « Ce n'était pas moi ».
 - Mots de passe hachés en Argon2id, comparaisons à temps constant et anti-force brute (par compte et par IP).
 - Sessions durcies : cookie `HttpOnly`/`SameSite`/`Secure`, régénération à la connexion, table de sessions révocables, expiration sur inactivité et durée absolue.
 - Jeton CSRF sur toutes les requêtes qui modifient des données. CSP stricte sans script inline, `X-Frame-Options`, `nosniff`, `Referrer-Policy: no-referrer` et HSTS en HTTPS.
@@ -178,13 +210,11 @@ En mode webmail :
 ---
 
 ## Licences tierces
-Toutes les bibliothèques vendorisées sont sous licence permissive : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator) ou OFL (police Inter). Le webmail peut donc être distribué ou exploité en SaaS sous licence propriétaire, à condition de conserver les fichiers de licence (`public/assets/vendor/*/LICENSE*`).
+- Navigateur (`public/assets/vendor/`) : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator), OFL (police Inter).
+- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache, phpseclib pour le SFTP, paragonie/constant_time_encoding), BSD-3-Clause (sabre/dav, sabre/vobject, sabre/http, sabre/xml, sabre/event, sabre/uri pour l'agenda et CalDAV / CardDAV), MIT (psr/log) et **LGPL-3.0 pour PHPWord**.
 
-En mode boîte collectrice :
-- Une seule boîte chez le fournisseur (par ex. `mail@domaine`) reçoit, par des redirections `a@ → mail@`, le courrier de tous les utilisateurs. Make4WebMail la relève et distribue chaque message à son destinataire, retrouvé grâce aux traces du fournisseur (`X-Original-To`, `Delivered-To`, `Received … for`), puis aux champs À et Cc. Les doublons sont écartés, les avis de non-remise reviennent à leur expéditeur, et ce qui ne peut pas être attribué va dans une boîte de rattrapage.
-- Tout part par le SMTP de cette boîte, avec l'adresse de l'utilisateur comme expéditeur. Les messages entre collègues restent internes et ne consomment pas le quota.
-- **Limite horaire du fournisseur** (OVH : 200 destinataires par heure), comptée sur une heure glissante. Au-delà, les messages attendent dans la file et partent seuls, dans l'ordre d'arrivée. Un refus de dépassement de la part du fournisseur suspend les envois pendant 15 minutes.
-- Les administrateurs voient une jauge (tableau de bord, Serveur de messagerie) avec la répartition par tranche de 5 minutes et les plus gros expéditeurs. Une pastille orange (≥ 80 %) puis rouge (« Envois bloqués », avec l'heure de reprise) s'affiche en haut de chaque écran. L'expéditeur d'un message retardé est prévenu.
+La LGPL autorise l'usage de PHPWord dans un produit propriétaire ou un SaaS, à condition de le livrer sans modification, avec sa licence, et de laisser l'utilisateur le remplacer par une autre version (c'est le cas : ses sources sont dans `app/vendor/phpoffice/phpword`). Le webmail peut donc être distribué ou exploité sous licence propriétaire en conservant les fichiers de licence (`public/assets/vendor/*/LICENSE*`, `app/vendor/*/*/LICENSE*`).
+
 
 ## Prérequis
 ClamAV (`clamav-daemon`, recommandé) et PHP ≥ 8.1 avec les extensions `pdo_sqlite` (ou `pdo_mysql`), `sodium`, `mbstring`, `openssl`, `dom`, `fileinfo`, `iconv`, et éventuellement `zip`, `intl` et `pcntl`. SQLite ne demande aucune configuration ; MySQL et MariaDB sont aussi pris en charge.
@@ -231,6 +261,28 @@ Choisissez l'un des deux modes :
 ### 6. Envoi
 Dans « Administration → Serveur de messagerie », renseignez le relais SMTP de votre fournisseur. Si vous laissez le champ vide, la messagerie remet directement les messages aux serveurs MX, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Générez la clé DKIM et publiez les enregistrements DNS proposés.
 
+## Sauvegarde et restauration
+Administration → Fichiers → **Sauvegarde** : chaque jour, à l'heure choisie (3 h, heure de Paris, par défaut ; jours et fuseau réglables), un zip est envoyé en **SFTP, FTPS, FTP** ou dans un **dossier local** (NAS monté). Il contient :
+- `database/` : la base complète (copie SQLite cohérente, ou dump SQL pour MySQL) ;
+- `storage/` : le courrier, la file d'envoi, les pièces en cours et les listes ;
+- `config/config.php` : la configuration, avec la clé qui déchiffre les secrets enregistrés ;
+- `fichiers/utilisateurs/<adresse>/…`, `fichiers/espaces/<nom>/…`, `fichiers/archives/…` : l'espace Fichiers tel qu'on le voit, lisible sans l'application.
+
+Fonctionnement :
+- Mot de passe du zip en option, chiffré en AES-256.
+- Rotation : les N dernières sauvegardes sont gardées.
+- Envoi sous un nom temporaire, renommé une fois complet.
+- Historique, test de connexion et bouton « Sauvegarder maintenant ». Un échec est signalé dans la boîte des administrateurs.
+- La sauvegarde tourne dans sa propre tâche planifiée (`bin/backup.php --if-due`, installée par le script Debian) : elle ne retarde jamais le courrier.
+- Il faut sur le serveur un espace libre au moins égal à la taille de la sauvegarde ; la page l'indique.
+
+Restauration, sur le même serveur ou un nouveau (installé sans lancer l'assistant) :
+```bash
+sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…'          # aperçu, rien n'est modifié
+sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…' --yes    # restauration
+```
+L'option `--config` reprend aussi la configuration sur un serveur déjà configuré. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
+
 ## Outils en ligne de commande
 | Commande | Rôle |
 |---|---|
@@ -252,7 +304,7 @@ Publiez-le ensuite derrière votre proxy HTTPS (par ex. `https://office.exemple.
 
 ## Tests
 ```bash
-php tests/run.php   # 118 tests : MIME, XSS, règles, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
+php tests/run.php   # 161 tests : MIME, XSS, règles, agenda et invitations, CalDAV / CardDAV, absence, transfert, SMTP réels, DKIM, SPF/DMARC, fichiers et droits, délégation, seconde corbeille, modes webmail et boîte collectrice, notifications push (chiffrement RFC 8291, VAPID), TOTP, quotas…
 php tests/seed.php  # données de démonstration (développement)
 ```
 
@@ -264,8 +316,10 @@ app/
   Storage/     BlobStore (interface), DatabaseStore, LocalStore, Storage (choix du stockage)
   Service/     Mailbox, Delivery, RuleEngine, Vacation, Forwarding, Composer, Transport (file d'envoi),
                Signatures, Branding, Contacts, Users, Folders, Fetcher, Installer, Files (espace partagé et droits),
+               Calendar (agendas, occurrences, rappels), Scheduling (invitations iTIP / iMIP),
                Delegation (accès délégué aux boîtes, journal, éléments personnels), Retention (seconde corbeille), RemoteMailbox (mode webmail)
-  Controller/  Auth, Mail (API JSON), Compose, Contacts, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
+  Dav/         serveur CalDAV / CardDAV (sabre/dav) : principaux, agendas, carnets d'adresses, mots de passe d'application
+  Controller/  Auth, Mail (API JSON), Compose, Contacts, Calendar, Files, Delegation, Retention, Help, Settings, Admin, Install, Asset
   views/       gabarits PHP (layouts, mail, settings, admin…)
   lang/        fr.php, en.php
 public/        index.php (contrôleur frontal), assets/ (css, js, vendor)

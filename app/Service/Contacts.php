@@ -89,7 +89,8 @@ final class Contacts
     public static function save(int $userId, array $d, ?int $id = null): int
     {
         $email = mb_strtolower(trim((string) ($d['email'] ?? '')));
-        if (!is_valid_email($email)) {
+        // A phone-only card (from a phone, over CardDAV) may have no address.
+        if ($email !== '' ? !is_valid_email($email) : (trim((string) ($d['name'] ?? '')) === '' || trim((string) ($d['phone'] ?? '')) === '')) {
             throw new \InvalidArgumentException(t('contacts.invalid_email'));
         }
         $data = [
@@ -100,17 +101,124 @@ final class Contacts
             'notes'          => mb_substr(trim((string) ($d['notes'] ?? '')), 0, 2000),
             'is_favorite'    => !empty($d['is_favorite']) ? 1 : 0,
             'auto_collected' => 0,
+            'updated_at'     => time(),
         ];
-        if ($id) {
-            DB::update('contacts', $data, 'id = :id AND user_id = :u', ['id' => $id, 'u' => $userId]);
+        $existing = $id ? DB::one('SELECT * FROM contacts WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $userId])
+            : ($email !== '' ? DB::one('SELECT * FROM contacts WHERE user_id = :u AND LOWER(email) = :e', ['u' => $userId, 'e' => $email]) : null);
+        if ($id && !$existing) {
             return $id;
         }
-        $existing = DB::one('SELECT id FROM contacts WHERE user_id = :u AND LOWER(email) = :e', ['u' => $userId, 'e' => $email]);
         if ($existing) {
+            // A card from a phone keeps what the web form does not show (addresses, birthday...).
+            if ((string) ($existing['vcard'] ?? '') !== '') {
+                $data['vcard'] = self::mergeCard((string) $existing['vcard'], $data);
+            }
             DB::update('contacts', $data, 'id = :id', ['id' => $existing['id']]);
             return (int) $existing['id'];
         }
         return DB::insert('contacts', $data + ['user_id' => $userId, 'created_at' => time()]);
+    }
+
+    // ---------------------------------------------------------------- vCards (CardDAV)
+
+    /** The vCard of a contact: the phone's own card when it came from one, else built from the fields. */
+    public static function card(array $c): string
+    {
+        if ((string) ($c['vcard'] ?? '') !== '') {
+            return (string) $c['vcard'];
+        }
+        $v = new \Sabre\VObject\Component\VCard(['VERSION' => '3.0', 'UID' => 'm4w-contact-' . $c['id'], 'FN' => $c['name'] !== '' ? $c['name'] : ($c['email'] ?: '?')]);
+        $parts = preg_split('/\s+/', trim((string) $c['name']), 2) ?: [];
+        $v->N = [count($parts) > 1 ? $parts[1] : ($parts[0] ?? ''), count($parts) > 1 ? $parts[0] : '', '', '', ''];
+        if ($c['email'] !== '') {
+            $v->add('EMAIL', $c['email'], ['TYPE' => 'INTERNET']);
+        }
+        if ($c['phone'] !== '') {
+            $v->add('TEL', $c['phone'], ['TYPE' => 'CELL']);
+        }
+        if ($c['company'] !== '') {
+            $v->ORG = $c['company'];
+        }
+        if ((string) $c['notes'] !== '') {
+            $v->NOTE = (string) $c['notes'];
+        }
+        return $v->serialize();
+    }
+
+    /** Fields of a vCard sent by a phone. */
+    public static function fieldsFromCard(string $data): array
+    {
+        $v = \Sabre\VObject\Reader::read($data, \Sabre\VObject\Reader::OPTION_FORGIVING);
+        if (!$v instanceof \Sabre\VObject\Component\VCard) {
+            throw new \InvalidArgumentException(t('contacts.invalid_card'));
+        }
+        $name = trim((string) ($v->FN ?? ''));
+        if ($name === '' && isset($v->N)) {
+            $n = $v->N->getParts();
+            $name = trim(($n[1] ?? '') . ' ' . ($n[0] ?? ''));
+        }
+        $email = '';
+        foreach ($v->EMAIL ?? [] as $e) {
+            if (is_valid_email(trim((string) $e))) {
+                $email = mb_strtolower(trim((string) $e));
+                break;
+            }
+        }
+        $org = isset($v->ORG) ? trim(implode(' ', (array) $v->ORG->getParts())) : '';
+        return ['name' => mb_substr($name, 0, 190), 'email' => $email, 'phone' => mb_substr(trim((string) ($v->TEL ?? '')), 0, 60),
+            'company' => mb_substr($org, 0, 190), 'notes' => mb_substr(trim((string) ($v->NOTE ?? '')), 0, 2000), 'vcard' => $v->serialize()];
+    }
+
+    /** Web edits written back into the phone's card. */
+    private static function mergeCard(string $card, array $d): string
+    {
+        try {
+            $v = \Sabre\VObject\Reader::read($card, \Sabre\VObject\Reader::OPTION_FORGIVING);
+        } catch (\Throwable) {
+            return '';
+        }
+        $v->FN = $d['name'] !== '' ? $d['name'] : ($d['email'] ?: '?');
+        $set = static function (string $prop, string $value, array $params = []) use ($v): void {
+            $first = $v->select($prop);
+            $first = $first ? reset($first) : null;
+            if ($value === '') {
+                if ($first) {
+                    $v->remove($first);
+                }
+            } elseif ($first) {
+                $first->setValue($value);
+            } else {
+                $v->add($prop, $value, $params);
+            }
+        };
+        $set('EMAIL', $d['email'], ['TYPE' => 'INTERNET']);
+        $set('TEL', $d['phone'], ['TYPE' => 'CELL']);
+        $set('NOTE', $d['notes']);
+        unset($v->ORG);
+        if ($d['company'] !== '') {
+            $v->ORG = $d['company'];
+        }
+        return $v->serialize();
+    }
+
+    /** Store a card from a phone. */
+    public static function saveCard(int $userId, string $uri, string $data): void
+    {
+        $f = self::fieldsFromCard($data);
+        if ($f['email'] === '' && $f['name'] === '') {
+            throw new \InvalidArgumentException(t('contacts.invalid_card'));
+        }
+        $row = $f + ['auto_collected' => 0, 'etag' => md5($f['vcard']), 'updated_at' => time()];
+        $existing = DB::one('SELECT id FROM contacts WHERE user_id = :u AND uri = :uri', ['u' => $userId, 'uri' => $uri]);
+        if (!$existing && $f['email'] !== '') {
+            // The address was already known (collected from mail): the card takes it over.
+            $existing = DB::one("SELECT id FROM contacts WHERE user_id = :u AND LOWER(email) = :e AND (uri = '' OR auto_collected = 1)", ['u' => $userId, 'e' => $f['email']]);
+        }
+        if ($existing) {
+            DB::update('contacts', $row + ['uri' => $uri], 'id = :id', ['id' => $existing['id']]);
+        } else {
+            DB::insert('contacts', $row + ['user_id' => $userId, 'uri' => $uri, 'created_at' => time()]);
+        }
     }
 
     public static function delete(int $userId, array $ids): void

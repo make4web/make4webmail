@@ -18,6 +18,16 @@ final class App
     {
         $req = Request::fromGlobals();
         self::$request = $req;
+        // Calendar and contacts sync for phones: its own protocol, no session or CSRF token.
+        if (\M4W\Dav\Server::handles($req->path)) {
+            try {
+                \M4W\Dav\Server::run($req);
+            } catch (\Throwable $e) {
+                error_log('[m4w] dav: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+                http_response_code(500);
+            }
+            return;
+        }
         try {
             $res = self::handle($req);
         } catch (HttpException $e) {
@@ -226,6 +236,7 @@ final class App
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);
         $r->get('/api/messages/{id}/print', [Controller\MailController::class, 'printView']);
         $r->post('/api/messages/{id}/unsubscribe', [Controller\MailController::class, 'unsubscribe']);
+        $r->post('/api/messages/{id}/phishing', [Controller\MailController::class, 'phishing']);
         $r->get('/api/poll', [Controller\MailController::class, 'poll']);
         $r->post('/api/prefs', [Controller\MailController::class, 'prefs']);
 
@@ -265,6 +276,19 @@ final class App
         $r->get('/files/file/{id}', [Controller\FilesController::class, 'download']);
         $r->get('/api/messages/{id}/img/{asset}', [Controller\MailController::class, 'image']);
         $r->get('/files/edit/{id}', [Controller\OfficeController::class, 'editor']);
+        $r->get('/files/sheet/{id}', [Controller\SheetController::class, 'page']);
+        $r->get('/files/doc/{id}', [Controller\DocController::class, 'page']);
+        $r->get('/api/docs/{id}', [Controller\DocController::class, 'data']);
+        $r->post('/api/docs/{id}/take', [Controller\DocController::class, 'take']);
+        $r->post('/api/docs/{id}/release', [Controller\DocController::class, 'release']);
+        $r->post('/api/docs/{id}/draft', [Controller\DocController::class, 'draft']);
+        $r->get('/api/docs/{id}/poll', [Controller\DocController::class, 'poll']);
+        $r->post('/api/docs/{id}/save', [Controller\DocController::class, 'save']);
+        $r->get('/api/sheets/{id}', [Controller\SheetController::class, 'data']);
+        $r->post('/api/sheets/{id}/ops', [Controller\SheetController::class, 'ops']);
+        $r->get('/api/sheets/{id}/poll', [Controller\SheetController::class, 'poll']);
+        $r->post('/api/sheets/{id}/save', [Controller\SheetController::class, 'save']);
+        $r->post('/api/sheets/{id}/leave', [Controller\SheetController::class, 'leave']);
         $r->get('/api/files/file/{id}/text', [Controller\OfficeController::class, 'text']);
         $r->post('/api/files/file/{id}/text', [Controller\OfficeController::class, 'saveText']);
         // WOPI host, called by the office server: authenticated by access token, no session, no CSRF.
@@ -312,8 +336,30 @@ final class App
         $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
         $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
         $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $admin);
+        $r->post('/admin/files/backup', [Controller\AdminController::class, 'saveBackup'], $admin);
+        $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $admin);
         $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
         $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
+
+        // Calendar
+        $r->get('/calendar', [Controller\CalendarController::class, 'index']);
+        $r->get('/calendar/export/{id}', [Controller\CalendarController::class, 'export']);
+        $r->get('/api/calendar/events', [Controller\CalendarController::class, 'events']);
+        $r->get('/api/calendar/event', [Controller\CalendarController::class, 'event']);
+        $r->post('/api/calendar/event', [Controller\CalendarController::class, 'save']);
+        $r->post('/api/calendar/event/move', [Controller\CalendarController::class, 'move']);
+        $r->post('/api/calendar/event/delete', [Controller\CalendarController::class, 'delete']);
+        $r->post('/api/calendar/event/partstat', [Controller\CalendarController::class, 'partstat']);
+        $r->get('/api/calendar/busy', [Controller\CalendarController::class, 'busy']);
+        $r->post('/api/calendar/calendars', [Controller\CalendarController::class, 'createCalendar']);
+        $r->post('/api/calendar/calendars/{id}', [Controller\CalendarController::class, 'updateCalendar']);
+        $r->post('/api/calendar/calendars/{id}/delete', [Controller\CalendarController::class, 'deleteCalendar']);
+        $r->post('/api/calendar/import', [Controller\CalendarController::class, 'import']);
+        $r->post('/api/calendar/respond', [Controller\CalendarController::class, 'respond']);
+        $r->get('/settings/sync', [Controller\CalendarController::class, 'sync']);
+        $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
+        $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);
+        $r->get('/settings/sync/profile', [Controller\CalendarController::class, 'mobileconfig']);
 
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);
@@ -330,6 +376,7 @@ final class App
         $r->post('/settings/forwarding', [Controller\SettingsController::class, 'saveForwarding']);
         $r->get('/settings/signature', [Controller\SettingsController::class, 'signature']);
         $r->get('/settings/security', [Controller\SettingsController::class, 'security']);
+        $r->post('/settings/security/places/forget', [Controller\SettingsController::class, 'forgetPlace']);
         $r->post('/settings/security/password', [Controller\SettingsController::class, 'changePassword']);
         $r->post('/settings/security/2fa/start', [Controller\SettingsController::class, 'start2fa']);
         $r->post('/settings/security/2fa/enable', [Controller\SettingsController::class, 'enable2fa']);
@@ -381,8 +428,12 @@ final class App
         $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $admin);
         $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
         $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
+        $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $admin);
+        $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
+        $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
         $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
+        $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $admin);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
         $r->post('/admin/queue/retry', [Controller\AdminController::class, 'retryQueue'], $admin);
         $r->post('/admin/queue/delete', [Controller\AdminController::class, 'deleteQueue'], $admin);

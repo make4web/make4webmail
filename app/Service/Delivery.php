@@ -39,6 +39,14 @@ final class Delivery
             }
             return $results;
         }
+        // DMARC aggregate reports about our domains feed the supervision page.
+        if ($source !== 'local' && DmarcReports::looksLike($parsed)) {
+            try {
+                DmarcReports::ingest($parsed);
+            } catch (\Throwable $e) {
+                error_log('[m4w] dmarc: ' . $e->getMessage());
+            }
+        }
         $loopHeaders = array_map('mb_strtolower', $parsed->headerAll('X-M4W-Loop'));
         $spamBase = $source !== 'local' && SpamFilter::enabled() ? SpamFilter::evaluate($parsed, $auth, $envelopeFrom) : null;
         $results = [];
@@ -157,6 +165,14 @@ final class Delivery
                 }
             }
             Contacts::touchSender($uid, $parsed->from());
+            // Answers to our invitations, updates and cancellations of events already in the calendar.
+            if ($level === 'ok' && !$suspicious && $source !== 'local') {
+                try {
+                    Scheduling::incoming($user, $parsed);
+                } catch (\Throwable $e) {
+                    error_log('[m4w] itip: ' . $e->getMessage());
+                }
+            }
 
             // 5. Out-of-office.
             $spamId = (int) Folders::byRole($uid, 'spam')['id'];

@@ -1698,6 +1698,61 @@ test('collector: a refusal from the provider itself pauses sending and is shown'
     Transport::processQueue();
     eq(array_slice($wmSmtp(), $n)[0]['rcpt'] ?? null, ['e@ext.com'], 'sent once the provider accepts again');
 });
+test('own mailbox imposed in collector mode: fetched from it, sent through it, overflow to the collector', function () use ($paul, $lea, $fsAdmin, $colState, $colMsg, $colCount, $wmSmtp) {
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => 'secret-paul', 'enabled' => 1, 'forced' => 1, 'overflow' => 1, 'hourly_limit' => 2], (int) $fsAdmin['id']);
+    ok(RemoteMailbox::personal((int) $paul['id']) !== null);
+    ok(!in_array('paul@test.local', Collector::addressesToRedirect(), true), 'no redirection for an own mailbox');
+    // The same message reaches his own box and, Lea being in copy, the collector: Paul gets it once.
+    $colState(static function (array &$st) use ($colMsg) {
+        $raw = $colMsg("Return-Path: <client@ext.com>\r\nTo: paul@test.local\r\nCc: lea@test.local\r\n", 'Devis perso', 'own-1');
+        // Above every number already seen (messages cleaned up at the provider included).
+        $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 1000, 'raw' => $raw];
+        $cmax = max(array_column($st['boxes']['mail@test.local']['INBOX']['msgs'], 'uid'));
+        $st['boxes']['mail@test.local']['INBOX']['msgs'][] = ['uid' => $cmax + 1, 'raw' => $raw];
+    });
+    DB::run('UPDATE remote_accounts SET last_sync_at = 0');
+    RemoteMailbox::syncAll();
+    eq($colCount($paul, 'Devis perso'), 1, 'fetched from his own box, once');
+    eq($colCount($lea, 'Devis perso'), 1, 'Lea through the collector');
+    // Sending: his own SMTP up to its limit, then the collector.
+    DB::delete('send_log', '1 = 1');
+    $n = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'a@ext.com, b@ext.com, c@ext.com', 'subject' => 'Trois clients', 'html' => '<p>x</p>']);
+    $s = array_slice($wmSmtp(), $n);
+    eq(array_map(static fn($t) => [$t['auth'], count($t['rcpt'])], $s), [['paul@test.local', 2], ['mail@test.local', 1]], '2 by his box, 1 overflow');
+    eq([RemoteMailbox::usedBy((int) $paul['id']), Collector::used()], [2, 1], 'separate counters');
+    ok(!preg_match('/^DKIM-Signature:/m', $s[0]['data']), 'the provider signs');
+    // The provider refuses for his box: it rests, the collector takes over.
+    DB::delete('send_log', '1 = 1');
+    DB::run('UPDATE remote_accounts SET hourly_limit = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    $colState(static function (array &$st) { $st['smtp_reject_for']['paul@test.local'] = 'Rate limit exceeded'; });
+    $n = count($wmSmtp());
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'd@ext.com', 'subject' => 'Refus perso', 'html' => '<p>x</p>']);
+    eq(array_column(array_slice($wmSmtp(), $n), 'auth'), ['mail@test.local'], 'sent by the collector');
+    ok((int) RemoteMailbox::find((int) $paul['id'])['blocked_until'] > time(), 'his box rests');
+    // Without overflow, mail waits for his own box (not counted as the collector's queue).
+    DB::run('UPDATE remote_accounts SET overflow = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    $held = Collector::held();
+    $r = Composer::send(Users::find((int) $paul['id']), ['to' => 'e@ext.com', 'subject' => 'Attente perso', 'html' => '<p>x</p>']);
+    eq($r['deferred']['count'] ?? 0, 1, 'waits');
+    eq(Collector::held(), $held, 'not in the collector queue');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'pending' AND last_error = :h", ['h' => RemoteMailbox::HELD]), 1);
+    $colState(static function (array &$st) { unset($st['smtp_reject_for']); });
+    DB::run('UPDATE remote_accounts SET blocked_until = 0 WHERE user_id = :u', ['u' => $paul['id']]);
+    DB::run('UPDATE mail_queue SET next_attempt_at = 0 WHERE last_error = :h', ['h' => RemoteMailbox::HELD]);
+    $n = count($wmSmtp());
+    Transport::processQueue();
+    ok(in_array(['paul@test.local', ['e@ext.com']], array_map(static fn($t) => [$t['auth'], $t['rcpt']], array_slice($wmSmtp(), $n)), true), 'leaves by his box later');
+});
+test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
+    Settings::set('mail.mode', 'server');
+    $n = count($wmSmtp());
+    Composer::send(Users::find((int) $paul['id']), ['to' => 'f@ext.com', 'subject' => 'Mode serveur', 'html' => '<p>x</p>']);
+    eq(array_column(array_slice($wmSmtp(), $n), 'auth'), ['paul@test.local'], 'through his own box, not direct MX');
+    RemoteMailbox::save((int) $paul['id'], ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 0], 1);
+    eq(RemoteMailbox::personal((int) $paul['id']), null, 'switched off');
+    Settings::set('mail.mode', 'collector');
+});
 proc_terminate($wmProc);
 Settings::setMany(['mail.mode' => '', 'webmail.spam_folder' => '']);
 
@@ -2101,6 +2156,698 @@ test('push: a device moves to whoever signs in on it, and leaves with a deleted 
     eq(count(M4W\Service\WebPush::devices($tmpId)), 1, 'cannot remove someone else\'s device');
     Users::delete($tmpId);
     eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
+});
+
+// ------------------------------------------------------------------ built-in spreadsheet
+echo "\nBuilt-in spreadsheet (several editors at once)\n";
+use M4W\Service\Sheet;
+$xlsx = static function (array $rows, ?callable $more = null): string {
+    $s = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $s->getActiveSheet()->setTitle('Budget')->fromArray($rows);
+    if ($more) { $more($s); }
+    $p = tempnam(sys_get_temp_dir(), 'x') . '.xlsx';
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($s))->save($p);
+    return $p;
+};
+test('spreadsheet: French input and formulas', function () {
+    M4W\Core\I18n::setLanguage('fr');
+    eq(Sheet::parseInput('3,5')[0], 3.5);
+    eq(Sheet::parseInput('1 234,5')[0], 1234.5);
+    eq(Sheet::parseInput("1\u{202F}000")[0], 1000);
+    eq([Sheet::parseInput('25 %')[0], Sheet::parseInput('25 %')[2]], [0.25, '0%']);
+    eq([Sheet::parseInput('12,50 €')[0], Sheet::parseInput('12,50 €')[2]], [12.5, Sheet::FORMATS['currency']]);
+    eq(Sheet::parseInput('15/10/2026')[2], 'dd/mm/yyyy');
+    eq(Sheet::parseInput('31/02/2026')[0], '31/02/2026', 'not a date');
+    eq(Sheet::parseInput('VRAI')[0], true);
+    eq(Sheet::parseInput("'0612345678")[0], '0612345678', 'apostrophe keeps text');
+    eq(Sheet::parseInput('0612345678')[0], 612345678);
+    eq(Sheet::toEnglish('=SOMME(A1;1,5)+SI(B1>2;"a,b";"c")'), '=SUM(A1,1.5)+IF(B1>2,"a,b","c")');
+    eq(Sheet::toLocale('=ROUND(A1*1.5,2)'), '=ARRONDI(A1*1,5;2)');
+});
+test('spreadsheet: two editors, recalculation, patches, version saved', function () use ($fsBob, $fsCarol, $fsAdmin, $xlsx) {
+    M4W\Core\I18n::setLanguage('fr');
+    $space = Files::createSpace($fsAdmin, 'Compta ' . bin2hex(random_bytes(3)));
+    Files::setAcl($fsAdmin, $space, [['type' => 'user', 'principal' => $fsCarol['id'], 'level' => 'write'], ['type' => 'user', 'principal' => $fsBob['id'], 'level' => 'write']]);
+    $f = Files::addFromPath($fsBob, $space, $xlsx([['Poste', 'Montant'], ['Loyer', 1200], ['Total', '=SUM(B2:B2)']]), 'Budget.xlsx');
+    $o = Sheet::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['can_write']], ['edit', true]);
+    eq((array) $o['workbook']['sheets'][0]['cells']->B3, ['1200', '=SOMME(B2:B2)', 0, 1], 'formula shown in French');
+    $o2 = Sheet::open($fsCarol, Files::file((int) $f['id']));
+    $seq = $o2['seq'];
+    Sheet::poll($fsBob, Files::file((int) $f['id']), 0, 0, 'B2');
+    Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'B2', 'v' => '1 350,5'], ['t' => 'set', 's' => 0, 'c' => 'B3', 'v' => '=SOMME(B2:B2)*2']]);
+    $p = Sheet::poll($fsCarol, Files::file((int) $f['id']), $seq, 0, 'A1');
+    $cells = $p['ops'][0]['cells'];
+    eq($cells['B2'][1], '1350,5');
+    eq($cells['B3'][0], '2701', 'the other editor gets the recalculated value');
+    ok(!isset($cells['A1']), 'only what changed');
+    eq(count($p['people']), 1, 'Bob is seen');
+    // Structure: everyone reloads.
+    Sheet::applyOps($fsCarol, Files::file((int) $f['id']), [['t' => 'ins_row', 's' => 0, 'at' => 2, 'n' => 1]]);
+    eq(end(Sheet::poll($fsBob, Files::file((int) $f['id']), 0, 0, '')['ops'])['k'], 'reload');
+    $thrown = false;
+    try { Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'ZZZZ1', 'v' => 'x']]); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'invalid cell refused');
+    $r = Sheet::publish($fsCarol, Files::file((int) $f['id']));
+    eq([$r['copy'], (int) $r['file']['version']], [false, 2], 'new version');
+    $saved = \PhpOffice\PhpSpreadsheet\IOFactory::load((function ($f) { $t = tempnam(sys_get_temp_dir(), 'r') . '.xlsx'; file_put_contents($t, Files::contents($f['blob_id'])); return $t; })(Files::file((int) $f['id'])));
+    eq($saved->getActiveSheet()->getCell('B4')->getValue(), '=SUM(B3:B3)*2', 'formula kept in English in the file, row inserted');
+    eq($saved->getActiveSheet()->getCell('B4')->getCalculatedValue(), 2701.0);
+    // Read-only for someone without write access.
+    $GLOBALS['sheetFile'] = (int) $f['id'];
+});
+test('spreadsheet: complex workbooks and changes made elsewhere go to a copy', function () use ($fsBob, $xlsx) {
+    M4W\Core\I18n::setLanguage('fr');
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $p = $xlsx([['A', 1]]);
+    $z = new \ZipArchive(); $z->open($p); $z->addFromString('xl/charts/chart1.xml', '<c:chartSpace/>'); $z->close();
+    $f = Files::addFromPath($fsBob, $root, $p, 'Graphique.xlsx');
+    $o = Sheet::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['reason']], ['copy', 'charts']);
+    Sheet::applyOps($fsBob, Files::file((int) $f['id']), [['t' => 'set', 's' => 0, 'c' => 'B1', 'v' => '2']]);
+    $r = Sheet::publish($fsBob, Files::file((int) $f['id']));
+    ok($r['copy'] && str_contains($r['file']['name'], 'Graphique (modifié)'), $r['file']['name']);
+    eq((int) Files::file((int) $f['id'])['version'], 1, 'the original is untouched');
+    // Someone saved another version meanwhile: never overwritten.
+    $g = Files::addFromPath($fsBob, $root, $xlsx([['x', 1]]), 'Plan.xlsx');
+    Sheet::open($fsBob, Files::file((int) $g['id']));
+    Sheet::applyOps($fsBob, Files::file((int) $g['id']), [['t' => 'set', 's' => 0, 'c' => 'A2', 'v' => 'y']]);
+    Files::putContent($fsBob, (int) $g['id'], $xlsx([['autre', 2]]));
+    $r = Sheet::publish($fsBob, Files::file((int) $g['id']));
+    ok($r['copy'], 'conflict saved as a copy');
+    // CSV keeps its format and the French separator.
+    $csv = tempnam(sys_get_temp_dir(), 'c');
+    file_put_contents($csv, "Nom;Montant\nA;3,5\n");
+    $c = Files::addFromPath($fsBob, $root, $csv, 'liste.csv');
+    $oc = Sheet::open($fsBob, Files::file((int) $c['id']));
+    eq($oc['workbook']['sheets'][0]['cells']->B2[1], '3,5', 'separator detected');
+    Sheet::applyOps($fsBob, Files::file((int) $c['id']), [['t' => 'set', 's' => 0, 'c' => 'B3', 'v' => '4,25']]);
+    Sheet::publish($fsBob, Files::file((int) $c['id']));
+    ok(str_contains(Files::contents(Files::file((int) $c['id'])['blob_id']), '"4,25"') || str_contains(Files::contents(Files::file((int) $c['id'])['blob_id']), '4,25'), 'CSV written back with French decimals');
+});
+test('spreadsheet: unsaved work is saved once everyone has left', function () use ($fsBob) {
+    $fid = $GLOBALS['sheetFile'];
+    Sheet::applyOps($fsBob, Files::file($fid), [['t' => 'set', 's' => 0, 'c' => 'A9', 'v' => 'oublié']]);
+    DB::run('UPDATE sheet_sessions SET updated_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $fid]);
+    DB::run('UPDATE sheet_presence SET seen_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $fid]);
+    $v = (int) Files::file($fid)['version'];
+    ok(Sheet::housekeeping() >= 1);
+    eq((int) Files::file($fid)['version'], $v + 1, 'saved as a new version');
+});
+
+// ------------------------------------------------------------------ built-in word processor
+echo "\nBuilt-in word processor (one writer, others follow)\n";
+use M4W\Service\DocEdit;
+use M4W\Service\WordDoc;
+$docx = static function (callable $build): string {
+    $w = new \PhpOffice\PhpWord\PhpWord();
+    $w->addTitleStyle(1, ['bold' => true, 'size' => 18]);
+    $build($w->addSection());
+    $p = tempnam(sys_get_temp_dir(), 'd') . '.docx';
+    \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save($p);
+    return $p;
+};
+test('documents: Word to HTML and back, only the body rewritten', function () use ($docx) {
+    $src = $docx(static function ($s) {
+        $s->addHeader()->addText('EN-TETE SOCIETE');
+        $s->addTitle('Rapport', 1);
+        $s->addText('Gras', ['bold' => true]);
+        $s->addListItem('Un', 0); $s->addListItem('Deux', 1);
+        $t = $s->addTable(); $t->addRow(); $t->addCell(2000)->addText('A'); $t->addCell(2000)->addText('B');
+        $s->addLink('https://exemple.fr', 'Lien');
+    });
+    $r = WordDoc::toHtml($src);
+    eq($r['issues'], []);
+    ok(str_contains($r['html'], '<h1>Rapport</h1>') && str_contains($r['html'], '<strong>Gras</strong>') && str_contains($r['html'], '<ul><li>Un<ul><li>Deux</li></ul></li></ul>'), $r['html']);
+    ok(str_contains($r['html'], '<table>') && str_contains($r['html'], '<a href="https://exemple.fr">Lien</a>'));
+    $out = tempnam(sys_get_temp_dir(), 'o') . '.docx';
+    WordDoc::fromHtml($r['html'] . '<p>Ajout <em>final</em></p><ol><li>Premier</li></ol><hr class="m4w-pagebreak"><p>Page 2</p>', $src, $out);
+    $back = WordDoc::toHtml($out)['html'];
+    eq(WordDoc::toHtml($out)['html'], WordDoc::toHtml((function () use ($back, $src) { $o = tempnam(sys_get_temp_dir(), 'o') . '.docx'; WordDoc::fromHtml($back, $src, $o); return $o; })())['html'], 'stable: saving twice changes nothing');
+    ok(str_contains($back, 'Ajout <em>final</em>') && str_contains($back, '<ol><li>Premier</li></ol>') && str_contains($back, 'm4w-pagebreak'));
+    $z = new \ZipArchive(); $z->open($out);
+    ok(str_contains((string) $z->getFromName('word/header1.xml'), 'EN-TETE SOCIETE'), 'header kept');
+    ok(str_contains((string) $z->getFromName('word/document.xml'), '<w:headerReference'), 'section settings kept');
+    ok(\PhpOffice\PhpWord\IOFactory::load($out) instanceof \PhpOffice\PhpWord\PhpWord, 'a valid package');
+    // Hostile input: entities, scripts.
+    $evil = $docx(static fn($s) => $s->addText('x'));
+    $z = new \ZipArchive(); $z->open($evil); $z->addFromString('word/document.xml', '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>'); $z->close();
+    $thrown = false;
+    try { WordDoc::toHtml($evil); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'a DTD is refused');
+    eq(WordDoc::issues('<w:body><w:p><w:ins w:id="1"><w:r><w:t>x</w:t></w:r></w:ins></w:p><w:p><w:r><w:commentReference w:id="0"/></w:r></w:p></w:body>'), ['tracked', 'comments']);
+});
+test('documents: one writer, the other follows, a new version is saved', function () use ($fsBob, $fsCarol, $fsAdmin, $docx) {
+    $space = Files::createSpace($fsAdmin, 'Docs ' . bin2hex(random_bytes(3)));
+    Files::setAcl($fsAdmin, $space, [['type' => 'user', 'principal' => $fsCarol['id'], 'level' => 'write'], ['type' => 'user', 'principal' => $fsBob['id'], 'level' => 'write']]);
+    $f = Files::addFromPath($fsBob, $space, $docx(static fn($s) => $s->addText('Version initiale')), 'Note.docx');
+    $file = static fn() => Files::file((int) $f['id']);
+    $o = DocEdit::open($fsBob, $file());
+    eq([$o['mode'], $o['pen']], ['edit', null]);
+    ok(DocEdit::take($fsBob, $file())['ok']);
+    $c = DocEdit::take($fsCarol, $file());
+    ok(!$c['ok'] && $c['pen']['id'] === (int) $fsBob['id'], 'one writer at a time');
+    $thrown = false;
+    try { DocEdit::draft($fsCarol, $file(), '<p>pirate</p>'); } catch (\DomainException) { $thrown = true; }
+    ok($thrown, 'only the writer saves drafts');
+    $rev = DocEdit::draft($fsBob, $file(), '<p>Version initiale</p><p>Ajout de <strong>Bob</strong><script>alert(1)</script></p>');
+    $p = DocEdit::poll($fsCarol, $file(), 1);
+    eq($p['rev'], $rev);
+    ok(str_contains($p['html'], 'Ajout de <strong>Bob</strong>') && !str_contains($p['html'], 'script'), 'the follower gets the cleaned text');
+    eq(DocEdit::poll($fsCarol, $file(), $rev)['html'] ?? null, null, 'nothing new, nothing sent');
+    $r = DocEdit::publish($fsBob, $file());
+    eq([$r['copy'], (int) $r['file']['version']], [false, 2]);
+    $t = tempnam(sys_get_temp_dir(), 'n') . '.docx';
+    file_put_contents($t, Files::contents($file()['blob_id']));
+    ok(str_contains(WordDoc::toHtml($t)['html'], 'Ajout de <strong>Bob</strong>'), 'saved in the .docx');
+    // The writer leaves: the other can take over.
+    DocEdit::release($fsBob, (int) $f['id']);
+    ok(DocEdit::take($fsCarol, $file())['ok']);
+    // A silent writer loses the pen after 45 seconds.
+    DB::run('UPDATE doc_sessions SET holder_seen = :t WHERE file_id = :f', ['t' => time() - 60, 'f' => $f['id']]);
+    ok(DocEdit::take($fsBob, $file())['ok'], 'taken over from an inactive writer');
+    // Unsaved work is saved after everyone left.
+    DocEdit::draft($fsBob, $file(), '<p>Dernier mot</p>');
+    DB::run('UPDATE doc_sessions SET updated_at = :t, holder_seen = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $f['id']]);
+    DB::run('UPDATE sheet_presence SET seen_at = :t WHERE file_id = :f', ['t' => time() - 600, 'f' => $f['id']]);
+    ok(DocEdit::housekeeping() >= 1);
+    eq((int) $file()['version'], 3);
+});
+test('documents: tracked changes, .odt and .doc are saved as copies', function () use ($fsBob, $docx) {
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $src = $docx(static fn($s) => $s->addText('Texte'));
+    $z = new \ZipArchive(); $z->open($src);
+    $xml = (string) $z->getFromName('word/document.xml');
+    $z->addFromString('word/document.xml', preg_replace('#<w:body>#', '<w:body><w:p><w:ins w:id="9" w:author="X"><w:r><w:t>insertion suivie</w:t></w:r></w:ins></w:p>', $xml, 1)); $z->close();
+    $f = Files::addFromPath($fsBob, $root, $src, 'Suivi.docx');
+    $o = DocEdit::open($fsBob, Files::file((int) $f['id']));
+    eq([$o['mode'], $o['issues']], ['copy', ['tracked']]);
+    DocEdit::take($fsBob, Files::file((int) $f['id']));
+    DocEdit::draft($fsBob, Files::file((int) $f['id']), '<p>Texte revu</p>');
+    $r = DocEdit::publish($fsBob, Files::file((int) $f['id']));
+    ok($r['copy'] && str_ends_with($r['file']['name'], '.docx'));
+    eq((int) Files::file((int) $f['id'])['version'], 1, 'original untouched');
+    // OpenDocument
+    $w = new \PhpOffice\PhpWord\PhpWord(); $w->addSection()->addText('Bonjour ODT');
+    $odt = tempnam(sys_get_temp_dir(), 'o') . '.odt';
+    \PhpOffice\PhpWord\IOFactory::createWriter($w, 'ODText')->save($odt);
+    $g = Files::addFromPath($fsBob, $root, $odt, 'Lettre.odt');
+    $o = DocEdit::open($fsBob, Files::file((int) $g['id']));
+    ok(str_contains($o['html'], 'Bonjour ODT') && $o['mode'] === 'copy', 'odt imported');
+    DocEdit::take($fsBob, Files::file((int) $g['id']));
+    DocEdit::draft($fsBob, Files::file((int) $g['id']), '<p>Bonjour ODT, <strong>modifié</strong></p>');
+    $r = DocEdit::publish($fsBob, Files::file((int) $g['id']));
+    ok($r['copy'] && str_ends_with($r['file']['name'], '.odt'), $r['file']['name']);
+    $t = tempnam(sys_get_temp_dir(), 'r') . '.odt';
+    file_put_contents($t, Files::contents(Files::file((int) $r['file']['id'])['blob_id']));
+    ok(str_contains((new \PhpOffice\PhpWord\Writer\HTML(\PhpOffice\PhpWord\IOFactory::load($t, 'ODText')))->getContent(), 'modifié'), 'odt written');
+});
+
+// ------------------------------------------------------------------ backups
+echo "\nBackups (zip to a backup disk)\n";
+use M4W\Service\Backup;
+$bkDir = $tmp . '/backup-disk';
+Settings::setMany(['backup.protocol' => 'local', 'backup.path' => $bkDir, 'backup.keep' => 2, 'backup.zip_password' => '', 'backup.enabled' => 0, 'backup.requested' => 0]);
+$bkZip = static function () use ($bkDir): string {
+    $files = glob($bkDir . '/m4w-backup-*.zip') ?: [];
+    rsort($files);
+    return $files[0] ?? '';
+};
+test('backup: one zip with the database, mail, configuration and the file space as people see it', function () use ($bkZip, $fsBob) {
+    eq(Backup::test(), '', 'backup disk writable');
+    $r = Backup::run('manual');
+    eq($r['status'], 'ok', $r['message']);
+    $z = new \ZipArchive();
+    ok($z->open($bkZip()) === true);
+    $names = [];
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $names[] = $z->getNameIndex($i);
+    }
+    foreach (['manifest.json', 'LISEZMOI.txt', 'database/m4w.sqlite', 'config/config.php'] as $n) {
+        ok(in_array($n, $names, true), $n);
+    }
+    ok((bool) array_filter($names, static fn($n) => str_starts_with($n, 'storage/mail/')), 'mail store');
+    ok(!array_filter($names, static fn($n) => str_starts_with($n, 'storage/tmp/') || str_starts_with($n, 'storage/sessions/')), 'no temporary data');
+    // A file of Bob's personal space, under his address, with its content.
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = DB::one('SELECT * FROM fs_files WHERE folder_id = :f AND deleted_at = 0 ORDER BY id LIMIT 1', ['f' => $root]);
+    ok((bool) $f, 'Bob has a file');
+    $path = 'fichiers/utilisateurs/' . $fsBob['email'] . '/' . $f['name'];
+    $content = '';
+    M4W\Storage\Storage::store()->read($f['blob_id'], static function ($b) use (&$content) { $content .= $b; });
+    eq($z->getFromName($path), $content, 'readable as in the file space');
+    // The database copy is complete.
+    $copy = tempnam(sys_get_temp_dir(), 'db');
+    file_put_contents($copy, $z->getFromName('database/m4w.sqlite'));
+    eq((int) (new \PDO('sqlite:' . $copy))->query('SELECT COUNT(*) FROM users')->fetchColumn(), (int) DB::value('SELECT COUNT(*) FROM users'));
+    @unlink($copy);
+    $z->close();
+});
+test('backup: AES-256 password, rotation, one run at a time, failures reported', function () use ($bkZip, $bkDir, $fsAdmin) {
+    Settings::setSecret('backup.zip_password', 'Sauvegarde!2026');
+    eq(Backup::run('manual')['status'], 'ok');
+    $z = new \ZipArchive();
+    $z->open($bkZip());
+    eq($z->statName('database/m4w.sqlite')['encryption_method'], \ZipArchive::EM_AES_256, 'encrypted');
+    ok($z->getFromName('config/config.php') === false, 'unreadable without the password');
+    $z->setPassword('Sauvegarde!2026');
+    ok(str_contains((string) $z->getFromName('config/config.php'), 'app_key'), 'readable with it');
+    $z->close();
+    Backup::run('manual');
+    $GLOBALS['bkMessages'] = (int) DB::value('SELECT COUNT(*) FROM messages');
+    $GLOBALS['bkMailFiles'] = count(array_filter(iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(M4W\Core\Config::storagePath('mail'), \FilesystemIterator::SKIP_DOTS))), static fn($f) => $f->isFile()));
+    eq(count(glob($bkDir . '/m4w-backup-*.zip') ?: []), 2, 'only the 2 most recent kept');
+    // One at a time.
+    $lock = fopen(M4W\Core\Config::storagePath('tmp/backup.lock'), 'c');
+    flock($lock, LOCK_EX);
+    eq(Backup::run('manual')['status'], 'busy');
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    // A failure reaches the administrators' inbox.
+    Settings::set('backup.path', '/proc/m4w-impossible');
+    $r = Backup::run('scheduled');
+    eq($r['status'], 'failed');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'Échec de la sauvegarde'", ['u' => $fsAdmin['id']]), 'administrators alerted');
+    eq(DB::value("SELECT status FROM backup_runs ORDER BY id DESC LIMIT 1"), 'failed', 'history');
+    Settings::set('backup.path', $bkDir);
+});
+test('backup: schedule in the chosen time zone, once a day, "now" from the administration', function () {
+    Settings::setMany(['backup.enabled' => 1, 'backup.timezone' => 'Europe/Paris', 'backup.days' => '1234567', 'backup.last_scheduled' => 0, 'backup.requested' => 0]);
+    $paris = new \DateTimeImmutable('now', new \DateTimeZone('Europe/Paris'));
+    Settings::set('backup.time', $paris->modify('-2 minutes')->format('H:i'));
+    if ($paris->format('H:i') >= '00:02') {
+        eq(Backup::due(), 'scheduled', 'time has come');
+        Settings::set('backup.last_scheduled', time());
+        eq(Backup::due(), null, 'once a day');
+    }
+    Settings::setMany(['backup.last_scheduled' => 0, 'backup.time' => $paris->modify('+30 minutes')->format('H:i')]);
+    if ($paris->format('H:i') < '23:29') {
+        eq(Backup::due(), null, 'not yet');
+        ok(Backup::nextRun() - time() <= 1800 && Backup::nextRun() > time(), 'next run shown');
+    }
+    Settings::set('backup.days', '');
+    Settings::set('backup.days', str_replace($paris->format('N'), '', '1234567'));
+    Settings::set('backup.time', '00:00');
+    eq(Backup::due(), null, 'not on an excluded day');
+    Settings::set('backup.requested', 1);
+    eq(Backup::due(), 'manual', 'asked from the administration');
+    Settings::setMany(['backup.enabled' => 0, 'backup.requested' => 0, 'backup.days' => '1234567']);
+});
+test('backup: restored on another server (database, mail, configuration)', function () use ($bkZip, $tmp) {
+    $other = $tmp . '/restore-target';
+    @mkdir($other . '/storage', 0777, true);
+    $cfg = require getenv('M4W_CONFIG');
+    $cfg['storage_path'] = $other . '/storage';
+    $cfg['db'] = ['driver' => 'sqlite', 'path' => $other . '/storage/restored.sqlite'];
+    file_put_contents($other . '/config.php', '<?php return ' . var_export($cfg, true) . ';');
+    $zip = $bkZip();
+    $cmd = [PHP_BINARY, dirname(__DIR__) . '/bin/restore.php', $zip, '--password=Sauvegarde!2026'];
+    $run = static function (array $cmd) use ($other): string {
+        $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['M4W_CONFIG' => $other . '/config.php'] + getenv());
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        proc_close($p);
+        return $out;
+    };
+    ok(str_contains($run($cmd), 'Nothing changed'), 'dry run without --yes');
+    $out = $run(array_merge($cmd, ['--yes']));
+    ok(str_contains($out, 'SQLite database restored'), $out);
+    eq((int) (new \PDO('sqlite:' . $other . '/storage/restored.sqlite'))->query('SELECT COUNT(*) FROM messages')->fetchColumn(), $GLOBALS['bkMessages'], 'every message at backup time');
+    $count = static fn(string $d) => count(array_filter(iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($d, \FilesystemIterator::SKIP_DOTS))), static fn($f) => $f->isFile()));
+    eq($count($other . '/storage/mail'), $GLOBALS['bkMailFiles'], 'mail store');
+    ok(str_contains($run([PHP_BINARY, dirname(__DIR__) . '/bin/restore.php', $zip, '--password=faux', '--yes']), 'wrong password'), 'wrong password refused');
+    Settings::set('backup.zip_password', '');
+});
+
+
+echo "\nCalendar, invitations, phone sync (CalDAV / CardDAV)\n";
+$calA = Users::findByEmail('admin@test.local');
+$calB = Users::findByEmail('bob@test.local');
+$calC = Users::findByEmail('carol@test.local');
+$invites = static function (string $to, string $method = ''): array {
+    $out = [];
+    foreach (DB::all("SELECT * FROM mail_queue WHERE kind = 'invite' AND recipients LIKE :r ORDER BY id", ['r' => '%' . $to . '%']) as $q) {
+        $raw = (string) file_get_contents(Config::storagePath($q['raw_path']));
+        if ($method === '' || str_contains($raw, 'method=' . $method)) {
+            $out[] = $raw;
+        }
+    }
+    return $out;
+};
+test('calendar: weekly series across the clock change, all-day events, open-ended series', function () use ($calA) {
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Hebdo', 'start' => '2026-10-19 09:00', 'end' => '2026-10-19 09:30', 'repeat' => 'weekly', 'repeat_until' => '2026-11-09']);
+    M4W\Service\Calendar::put((int) $cal['id'], 'hebdo.ics', $v->serialize());
+    $occ = M4W\Service\Calendar::range([(int) $cal['id'] => $cal + ['level' => 'owner']], strtotime('2026-10-01'), strtotime('2026-12-01'));
+    eq(array_map(static fn($o) => date('Y-m-d H:i', $o['start']), $occ), ['2026-10-19 09:00', '2026-10-26 09:00', '2026-11-02 09:00', '2026-11-09 09:00'], 'local time kept after DST ends');
+    $row = M4W\Service\Calendar::object((int) $cal['id'], 'hebdo.ics');
+    eq((int) $row['last_occurrence'], strtotime('2026-11-09 09:30'), 'end of the last occurrence indexed');
+    $d = M4W\Service\Calendar::fromForm($calA, ['title' => 'Séminaire', 'all_day' => 1, 'start' => '2026-11-12', 'end' => '2026-11-13', 'repeat' => 'none']);
+    ok(str_contains($d->serialize(), 'DTEND;VALUE=DATE:20261114'), 'whole days: exclusive end');
+    $inf = M4W\Service\Calendar::fromForm($calA, ['title' => 'Stand-up', 'start' => '2026-10-20 09:00', 'end' => '2026-10-20 09:15', 'repeat' => 'weekdays']);
+    eq(M4W\Service\Calendar::describe($inf)['last'], M4W\Service\Calendar::NEVER, 'no end');
+    // Only this occurrence moves: exception with RECURRENCE-ID; deleting one adds EXDATE.
+    $one = M4W\Service\Calendar::fromForm($calA, ['title' => 'Hebdo déplacé', 'start' => '2026-10-27 11:00', 'end' => '2026-10-27 11:30'], $row['data'], 'one', strtotime('2026-10-26 09:00'));
+    $ex = M4W\Service\Calendar::withoutOccurrence($one->serialize(), strtotime('2026-11-02 09:00'));
+    M4W\Service\Calendar::put((int) $cal['id'], 'hebdo.ics', $ex->serialize());
+    $occ = M4W\Service\Calendar::range([(int) $cal['id'] => $cal + ['level' => 'owner']], strtotime('2026-10-01'), strtotime('2026-12-01'));
+    eq(array_map(static fn($o) => date('Y-m-d H:i', $o['start']) . ' ' . $o['title'], array_values(array_filter($occ, static fn($o) => $o['uri'] === 'hebdo.ics'))),
+        ['2026-10-19 09:00 Hebdo', '2026-10-27 11:00 Hebdo déplacé', '2026-11-09 09:00 Hebdo']);
+    eq(M4W\Service\Calendar::nextAlarm($v, strtotime('2026-10-01')), 0, 'no reminder asked');
+    $r = M4W\Service\Calendar::fromForm($calA, ['title' => 'R', 'start' => '2026-10-19 09:00', 'end' => '2026-10-19 10:00', 'repeat' => 'daily', 'reminder' => 15]);
+    eq(M4W\Service\Calendar::nextAlarm($r, strtotime('2026-10-20 09:00')), strtotime('2026-10-21 08:45'), 'next reminder of a series');
+});
+test('calendar: sharing (read, write), rooms for everyone, nobody else sees anything', function () use ($calA, $calB, $calC) {
+    $id = M4W\Service\Calendar::create($calA, 'Équipe', 'personal');
+    ok(!isset(M4W\Service\Calendar::forUser($calB)[$id]), 'private by default');
+    M4W\Service\Calendar::setAcl($calA, $id, [['user_id' => $calB['id'], 'level' => 'read'], ['user_id' => $calC['id'], 'level' => 'write']]);
+    eq(M4W\Service\Calendar::forUser($calB)[$id]['level'], 'read');
+    eq(M4W\Service\Calendar::forUser($calC)[$id]['level'], 'write');
+    $thrown = false;
+    try { M4W\Service\Calendar::require($calB, $id, 2); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'reader cannot write');
+    $thrown = false;
+    try { M4W\Service\Calendar::setAcl($calC, $id, []); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'only the owner shares');
+    $thrown = false;
+    try { M4W\Service\Calendar::create($calB, 'Salle', 'room'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'rooms are made by administrators');
+    $room = M4W\Service\Calendar::create($calA, 'Salle Jura', 'room');
+    eq(M4W\Service\Calendar::forUser($calB)[$room]['level'], 'write', 'everyone books a room');
+    $thrown = false;
+    try { M4W\Service\Calendar::delete($calA, (int) M4W\Service\Calendar::defaultFor((int) $calA['id'])['id']); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'main calendar kept');
+});
+test('invitations: colleague gets the event at once, outsiders an iMIP e-mail, answers come back', function () use ($calA, $calB, $invites) {
+    DB::run("DELETE FROM mail_queue");
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Comité', 'location' => 'Salle Jura', 'start' => '2026-10-22 10:00', 'end' => '2026-10-22 11:00', 'repeat' => 'none',
+        'attendees' => [['email' => 'bob@test.local', 'name' => 'Bob'], ['email' => 'paul@ext.com', 'name' => 'Paul']]]);
+    $uid = (string) $v->VEVENT->UID;
+    M4W\Service\Calendar::put((int) $cal['id'], 'comite.ics', $v->serialize());
+    eq(M4W\Service\Scheduling::afterChange($calA, null, $v->serialize()), 2);
+    [, , $bobCopy] = M4W\Service\Scheduling::locate((int) $calB['id'], $uid);
+    ok($bobCopy !== null, 'in Bob\'s calendar straight away');
+    $ext = $invites('paul@ext.com', 'REQUEST');
+    eq(count($ext), 1);
+    ok(str_contains($ext[0], 'Content-Type: text/calendar; charset=UTF-8; method=REQUEST') && str_starts_with(MimeParser::parse($ext[0])->subject(), 'Invitation'), 'iMIP part');
+    // Bob answers from the message in his inbox.
+    $msg = MimeParser::parse($invites('bob@test.local', 'REQUEST')[0]);
+    $card = M4W\Service\Scheduling::card($calB, $msg);
+    ok($card['can_answer'] && $card['in_calendar'] && $card['partstat'] === 'NEEDS-ACTION');
+    M4W\Service\Scheduling::respond($calB, $msg, 'ACCEPTED');
+    $mine = M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics');
+    ok(preg_match('/PARTSTAT=ACCEPTED[^\n]*\n?[^\n]*bob@test\.local/', str_replace("\r\n ", '', $mine['data'])) === 1, 'organizer\'s copy updated');
+    eq(count($invites('admin@test.local', 'REPLY')), 1, 'reply e-mail to the organizer');
+    // Paul (outside) answers by e-mail: applied on delivery, but only from Paul himself.
+    $reply = static function (string $from, string $who) use ($uid): string {
+        $ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//X//Y//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:$uid\r\nDTSTAMP:20261016T080000Z\r\nDTSTART;TZID=Europe/Paris:20261022T100000\r\nSEQUENCE:0\r\nORGANIZER:mailto:admin@test.local\r\nATTENDEE;PARTSTAT=DECLINED:mailto:$who\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        return "From: $from\r\nTo: admin@test.local\r\nSubject: Refusé\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@ext.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nNon.\r\n--b\r\nContent-Type: text/calendar; method=REPLY; charset=UTF-8\r\n\r\n$ics--b--\r\n";
+    };
+    Delivery::deliver($reply('mallory@evil.com', 'paul@ext.com'), 'mallory@evil.com', ['admin@test.local']);
+    ok(!str_contains(str_replace("\r\n ", '', M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data']), 'PARTSTAT=DECLINED'), 'someone else cannot answer for Paul');
+    Delivery::deliver($reply('paul@ext.com', 'paul@ext.com'), 'paul@ext.com', ['admin@test.local']);
+    ok(preg_match('/PARTSTAT=DECLINED[^\n]*paul@ext\.com/', str_replace("\r\n ", '', M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data'])) === 1, 'Paul\'s answer applied');
+    // The organizer cancels: Bob's copy is marked cancelled, Paul gets a CANCEL.
+    $old = M4W\Service\Calendar::object((int) $cal['id'], 'comite.ics')['data'];
+    M4W\Service\Calendar::remove((int) $cal['id'], 'comite.ics');
+    M4W\Service\Scheduling::afterChange($calA, $old, null);
+    [, , $bobCopy] = M4W\Service\Scheduling::locate((int) $calB['id'], $uid);
+    ok(str_contains($bobCopy['data'], 'STATUS:CANCELLED'), 'cancelled for Bob');
+    eq(count($invites('paul@ext.com', 'CANCEL')), 1);
+});
+test('invitations: one from outside waits for an answer; updates and cancellations apply to it', function () use ($calB) {
+    $ics = static fn(int $seq, string $start, string $method, string $status = '') => "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Outlook//EN\r\nMETHOD:$method\r\nBEGIN:VEVENT\r\nUID:ext-123@partner.com\r\nDTSTAMP:20261016T080000Z\r\nSEQUENCE:$seq\r\n"
+        . "DTSTART:{$start}Z\r\nDTEND:" . substr($start, 0, 9) . '15' . substr($start, 11) . "Z\r\nSUMMARY:Démo produit\r\n" . ($status ? "STATUS:$status\r\n" : '')
+        . "ORGANIZER;CN=Léa:mailto:lea@partner.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@test.local\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    $mail = static fn(string $ics, string $method) => "From: Léa <lea@partner.com>\r\nTo: bob@test.local\r\nSubject: Invitation\r\nMessage-ID: <" . bin2hex(random_bytes(6)) . "@partner.com>\r\nMIME-Version: 1.0\r\n"
+        . "Content-Type: text/calendar; method=$method; charset=UTF-8\r\n\r\n" . $ics;
+    Delivery::deliver($mail($ics(0, '20261105T130000', 'REQUEST'), 'REQUEST'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok($row === null, 'not added before Bob answers');
+    $msg = MimeParser::parse($mail($ics(0, '20261105T130000', 'REQUEST'), 'REQUEST'));
+    M4W\Service\Scheduling::respond($calB, $msg, 'TENTATIVE');
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok($row && !str_contains($row['data'], 'METHOD:'), 'added on answer');
+    $reply = DB::one("SELECT * FROM mail_queue WHERE kind = 'invite' AND recipients LIKE '%lea@partner.com%' ORDER BY id DESC");
+    $parts = MimeParser::parse((string) file_get_contents(Config::storagePath($reply['raw_path'])))->attachmentParts();
+    ok(str_contains(str_replace("\r\n ", '', $parts[0]->decodedBody()), 'PARTSTAT=TENTATIVE'), 'reply to Léa');
+    Delivery::deliver($mail($ics(1, '20261105T150000', 'REQUEST'), 'REQUEST'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok(str_contains($row['data'], 'DTSTART:20261105T150000Z'), 'moved by the organizer');
+    Delivery::deliver($mail($ics(2, '20261105T150000', 'CANCEL', 'CANCELLED'), 'CANCEL'), 'lea@partner.com', ['bob@test.local']);
+    [, , $row] = M4W\Service\Scheduling::locate((int) $calB['id'], 'ext-123@partner.com');
+    ok(str_contains($row['data'], 'STATUS:CANCELLED'), 'cancelled by the organizer');
+});
+test('reminders: notification on the devices of the calendar owner, next one scheduled', function () use ($calA) {
+    $cal = M4W\Service\Calendar::defaultFor((int) $calA['id']);
+    $v = M4W\Service\Calendar::fromForm($calA, ['title' => 'Dentiste', 'start' => date('Y-m-d H:i', time() + 1200), 'end' => date('Y-m-d H:i', time() + 3000), 'repeat' => 'daily', 'reminder' => 15]);
+    M4W\Service\Calendar::put((int) $cal['id'], 'dentiste.ics', $v->serialize());
+    $row = M4W\Service\Calendar::object((int) $cal['id'], 'dentiste.ics');
+    ok((int) $row['next_alarm'] > time() && (int) $row['next_alarm'] <= time() + 360, 'reminder in about 5 minutes (15 min before)');
+    $sent = [];
+    \M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) { $sent[] = $ep; return 201; };
+    $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $d = openssl_pkey_get_details($k)['ec'];
+    \M4W\Service\WebPush::subscribe((int) $calA['id'], 'https://fcm.googleapis.com/fcm/send/cal', \M4W\Service\WebPush::b64u("\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT)), \M4W\Service\WebPush::b64u(random_bytes(16)), 'ua');
+    try {
+        eq(M4W\Service\Calendar::processAlarms(time() - 60), 0, 'not yet');
+        eq(M4W\Service\Calendar::processAlarms(time() + 400), 1);
+    } finally {
+        \M4W\Service\WebPush::$transport = null;
+        DB::run('DELETE FROM push_subscriptions WHERE user_id = :u', ['u' => $calA['id']]);
+    }
+    ok(in_array('https://fcm.googleapis.com/fcm/send/cal', $sent, true));
+    $next = (int) M4W\Service\Calendar::object((int) $cal['id'], 'dentiste.ics')['next_alarm'];
+    ok($next > time() + 80000, 'tomorrow\'s reminder scheduled');
+    eq(M4W\Service\Calendar::processAlarms(time() + 400), 0, 'not twice');
+});
+test('CalDAV / CardDAV: app passwords, own and shared calendars, read-only respected, phone contacts', function () use ($calA, $calB) {
+    $pw = M4W\Dav\AppPasswords::create((int) $calB['id'], 'iPhone');
+    ok(preg_match('/^[a-z2-9]{5}(-[a-z2-9]{5}){3}$/', $pw) === 1);
+    eq((int) M4W\Dav\AppPasswords::check('bob@test.local', $pw, '10.0.0.1')['id'], (int) $calB['id']);
+    ok(M4W\Dav\AppPasswords::check('bob@test.local', 'Secret!Pass123', '10.0.0.1') === null, 'account password refused');
+    ok(M4W\Dav\AppPasswords::check('admin@test.local', $pw, '10.0.0.1') === null, 'someone else\'s app password refused');
+    $dav = new M4W\Dav\CalDavBackend($calB);
+    $cals = $dav->getCalendarsForUser('principals/bob@test.local');
+    $byName = array_column($cals, null, '{DAV:}displayname');
+    ok(isset($byName['Équipe']) && $byName['Équipe']['{http://sabredav.org/ns}read-only'] === 1, 'shared calendar visible, read-only');
+    eq($dav->getCalendarsForUser('principals/admin@test.local'), [], 'not someone else\'s home');
+    $thrown = false;
+    try { $dav->createCalendarObject($byName['Équipe']['id'], 'x.ics', "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261101T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"); } catch (\Sabre\DAV\Exception\Forbidden) { $thrown = true; }
+    ok($thrown, 'no writing in a read-only calendar');
+    $own = (int) M4W\Service\Calendar::defaultFor((int) $calB['id'])['id'];
+    $dav->createCalendarObject($own, 'phone-1.ics', "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Apple//iOS//EN\r\nBEGIN:VEVENT\r\nUID:phone-1\r\nDTSTAMP:20261016T080000Z\r\nDTSTART:20261201T100000Z\r\nDTEND:20261201T110000Z\r\nSUMMARY:Depuis l'iPhone\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+    $q = $dav->calendarQuery($own, ['name' => 'VCALENDAR', 'prop-filters' => [], 'is-not-defined' => false, 'time-range' => null,
+        'comp-filters' => [['name' => 'VEVENT', 'is-not-defined' => false, 'comp-filters' => [], 'prop-filters' => [], 'time-range' => ['start' => new \DateTime('2026-12-01'), 'end' => new \DateTime('2026-12-02')]]]]);
+    eq($q, ['phone-1.ics'], 'time-range query');
+    $thrown = false;
+    try { $dav->getCalendarObjects((int) M4W\Service\Calendar::defaultFor((int) $calA['id'])['id']); } catch (\Sabre\DAV\Exception\NotFound) { $thrown = true; }
+    ok($thrown, 'another person\'s calendar is invisible');
+    $card = new M4W\Dav\CardDavBackend($calB);
+    $card->createCard(1, 'paul.vcf', "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:paul\r\nFN:Paul Dupont\r\nTEL;TYPE=CELL:+33600000000\r\nADR;TYPE=HOME:;;1 rue X;Paris;;75001;France\r\nEND:VCARD\r\n");
+    $c = DB::one("SELECT * FROM contacts WHERE user_id = :u AND uri = 'paul.vcf'", ['u' => $calB['id']]);
+    eq([$c['name'], $c['email'], $c['phone']], ['Paul Dupont', '', '+33600000000'], 'phone-only contact');
+    M4W\Service\Contacts::save((int) $calB['id'], ['name' => 'Paul Dupont', 'email' => 'paul@ext.com', 'phone' => '+33611111111'], (int) $c['id']);
+    $back = $card->getCard(1, 'paul.vcf')['carddata'];
+    ok(str_contains($back, 'ADR;TYPE=HOME') && str_contains($back, 'paul@ext.com') && str_contains($back, '+33611111111'), 'web edit kept the address from the phone');
+    ok(count($card->getCards(2)) >= 3, 'directory listed');
+    $thrown = false;
+    try { $card->createCard(2, 'x.vcf', "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:X\r\nEND:VCARD\r\n"); } catch (\Sabre\DAV\Exception\Forbidden) { $thrown = true; }
+    ok($thrown, 'directory read-only');
+});
+
+echo "\nCompromised accounts\n";
+test('guard: limits count outside recipients only; a burst suspends sending and holds the queue', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'pirate@test.local', 'password' => 'Secret!Pass123']));
+    Settings::setMany(['guard.enabled' => 1, 'guard.hour_limit' => 6, 'guard.day_limit' => 100, 'guard.burst' => 9, 'guard.burst_minutes' => 10]);
+    $ext = static fn(int $n, string $p = 'x') => array_map(static fn($i) => "$p$i@ext.com", range(1, $n));
+    ok($g::checkSend((int) $u['id'], array_merge($ext(4), ['bob@test.local']), 'mail', true), 'within limits');
+    ok($g::checkSend((int) $u['id'], ['bob@test.local', 'admin@test.local'], 'mail', true), 'colleagues are not counted');
+    $msg = '';
+    try { $g::checkSend((int) $u['id'], $ext(3, 'y'), 'mail', true); } catch (\RuntimeException $e) { $msg = $e->getMessage(); }
+    ok(str_contains($msg, '6'), 'hourly limit explained: ' . $msg);
+    ok(!$g::blocked(Users::find((int) $u['id'])), 'a limit is not a block');
+    ok(!$g::checkSend((int) $u['id'], $ext(3, 'z'), 'forward', false), 'automatic mail over the limit is not sent');
+    // Something already waiting in the queue, then a burst.
+    DB::insert('mail_queue', ['user_id' => $u['id'], 'kind' => 'mail', 'envelope_from' => $u['email'], 'recipients' => '["a@ext.com"]', 'raw_path' => 'queue/none.eml', 'status' => 'pending', 'created_at' => time(), 'next_attempt_at' => time()]);
+    Settings::set('guard.hour_limit', 1000);
+    $thrown = false;
+    try { $g::checkSend((int) $u['id'], $ext(6, 'w'), 'mail', true); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown, 'burst refused');
+    $u = Users::find((int) $u['id']);
+    ok($g::blocked($u), 'sending suspended');
+    eq((string) DB::value("SELECT status FROM mail_queue WHERE user_id = :u", ['u' => $u['id']]), 'held', 'queued mail held');
+    eq(Transport::enqueue("Subject: x\r\n\r\nx", $u['email'], ['bob@test.local'], (int) $u['id'], 'forward'), 0, 'nothing more leaves, even to colleagues');
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'send_blocked' AND severity = 'high'", ['u' => $u['id']]), 'alert recorded');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $u['id'], 's' => '%suspendu%']), 'the person is told');
+    $admin = Users::findByEmail('admin@test.local');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $admin['id'], 's' => '%pirate@test.local%']), 'administrators are told');
+    $g::unblock((int) $u['id'], (int) $admin['id']);
+    ok(!$g::blocked(Users::find((int) $u['id'])), 'restored by an administrator');
+    eq((string) DB::value("SELECT status FROM mail_queue WHERE user_id = :u", ['u' => $u['id']]), 'pending', 'held mail released');
+    ok($g::checkSend((int) $u['id'], $ext(2, 'v'), 'mail', true), 'counters start again');
+    DB::run('DELETE FROM mail_queue WHERE user_id = :u', ['u' => $u['id']]);
+    Settings::setMany(['guard.hour_limit' => 200, 'guard.burst' => 80]);
+});
+test('guard: a burst can also disable the account and sign it out', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'pirate2@test.local', 'password' => 'Secret!Pass123']));
+    DB::insert('user_sessions', ['user_id' => $u['id'], 'token_hash' => hash('sha256', 'p2'), 'created_at' => time(), 'last_seen_at' => time()]);
+    Settings::setMany(['guard.on_burst' => 'lock', 'guard.burst' => 3]);
+    try { $g::checkSend((int) $u['id'], ['a@ext.com', 'b@ext.com', 'c@ext.com', 'd@ext.com'], 'mail', true); } catch (\RuntimeException) {}
+    eq(Users::find((int) $u['id'])['status'], 'disabled');
+    eq((int) DB::value('SELECT revoked FROM user_sessions WHERE user_id = :u', ['u' => $u['id']]), 1);
+    Settings::setMany(['guard.on_burst' => 'block_send', 'guard.burst' => 80]);
+});
+test('guard: unusual sign-ins, repeated wrong passwords, forwarding to the outside are reported', function () {
+    $g = M4W\Service\AccountGuard::class;
+    $u = Users::find(Users::create(['email' => 'nomade@test.local', 'password' => 'Secret!Pass123']));
+    $chrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+    $notices = static fn() => (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
+    ok(!$g::onLogin($u, '82.64.10.20', $chrome), 'first sign-in: nothing to report');
+    ok(!$g::onLogin($u, '82.64.10.77', $chrome), 'same network');
+    ok(!$g::onLogin($u, '82.64.10.21', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1'), 'new device on a usual network');
+    eq($notices(), 0);
+    ok($g::onLogin($u, '185.220.101.4', $chrome), 'new network');
+    eq($notices(), 1, 'the person gets a message');
+    ok(!$g::onLogin($u, '185.220.101.9', $chrome), 'known since');
+    eq($g::network('2a01:e0a:1f:2c40::1'), '2a01:e0a:1f::/48');
+    $g::onLocked('nomade@test.local', '203.0.113.9');
+    $g::onLocked('nomade@test.local', '203.0.113.9');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'brute_force'", ['u' => $u['id']]), 1, 'once an hour');
+    $g::onForwarding($u, ['bob@test.local'], 'règle');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'forwarding'", ['u' => $u['id']]), 0, 'to a colleague: nothing');
+    $g::onForwarding($u, ['me@gmail.com'], 'règle');
+    eq((int) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'forwarding'", ['u' => $u['id']]), 1);
+    eq($notices(), 3);
+});
+
+echo "\nLearning antispam, phishing reports\n";
+test('bayes: learns from Junk / Not junk and recognises new messages', function () {
+    M4W\Service\Bayes::reset();
+    Settings::set('spam.bayes_min', 20);
+    $spamWords = ['bitcoin', 'gagnez', 'gratuit', 'offre', 'exclusive', 'cliquez', 'casino', 'bonus', 'urgent', 'millions', 'investissement', 'garanti', 'rolex', 'pilules', 'promotion'];
+    $hamWords = ['réunion', 'compte-rendu', 'projet', 'budget', 'planning', 'client', 'livraison', 'devis', 'équipe', 'dossier', 'facture', 'contrat', 'agenda', 'jeudi', 'validation'];
+    $mk = static function (array $words, string $from, int $seed): M4W\Mail\ParsedMessage {
+        mt_srand($seed);
+        $pick = static fn() => $words[mt_rand(0, count($words) - 1)];
+        $body = implode(' ', array_map(static fn() => $pick(), range(1, 40)));
+        return MimeParser::parse("From: $from\r\nTo: bob@test.local\r\nSubject: " . $pick() . ' ' . $pick() . "\r\nMessage-ID: <b$seed@x>\r\n\r\n$body\r\n");
+    };
+    for ($i = 0; $i < 20; $i++) {
+        M4W\Service\Bayes::learn($mk($spamWords, "promo$i@spam-$i.biz", $i), true);
+        M4W\Service\Bayes::learn($mk($hamWords, "collegue$i@partner.fr", 100 + $i), false);
+    }
+    $st = M4W\Service\Bayes::stats();
+    ok($st['ready'] && $st['spam'] === 20 && $st['ham'] === 20, 'trained');
+    $s = M4W\Service\Bayes::score($mk($spamWords, 'new@other.biz', 999));
+    $h = M4W\Service\Bayes::score($mk($hamWords, 'new@client.fr', 998));
+    ok($s !== null && $s > 0.9, 'spam recognised: ' . $s);
+    ok($h !== null && $h < 0.1, 'legitimate recognised: ' . $h);
+    $r = SpamFilter::evaluate($mk($spamWords, 'new@other.biz', 999), null);
+    ok(($r['tests']['BAYES_SPAM'] ?? 0) >= 3.5, 'weighs in the spam score');
+    // Feedback from the mailbox: moving to Junk and back.
+    $bob = Users::findByEmail('bob@test.local');
+    $raw = "From: x@promo-bitcoin.biz\r\nTo: bob@test.local\r\nSubject: bitcoin bonus\r\nMessage-ID: <fb1@x>\r\n\r\nbitcoin casino gratuit\r\n";
+    $id = Mailbox::store((int) $bob['id'], (int) Folders::byRole((int) $bob['id'], 'inbox')['id'], $raw);
+    Mailbox::move((int) $bob['id'], [$id], (int) Folders::byRole((int) $bob['id'], 'spam')['id']);
+    eq((int) DB::value('SELECT bayes FROM messages WHERE id = :id', ['id' => $id]), 1, 'learnt as junk');
+    eq(M4W\Service\Bayes::stats()['spam'], 21);
+    Mailbox::move((int) $bob['id'], [$id], (int) Folders::byRole((int) $bob['id'], 'inbox')['id']);
+    eq((int) DB::value('SELECT bayes FROM messages WHERE id = :id', ['id' => $id]), -1, 'unlearnt and learnt as legitimate');
+    eq([M4W\Service\Bayes::stats()['spam'], M4W\Service\Bayes::stats()['ham']], [20, 21]);
+    ok(!DB::value("SELECT COUNT(*) FROM bayes_tokens WHERE token = 'bitcoin'"), 'words are stored hashed');
+});
+test('phishing report: removed from every mailbox, sender marked, administrators alerted', function () {
+    $alice = Users::findByEmail('admin@test.local');
+    $bob = Users::findByEmail('bob@test.local');
+    $carol = Users::findByEmail('carol@test.local');
+    $raw = "From: Service client <securite@banque-verif.com>\r\nTo: admin@test.local, bob@test.local, carol@test.local\r\nSubject: Votre compte sera suspendu\r\nMessage-ID: <phish-1@banque-verif.com>\r\nContent-Type: text/html\r\n\r\n<p>Confirmez <a href=\"https://banque-verif.com/login\">ici</a></p>\r\n";
+    Delivery::deliver($raw, 'securite@banque-verif.com', ['admin@test.local', 'bob@test.local', 'carol@test.local']);
+    $mine = DB::one("SELECT * FROM messages WHERE user_id = :u AND message_id = 'phish-1@banque-verif.com'", ['u' => $alice['id']]);
+    ok($mine !== null, 'received');
+    $r = M4W\Service\PhishReport::report($alice, $mine);
+    eq($r['removed'], 2, 'copies of Bob and Carol');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE message_id = 'phish-1@banque-verif.com' AND user_id IN (:b, :c)", ['b' => $bob['id'], 'c' => $carol['id']]), 0);
+    eq((int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE reason = 'phishing'"), 2, 'kept in the administrators\' quarantine');
+    eq((int) DB::value('SELECT folder_id FROM messages WHERE id = :id', ['id' => $mine['id']]), (int) Folders::byRole((int) $alice['id'], 'spam')['id'], 'reporter\'s copy in Junk');
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE kind = 'phishing' AND severity = 'high'"), 'alert');
+    $next = SpamFilter::evaluate(MimeParser::parse(str_replace('phish-1', 'phish-2', $raw)), null);
+    ok(isset($next['tests']['REPORTED_SENDER']), 'next message from that sender scored');
+    // A colleague's account sending phishing: they are flagged, not their address.
+    $raw2 = "From: Bob <bob@test.local>\r\nTo: admin@test.local\r\nSubject: Facture urgente\r\nMessage-ID: <int-1@test.local>\r\n\r\nPayez ici\r\n";
+    $id = Mailbox::store((int) $alice['id'], (int) Folders::byRole((int) $alice['id'], 'inbox')['id'], $raw2);
+    $r = M4W\Service\PhishReport::report($alice, Mailbox::get((int) $alice['id'], $id));
+    ok($r['internal']);
+    ok(!DB::value("SELECT COUNT(*) FROM reported_senders WHERE address = 'bob@test.local'"));
+    ok((bool) DB::value("SELECT COUNT(*) FROM security_alerts WHERE user_id = :u AND kind = 'reported_by_colleague'", ['u' => $bob['id']]));
+});
+
+echo "\nMonitoring, DMARC reports\n";
+test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {
+    $dns = ['MX test.local' => [], 'TXT test.local' => ['v=spf1 mx ~all'], 'TXT _dmarc.test.local' => ['v=DMARC1; p=none']];
+    M4W\Service\Health::$resolver = static fn(string $type, string $name) => $dns[$type . ' ' . $name] ?? [];
+    M4W\Service\Health::$certProbe = static fn() => null;
+    try {
+        Settings::set('system.cron_last', time());
+        $c = M4W\Service\Health::checks(true);
+        eq($c['mx:test.local']['state'], 'fail', 'no MX');
+        eq($c['spf:test.local']['state'], 'ok');
+        eq($c['dmarc:test.local']['state'], 'warn', 'p=none only monitors');
+        eq($c['cron']['state'], 'ok');
+        Settings::set('system.cron_last', time() - 7200);
+        eq(M4W\Service\Health::checks(false)['cron']['state'], 'fail', 'cron stopped');
+        Settings::set('system.cron_last', time());
+        DB::insert('mail_queue', ['user_id' => null, 'kind' => 'mail', 'envelope_from' => '', 'recipients' => '[]', 'raw_path' => 'queue/x.eml', 'status' => 'pending', 'created_at' => time() - 3 * 3600, 'next_attempt_at' => time()]);
+        eq(M4W\Service\Health::checks(false)['queue']['state'], 'fail', 'mail stuck for hours');
+        DB::run("DELETE FROM mail_queue WHERE raw_path = 'queue/x.eml'");
+        $admin = Users::findByEmail('admin@test.local');
+        $count = static fn() => (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Supervision%'", ['u' => $admin['id']]);
+        Settings::set('health.state', '{}');
+        $before = $count();
+        ok(M4W\Service\Health::run() > 0, 'first run reports the problems');
+        eq($count(), $before + 1);
+        eq(M4W\Service\Health::run(), 0, 'not again within the day');
+        ok(M4W\Service\Health::run(time() + 86400 + 60) > 0, 'reminded a day later');
+        eq(M4W\Service\Health::run(time() + 86400 + 120), 0, 'then quiet again');
+        $dns['MX test.local'] = ['mx.test.local'];
+        $dns['TXT _dmarc.test.local'] = ['v=DMARC1; p=quarantine; rua=mailto:postmaster@test.local'];
+        M4W\Service\Health::$resolver = static fn(string $type, string $name) => $dns[$type . ' ' . $name] ?? [];
+        $n = $count();
+        M4W\Service\Health::run();
+        ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $admin['id'], 's' => '%réglé%']) || $count() > $n, 'fixed reported');
+    } finally {
+        M4W\Service\Health::$resolver = null;
+        M4W\Service\Health::$certProbe = null;
+    }
+});
+test('dmarc: aggregate reports about our domains are read (gzip / zip), others ignored', function () {
+    $xml = static fn(string $domain, string $id, string $extra = '') => '<?xml version="1.0"?>' . $extra . '<feedback><report_metadata><org_name>google.com</org_name><report_id>' . $id . '</report_id><date_range><begin>' . (time() - 86400) . '</begin><end>' . time() . '</end></date_range></report_metadata>'
+        . '<policy_published><domain>' . $domain . '</domain><p>quarantine</p></policy_published>'
+        . '<record><row><source_ip>203.0.113.5</source_ip><count>40</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>' . $domain . '</header_from></identifiers></record>'
+        . '<record><row><source_ip>198.51.100.7</source_ip><count>3</count><policy_evaluated><disposition>quarantine</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated></row><identifiers><header_from>' . $domain . '</header_from></identifiers></record></feedback>';
+    $mail = static function (string $name, string $mime, string $content): string {
+        return "From: noreply-dmarc-support@google.com\r\nTo: postmaster@test.local\r\nSubject: Report domain: test.local Submitter: google.com Report-ID: x\r\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@google.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nReport\r\n--b\r\nContent-Type: $mime; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" . chunk_split(base64_encode($content)) . "--b--\r\n";
+    };
+    Delivery::deliver($mail('google.com!test.local!1!2.xml.gz', 'application/gzip', gzencode($xml('test.local', 'r1'))), 'noreply-dmarc-support@google.com', ['admin@test.local']);
+    eq((int) DB::value("SELECT messages FROM dmarc_reports WHERE report_id = 'r1'"), 43);
+    eq((int) DB::value("SELECT failed FROM dmarc_reports WHERE report_id = 'r1'"), 3);
+    Delivery::deliver($mail('google.com!test.local!1!2.xml.gz', 'application/gzip', gzencode($xml('test.local', 'r1'))), 'noreply-dmarc-support@google.com', ['admin@test.local']);
+    eq((int) DB::value("SELECT COUNT(*) FROM dmarc_reports WHERE report_id = 'r1'"), 1, 'same report once');
+    $zipPath = tempnam(sys_get_temp_dir(), 'z');
+    $z = new \ZipArchive();
+    $z->open($zipPath, \ZipArchive::OVERWRITE);
+    $z->addFromString('report.xml', $xml('test.local', 'r2'));
+    $z->close();
+    Delivery::deliver($mail('microsoft.zip', 'application/zip', (string) file_get_contents($zipPath)), 'dmarc@microsoft.com', ['admin@test.local']);
+    @unlink($zipPath);
+    ok((bool) DB::value("SELECT COUNT(*) FROM dmarc_reports WHERE report_id = 'r2'"), 'zip');
+    ok(!M4W\Service\DmarcReports::store($xml('other.example', 'r3')), 'not our domain');
+    ok(!M4W\Service\DmarcReports::store($xml('test.local', 'r4', '<!DOCTYPE feedback [<!ENTITY x SYSTEM "file:///etc/passwd">]>')), 'no DTD');
+    $sum = M4W\Service\DmarcReports::summary(30);
+    eq($sum['sources'][0]['source_ip'], '198.51.100.7', 'failing source first');
+    eq((int) $sum['domains'][0]['messages'], 86);
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

@@ -585,5 +585,221 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX url_verdicts_checked ON url_verdicts(checked_at)",
 ],
+15 => [
+// A user's own mailbox at the provider, imposed by the administrator in any mode: mail is
+// fetched from it and sent through it (with its own hourly limit, overflowing to the
+// collector mailbox when allowed).
+"ALTER TABLE remote_accounts ADD COLUMN forced INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE remote_accounts ADD COLUMN overflow INTEGER NOT NULL DEFAULT 1",
+"ALTER TABLE remote_accounts ADD COLUMN hourly_limit INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE remote_accounts ADD COLUMN blocked_until INTEGER NOT NULL DEFAULT 0",
+// Which mailbox sent (0 = the collector): each one has its own hourly counter.
+"ALTER TABLE send_log ADD COLUMN account INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX send_log_account ON send_log(account, created_at)",
+"CREATE INDEX messages_msgid ON messages(user_id, message_id)",
+],
+16 => [
+// History of the backups sent to the backup server.
+"CREATE TABLE backup_runs (
+  id {PK},
+  started_at INTEGER NOT NULL DEFAULT 0,
+  finished_at INTEGER NOT NULL DEFAULT 0,
+  status VARCHAR(10) NOT NULL DEFAULT 'running',
+  origin VARCHAR(10) NOT NULL DEFAULT 'manual',
+  file VARCHAR(190) NOT NULL DEFAULT '',
+  size BIGINT NOT NULL DEFAULT 0,
+  entries INTEGER NOT NULL DEFAULT 0,
+  message VARCHAR(500) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX backup_runs_started ON backup_runs(started_at)",
+],
+17 => [
+// Built-in spreadsheet: one working copy per file being edited, the operations everyone
+// applied to it (polled by the other editors) and who is looking at which cell.
+"CREATE TABLE sheet_sessions (
+  file_id INTEGER NOT NULL PRIMARY KEY,
+  base_version INTEGER NOT NULL DEFAULT 0,
+  mode VARCHAR(10) NOT NULL DEFAULT 'edit',
+  reason VARCHAR(40) NOT NULL DEFAULT '',
+  dirty INTEGER NOT NULL DEFAULT 0,
+  last_user INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  published_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE TABLE sheet_ops (
+  id {PK},
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NULL,
+  op {TEXT},
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX sheet_ops_file ON sheet_ops(file_id, id)",
+"CREATE TABLE sheet_presence (
+  file_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  sheet INTEGER NOT NULL DEFAULT 0,
+  cell VARCHAR(20) NOT NULL DEFAULT '',
+  seen_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (file_id, user_id)
+) {OPT}",
+],
+18 => [
+// Built-in word processor: working copy per document, who holds the pen, revision followed by readers.
+"CREATE TABLE doc_sessions (
+  file_id INTEGER NOT NULL PRIMARY KEY,
+  base_version INTEGER NOT NULL DEFAULT 0,
+  mode VARCHAR(10) NOT NULL DEFAULT 'edit',
+  reason VARCHAR(190) NOT NULL DEFAULT '',
+  holder INTEGER NULL,
+  holder_seen INTEGER NOT NULL DEFAULT 0,
+  rev INTEGER NOT NULL DEFAULT 1,
+  dirty INTEGER NOT NULL DEFAULT 0,
+  last_user INTEGER NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  published_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+],
+19 => [
+// Calendars: personal, shared (members with read or write access) and rooms. Events are kept
+// as iCalendar objects (the CalDAV source of truth), with a few columns for range queries.
+"CREATE TABLE calendars (
+  id {PK},
+  owner_id INTEGER NULL,
+  kind VARCHAR(10) NOT NULL DEFAULT 'personal',
+  uri VARCHAR(190) NOT NULL,
+  name VARCHAR(190) NOT NULL DEFAULT '',
+  color VARCHAR(10) NOT NULL DEFAULT '#7c3aed',
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  ctag INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX calendars_owner ON calendars(owner_id, deleted_at)",
+"CREATE TABLE calendar_acl (
+  calendar_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  level VARCHAR(10) NOT NULL DEFAULT 'read',
+  PRIMARY KEY (calendar_id, user_id)
+) {OPT}",
+"CREATE TABLE cal_objects (
+  id {PK},
+  calendar_id INTEGER NOT NULL,
+  uri VARCHAR(190) NOT NULL,
+  uid VARCHAR(255) NOT NULL DEFAULT '',
+  etag VARCHAR(40) NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  data {TEXT},
+  component VARCHAR(10) NOT NULL DEFAULT 'VEVENT',
+  summary VARCHAR(255) NOT NULL DEFAULT '',
+  first_occurrence INTEGER NOT NULL DEFAULT 0,
+  last_occurrence INTEGER NOT NULL DEFAULT 0,
+  next_alarm INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX cal_objects_uri ON cal_objects(calendar_id, uri)",
+"CREATE INDEX cal_objects_uid ON cal_objects(calendar_id, uid)",
+"CREATE INDEX cal_objects_range ON cal_objects(calendar_id, first_occurrence, last_occurrence)",
+"CREATE INDEX cal_objects_alarm ON cal_objects(next_alarm)",
+// Passwords for phones and desktop apps (CalDAV / CardDAV): never the account password.
+"CREATE TABLE app_passwords (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  hash VARCHAR(255) NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX app_passwords_user ON app_passwords(user_id)",
+// Contacts synchronised with phones (CardDAV): the vCard keeps what the web form does not show.
+"ALTER TABLE contacts ADD COLUMN uri VARCHAR(190) NOT NULL DEFAULT ''",
+"ALTER TABLE contacts ADD COLUMN etag VARCHAR(40) NOT NULL DEFAULT ''",
+"ALTER TABLE contacts ADD COLUMN vcard {TEXT}",
+"ALTER TABLE contacts ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+],
+20 => [
+// Compromised accounts: where people usually sign in from, what they send, what looked wrong.
+"CREATE TABLE known_logins (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  net VARCHAR(64) NOT NULL DEFAULT '',
+  agent VARCHAR(120) NOT NULL DEFAULT '',
+  first_at INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX known_logins_user ON known_logins(user_id, net)",
+"CREATE TABLE guard_sends (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'mail',
+  recipients INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX guard_sends_user ON guard_sends(user_id, created_at)",
+"CREATE TABLE security_alerts (
+  id {PK},
+  user_id INTEGER NULL,
+  kind VARCHAR(30) NOT NULL,
+  severity VARCHAR(10) NOT NULL DEFAULT 'info',
+  details {TEXT},
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  resolved_at INTEGER NOT NULL DEFAULT 0,
+  resolved_by INTEGER NULL
+) {OPT}",
+"CREATE INDEX security_alerts_time ON security_alerts(resolved_at, created_at)",
+"ALTER TABLE users ADD COLUMN send_blocked_until INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE users ADD COLUMN send_block_reason VARCHAR(255) NOT NULL DEFAULT ''",
+],
+21 => [
+// Antispam that learns from what people mark as junk (or not): word statistics only, hashed.
+"CREATE TABLE bayes_tokens (
+  token VARCHAR(16) NOT NULL PRIMARY KEY,
+  spam INTEGER NOT NULL DEFAULT 0,
+  ham INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"ALTER TABLE messages ADD COLUMN bayes INTEGER NOT NULL DEFAULT 0",
+// Senders reported for phishing by someone of the organisation.
+"CREATE TABLE reported_senders (
+  address VARCHAR(190) NOT NULL PRIMARY KEY,
+  reports INTEGER NOT NULL DEFAULT 1,
+  first_at INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX messages_msgid_all ON messages(message_id)",
+],
+22 => [
+// DMARC aggregate reports (rua) sent by Gmail, Microsoft, Yahoo… about mail using our domains.
+"CREATE TABLE dmarc_reports (
+  id {PK},
+  org VARCHAR(190) NOT NULL DEFAULT '',
+  report_id VARCHAR(190) NOT NULL DEFAULT '',
+  domain VARCHAR(190) NOT NULL DEFAULT '',
+  policy VARCHAR(20) NOT NULL DEFAULT '',
+  date_begin INTEGER NOT NULL DEFAULT 0,
+  date_end INTEGER NOT NULL DEFAULT 0,
+  messages INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX dmarc_reports_uid ON dmarc_reports(org, report_id)",
+"CREATE INDEX dmarc_reports_end ON dmarc_reports(date_end)",
+"CREATE TABLE dmarc_records (
+  id {PK},
+  report_id INTEGER NOT NULL,
+  source_ip VARCHAR(64) NOT NULL DEFAULT '',
+  messages INTEGER NOT NULL DEFAULT 0,
+  disposition VARCHAR(20) NOT NULL DEFAULT '',
+  dkim VARCHAR(10) NOT NULL DEFAULT '',
+  spf VARCHAR(10) NOT NULL DEFAULT '',
+  header_from VARCHAR(190) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX dmarc_records_report ON dmarc_records(report_id)",
+],
 ];
 

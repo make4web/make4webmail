@@ -235,6 +235,15 @@ final class SpamFilter
             $add('LOOKALIKE_DOMAIN', 4);
         }
 
+        // What people of the organisation taught the filter (Junk / Not junk), and senders they reported.
+        $prob = Bayes::score($p);
+        if ($prob !== null && ($w = Bayes::weight($prob)) != 0.0) {
+            $add($w > 0 ? 'BAYES_SPAM' : 'BAYES_HAM', $w);
+        }
+        if ($from !== '' && DB::value('SELECT COUNT(*) FROM reported_senders WHERE address = :a', ['a' => $from])) {
+            $add('REPORTED_SENDER', 6);
+        }
+
         // Attachments (risk analysis already done on delivery).
         foreach ($p->attachmentList() as $a) {
             if (!empty($a['removed'])) {

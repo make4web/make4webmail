@@ -27,13 +27,17 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <div class="col-md-6"><label class="form-label"><?= te('user.language') ?></label><select class="form-select" name="language"><?php foreach ($languages as $c => $l): ?><option value="<?= $c ?>" <?= $u['language'] === $c ? 'selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?></select></div>
         </div></div>
       </div>
-      <?php if (M4W\Service\RemoteMailbox::active()): $rm = $remote ?? null; $rmStatus = M4W\Service\RemoteMailbox::status($rm); ?>
+      <?php $wm = M4W\Service\RemoteMailbox::active(); $rm = $remote ?? null; $rmStatus = M4W\Service\RemoteMailbox::status($rm); $forced = !$wm && $rm && (int) $rm['forced']; ?>
       <div class="card mb-4" id="remote">
-        <div class="card-header d-flex align-items-center"><i class="bi bi-window-stack me-2 text-primary"></i><?= te('wm.user_card') ?>
-          <span class="badge ms-auto <?= ['ok' => 'badge-soft-success', 'error' => 'badge-soft-danger', 'pending' => 'badge-soft-warning'][$rmStatus] ?? 'badge-soft-secondary' ?>"><?= te('wm.st_' . $rmStatus) ?></span></div>
+        <div class="card-header d-flex align-items-center"><i class="bi bi-window-stack me-2 text-primary"></i><?= te($wm ? 'wm.user_card' : 'own.card') ?>
+          <?php if ($wm || $forced): ?><span class="badge ms-auto <?= ['ok' => 'badge-soft-success', 'error' => 'badge-soft-danger', 'pending' => 'badge-soft-warning'][$rmStatus] ?? 'badge-soft-secondary' ?>"><?= te('wm.st_' . $rmStatus) ?></span><?php endif; ?></div>
         <div class="card-body">
-          <p class="small text-muted"><?= te('wm.user_card_desc') ?></p>
+          <p class="small text-muted"><?= te($wm ? 'wm.user_card_desc' : (M4W\Service\Collector::active() ? 'own.desc_collector' : 'own.desc')) ?></p>
           <input type="hidden" name="remote_present" value="1">
+          <?php if (!$wm): ?>
+          <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="remote_forced" value="1" id="rm-forced" data-own-toggle <?= $forced ? 'checked' : '' ?>><label class="form-check-label fw-semibold" for="rm-forced"><?= te('own.force') ?></label></div>
+          <?php endif; ?>
+          <div<?= !$wm ? ' data-own-fields' . ($forced ? '' : ' class="d-none"') : '' ?>>
           <div class="row g-3">
             <div class="col-md-6"><label class="form-label"><?= te('wm.login') ?></label><input class="form-control" name="remote_login" value="<?= e($rm['login'] ?? '') ?>" placeholder="<?= e($isNew ? t('wm.login_ph') : $u['email']) ?>" autocomplete="off"></div>
             <div class="col-md-6"><label class="form-label"><?= te('wm.password') ?></label><input class="form-control" type="password" name="remote_password" autocomplete="new-password" placeholder="<?= $rm && $rm['password_enc'] !== '' ? '••••••••  (' . te('admin.kept') . ')' : te('wm.password_ph') ?>"></div>
@@ -42,13 +46,21 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <?php if ($rm): ?>
           <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="remote_enabled" value="1" id="rm-en" <?= (int) $rm['enabled'] ? 'checked' : '' ?>><label class="form-check-label" for="rm-en"><?= te('wm.enabled') ?></label></div>
           <?php endif; ?>
-          <details class="mt-3"><summary class="small fw-semibold"><?= te('wm.override') ?></summary>
-            <p class="small text-muted mt-2"><?= te('wm.override_hint') ?></p>
+          <details class="mt-3"<?= !$wm && M4W\Core\Settings::get('webmail.imap_host', '') === '' ? ' open' : '' ?>><summary class="small fw-semibold"><?= te('wm.override') ?></summary>
+            <p class="small text-muted mt-2"><?= te($wm || M4W\Core\Settings::get('webmail.imap_host', '') !== '' ? 'wm.override_hint' : 'own.servers_hint') ?></p>
             <div class="row g-2">
               <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text">IMAP</span><input class="form-control m4w-code" name="remote_imap_host" value="<?= e($rm['imap_host'] ?? '') ?>" placeholder="<?= e(M4W\Core\Settings::get('webmail.imap_host')) ?>" aria-label="<?= te('wm.imap_server') ?>"><input class="form-control" style="max-width:80px" type="number" name="remote_imap_port" value="<?= (int) ($rm['imap_port'] ?? 0) ?: '' ?>" placeholder="<?= (int) M4W\Core\Settings::get('webmail.imap_port') ?>" aria-label="Port IMAP"></div></div>
               <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text">SMTP</span><input class="form-control m4w-code" name="remote_smtp_host" value="<?= e($rm['smtp_host'] ?? '') ?>" placeholder="<?= e(M4W\Core\Settings::get('webmail.smtp_host')) ?>" aria-label="<?= te('wm.smtp_server') ?>"><input class="form-control" style="max-width:80px" type="number" name="remote_smtp_port" value="<?= (int) ($rm['smtp_port'] ?? 0) ?: '' ?>" placeholder="<?= (int) M4W\Core\Settings::get('webmail.smtp_port') ?>" aria-label="Port SMTP"></div></div>
             </div>
           </details>
+          <?php if (!$wm): ?>
+          <div class="row g-3 mt-1">
+            <div class="col-md-6"><label class="form-label" for="rm-limit"><?= te('own.limit') ?></label><div class="input-group"><input class="form-control" type="number" min="0" id="rm-limit" name="remote_hourly_limit" value="<?= (int) ($rm['hourly_limit'] ?? 0) ?: '' ?>" placeholder="200"><span class="input-group-text"><?= te('own.per_hour') ?></span></div><div class="form-text"><?= te('own.limit_hint') ?></div></div>
+            <?php if (M4W\Service\Collector::active()): ?>
+            <div class="col-md-6 d-flex align-items-start pt-md-4"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="remote_overflow" value="1" id="rm-over" <?= !$rm || (int) $rm['overflow'] ? 'checked' : '' ?>><label class="form-check-label" for="rm-over"><?= te('own.overflow') ?></label><div class="form-text"><?= te('own.overflow_hint', ['box' => M4W\Service\Collector::address()]) ?></div></div></div>
+            <?php endif; ?>
+          </div>
+          <?php endif; ?>
           <?php if ($rm): ?>
           <div class="small text-muted mt-3"><?= te('wm.last_sync', ['date' => $rm['last_ok_at'] ? format_datetime((int) $rm['last_ok_at']) : '—']) ?></div>
           <?php if ($rm['last_error'] !== ''): ?><div class="alert alert-danger small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i><?= e($rm['last_error']) ?></div><?php endif; ?>
@@ -58,9 +70,9 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
             <span class="small align-self-center" data-remote-result role="status"></span>
           </div>
           <?php endif; ?>
+          </div>
         </div>
       </div>
-      <?php endif; ?>
       <div class="card mb-4">
         <div class="card-header"><i class="bi bi-briefcase me-2 text-primary"></i><?= te('admin.signature_fields') ?><small class="text-muted fw-normal ms-2"><?= te('admin.signature_fields_desc') ?></small></div>
         <div class="card-body"><div class="row g-3">

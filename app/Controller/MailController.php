@@ -231,8 +231,19 @@ final class MailController extends Controller
             'reply_target' => self::replyTargetKind($parsed),
             'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
             'impersonation' => self::impersonation($parsed),
+            'invitation'  => $m['has_attachments'] && !$m['is_draft'] ? self::invitation($u, $parsed) : null,
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
+    }
+
+    private static function invitation(array $u, \M4W\Mail\ParsedMessage $p): ?array
+    {
+        try {
+            return \M4W\Service\Scheduling::card($u, $p);
+        } catch (\Throwable $e) {
+            error_log('[m4w] invitation card: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** An outside sender using a colleague's name, or a domain imitating ours. */
@@ -522,6 +533,18 @@ final class MailController extends Controller
         return $this->fail(t('mail.unsub_failed'));
     }
 
+    /** "Report phishing" from the reader. */
+    public function phishing(string $id): Response
+    {
+        $u = $this->user();
+        $m = $this->message($id);
+        if ($m['is_draft']) {
+            return $this->fail('draft');
+        }
+        $r = \M4W\Service\PhishReport::report($u, $m);
+        return $this->ok($r + ['folders' => Folders::listWithCounts((int) $u['id'])]);
+    }
+
     public function action(): Response
     {
         $uid = $this->uid();
@@ -598,7 +621,7 @@ final class MailController extends Controller
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         return $this->ok([
-            'remote'  => \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status(\M4W\Service\RemoteMailbox::find((int) $u['id']))] : null,
+            'remote'  => ($rmAcc = \M4W\Service\RemoteMailbox::active() ? \M4W\Service\RemoteMailbox::find((int) $u['id']) : \M4W\Service\RemoteMailbox::personal((int) $u['id'])) !== null || \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status($rmAcc)] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
             'folders' => Folders::listWithCounts((int) $u['id']),

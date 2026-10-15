@@ -108,6 +108,7 @@ final class Auth
         );
         if ($failsByPair >= $max || $failsByIp >= $max * 4) {
             Audit::log('login.locked', $email, ['ip' => $ip], null);
+            \M4W\Service\AccountGuard::onLocked($email, $ip);
             return ['ok' => false, 'error' => t('auth.locked', ['minutes' => (int) ($window / 60)])];
         }
         // Distributed guessing on one account: slow every attempt down instead of locking the owner out.
@@ -168,6 +169,11 @@ final class Auth
         Session::set('_csrf', Crypto::token(32));
         self::$resolved = false;
         Audit::log('login.success', $user['email'], ['ip' => $req->ip()], (int) $user['id']);
+        try {
+            \M4W\Service\AccountGuard::onLogin($user, $req->ip(), $req->userAgent());
+        } catch (\Throwable $e) {
+            error_log('[m4w] guard login: ' . $e->getMessage());
+        }
     }
 
     public static function logout(): void

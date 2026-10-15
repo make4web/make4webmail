@@ -69,8 +69,13 @@
     }
 
     // Webmail mode: test / sync a provider mailbox from the user form.
+    // Own mailbox imposed by the administrator (user form, outside webmail mode).
+    $(document).on('change', '[data-own-toggle]', function () {
+      $('[data-own-fields]').toggleClass('d-none', !this.checked);
+    });
     $(document).on('click', '[data-remote-action]', function () {
-      var $b = $(this), $r = $b.closest('.card-body').find('[data-remote-result]');
+      var $b = $(this), $r = $b.siblings('[data-remote-result]');
+      if (!$r.length) $r = $b.closest('.card-body, .m4w-setting-row, .m4w-section').find('[data-remote-result]').first();
       $b.prop('disabled', true);
       $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');
       $.ajax({ url: $b.data('remote-action'), method: 'POST', dataType: 'json', headers: { 'X-CSRF-Token': M4W.csrf(), 'X-Requested-With': 'XMLHttpRequest' } })
