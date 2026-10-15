@@ -40,6 +40,23 @@ final class Health
         $add('cron', $cron === 0 ? 'fail' : ($age > 1800 ? 'fail' : ($age > 300 ? 'warn' : 'ok')),
             $cron ? t('health.cron_last', ['ago' => self::ago($age)]) : t('health.cron_never'), 'help#a-ops');
 
+        // Files the web server cannot read (written by a command run as root): empty messages.
+        $unreadable = 0;
+        foreach (DB::all('SELECT storage_path FROM messages ORDER BY id DESC LIMIT 300') as $r) {
+            $f = Config::storagePath((string) $r['storage_path']);
+            if (is_file($f) && !is_readable($f)) {
+                $unreadable++;
+            }
+        }
+        $asRoot = (int) Settings::get('system.cron_root', 0) > $now - 86400;
+        $who = function_exists('posix_geteuid') && posix_geteuid() !== 0 ? (posix_getpwuid(posix_geteuid())['name'] ?? 'www-data') : 'www-data';
+        if ($unreadable || $asRoot) {
+            $add('files', $unreadable ? 'fail' : 'warn', trim(($unreadable ? t('health.files_unreadable', ['n' => $unreadable, 'user' => $who, 'dir' => Config::storagePath()]) : '')
+                . ($asRoot ? ' ' . t('health.cron_root', ['user' => $who]) : '')), 'help#a-ops');
+        } else {
+            $add('files', 'ok', t('health.files_ok'));
+        }
+
         // Outgoing queue.
         $pending = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'pending'");
         $oldest = (int) DB::value("SELECT MIN(created_at) FROM mail_queue WHERE status = 'pending' AND last_error NOT IN ('rate-limit', 'rate-limit-own')");
@@ -221,7 +238,7 @@ final class Health
             $prev = $before[$key] ?? ['state' => 'ok', 'since' => $now, 'told' => 0];
             $since = $prev['state'] === $c['state'] ? (int) $prev['since'] : $now;
             $told = $prev['state'] === $c['state'] ? (int) $prev['told'] : 0;
-            if ($c['state'] === 'fail' || ($c['state'] === 'warn' && in_array(explode(':', $key)[0], ['cert', 'backup', 'disk', 'queue', 'cron'], true))) {
+            if ($c['state'] === 'fail' || ($c['state'] === 'warn' && in_array(explode(':', $key)[0], ['cert', 'backup', 'disk', 'queue', 'cron', 'files'], true))) {
                 // New problem, or still there a day later.
                 if ($told === 0 || $now - $told >= 86400) {
                     $bad[] = $c;

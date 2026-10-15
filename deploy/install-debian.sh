@@ -150,6 +150,11 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     chmod 750 "$DIR/config"
     [[ -f "$DIR/config/config.php" ]] && chmod 640 "$DIR/config/config.php"
 fi
+NOT_OWNED=$(find "$DIR/storage" "$DIR/config" ! -user "$RUN_USER" 2>/dev/null | head -5)
+if [[ -n "$NOT_OWNED" ]]; then
+    red "Files not owned by $RUN_USER (the web server may not read them), e.g.:"; echo "$NOT_OWNED"
+    echo "  fix: chown -R $RUN_USER:$RUN_USER $DIR/storage $DIR/config"
+fi
 sudo -u "$RUN_USER" test -w "$DIR/storage" && sudo -u "$RUN_USER" test -w "$DIR/config" \
     && green "storage/ and config/ writable by $RUN_USER" \
     || { red "storage/ or config/ not writable by $RUN_USER"; exit 1; }
@@ -173,6 +178,20 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     chmod 644 "$CRON_FILE"
     svc cron >/dev/null 2>&1 || yellow "Could not start cron."
 fi
+# A line added by hand to a personal crontab (often root's) runs the scheduler twice, and as
+# root it leaves messages the web server cannot read: it is removed (saved first).
+for u in $(cut -d: -f1 /etc/passwd); do
+    if crontab -l -u "$u" 2>/dev/null | grep -v '^[[:space:]]*#' | grep -qF "$DIR/bin/"; then
+        if [[ $CHECK_ONLY -eq 0 ]]; then
+            crontab -l -u "$u" > "/root/crontab-$u.before-make4webmail.$(date +%Y%m%d%H%M%S)"
+            crontab -l -u "$u" | grep -vF "$DIR/bin/" | crontab -u "$u" -
+            yellow "Removed the Make4WebMail line(s) from the crontab of $u (copy in /root/crontab-$u.before-make4webmail.*): $CRON_FILE runs it as $RUN_USER."
+        else
+            red "The crontab of $u also runs $DIR/bin/: remove that line, $CRON_FILE runs it as $RUN_USER."
+            rc_cron=1
+        fi
+    fi
+done
 if grep -qF "$DIR/bin/cron.php" "$CRON_FILE" 2>/dev/null; then
     green "$CRON_FILE: $CRON_LINE"
     if [[ -f "$DIR/config/config.php" && $CHECK_ONLY -eq 0 ]]; then
@@ -197,7 +216,8 @@ case "$WEB" in
 esac
 
 step "Check"
-rc=0
+rc=${rc_cron:-0}
+[[ -n "${NOT_OWNED:-}" ]] && rc=1
 sudo -u "$RUN_USER" "$PHP_BIN" "$DIR/bin/check.php" || rc=$?
 
 if [[ $TESTS -eq 1 ]]; then

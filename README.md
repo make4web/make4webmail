@@ -255,6 +255,8 @@ La tâche planifiée gère la file d'envoi, les envois programmés, les comptes 
 ```
 Avec PHP-FPM, la file est aussi traitée après chaque requête. Un cron reste recommandé.
 
+> **Pas dans la crontab de root.** Mettez la ligne dans `/etc/cron.d/make4webmail`, avec l'utilisateur du serveur web (`www-data`) en 6e colonne, et non dans `crontab -e` en root : un fichier créé par root (messages reçus, envoyés) n'est pas lisible par le serveur web, et le message s'affiche vide. Les commandes lancées en root prennent d'elles-mêmes le compte des fichiers de l'application, la page Supervision signale une tâche lancée en root ou des fichiers illisibles, et `deploy/install-debian.sh` retire une ancienne ligne d'une crontab personnelle. Pour lancer une commande à la main : `sudo -u www-data php bin/cron.php -v`. Pour réparer : `chown -R www-data:www-data storage config`.
+
 ### 5. Réception du courrier
 Choisissez l'un des deux modes :
 - **Démon intégré** : `php bin/smtpd.php --listen=0.0.0.0:2525` (service systemd dans `deploy/m4w-smtpd.service`). Redirigez le port 25 vers 2525 et faites pointer le MX de vos domaines vers ce serveur. STARTTLS s'active si `inbound.tls_cert` et `inbound.tls_key` sont renseignés dans `config/config.php`.

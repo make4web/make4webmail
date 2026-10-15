@@ -2196,4 +2196,8 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.cal_meet_link' => 'Lien',
     'js.cal_meet_pending' => 'La réunion :provider sera créée à l\'enregistrement : son lien et ses informations de connexion (ID, code, téléphone) seront ajoutés ici et dans l\'invitation.',
     'mail.body_error' => 'Ce message n\'a pas pu être affiché. L\'erreur a été enregistrée dans le journal du serveur (storage/logs/php-error.log).',
+    'health.c.files' => 'Droits des fichiers',
+    'health.files_ok' => 'messages lisibles par le serveur web',
+    'health.files_unreadable' => ':n message(s) illisible(s) par le serveur web (créés en root) : chown -R :user::user :dir',
+    'health.cron_root' => 'La tâche planifiée est lancée en root (elle prend d\'elle-même le compte :user) : mettez-la plutôt dans /etc/cron.d/make4webmail au nom de :user et retirez-la de la crontab de root.',
 ];

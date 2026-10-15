@@ -860,5 +860,16 @@ static function (): void {
 "ALTER TABLE remote_accounts ADD COLUMN archive_folder VARCHAR(190) NOT NULL DEFAULT ''",
 "ALTER TABLE remote_accounts ADD COLUMN empty_streak INTEGER NOT NULL DEFAULT 0",
 ],
+28 => [
+// Mail delivered here directly (between two mailboxes of the server) for someone whose mailbox
+// lives at the provider: a copy waits to be placed in the provider's inbox at the next sync.
+"CREATE TABLE provider_copies (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  message_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  tries INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX provider_copies_user ON provider_copies(user_id)",
+],
 ];
-

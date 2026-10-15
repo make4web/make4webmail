@@ -151,6 +151,11 @@ final class Delivery
                     error_log('[m4w] push: ' . $e->getMessage());
                 }
             }
+            // Delivered here without passing through the provider (a colleague of the server, our MX):
+            // the person's mailbox at the provider gets it too, so their other mail apps see it.
+            if ($source !== 'sync' && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
+                RemoteMailbox::queueCopy($uid, (int) $newId);
+            }
             $copyIds = [];
             foreach (array_unique($actions['copies']) as $copy) {
                 if ($copy !== $folderId) {

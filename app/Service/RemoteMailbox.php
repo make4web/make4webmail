@@ -397,6 +397,13 @@ final class RemoteMailbox
                     error_log('[m4w] webmail repair: ' . $e->getMessage());
                 }
             }
+            if ($user !== null && self::isOwn($acc) && (int) ($acc['two_way'] ?? 1)) {
+                try {
+                    self::pushCopies($client, $acc, $user);
+                } catch (\Throwable $e) {
+                    error_log('[m4w] provider copies: ' . $e->getMessage());
+                }
+            }
             $fetched += self::pullFolder($client, $acc, $user, 'INBOX', 'inbox', $max);
             $spam = trim((string) Settings::get('webmail.spam_folder', ''));
             if ($spam !== '') {
@@ -611,6 +618,66 @@ final class RemoteMailbox
     }
 
     /**
+     * A message delivered here directly for someone whose own mailbox (two-way) is at the
+     * provider: its copy is placed in the provider's inbox at the next synchronisation.
+     */
+    public static function queueCopy(int $userId, int $messageId): void
+    {
+        $acc = self::personal($userId);
+        if ($acc && (int) ($acc['two_way'] ?? 1)) {
+            DB::insert('provider_copies', ['user_id' => $userId, 'message_id' => $messageId, 'created_at' => time()]);
+        }
+    }
+
+    /**
+     * Pending copies into the provider's inbox. The synchronisation then finds them there by their
+     * Message-ID (already here: followed, not imported again), and deletions, read and flagged
+     * states go both ways like for any other message.
+     */
+    private static function pushCopies(ImapClient $client, array $acc, array $user, int $max = 50): void
+    {
+        $rows = DB::all("SELECT * FROM provider_copies WHERE user_id = :u ORDER BY id LIMIT $max", ['u' => $user['id']]);
+        if (!$rows) {
+            return;
+        }
+        $client->select('INBOX');
+        foreach ($rows as $r) {
+            $m = Mailbox::get((int) $user['id'], (int) $r['message_id']);
+            $path = $m ? storage_path((string) $m['storage_path']) : '';
+            // Gone, moved out of the inbox meanwhile (the sync would bring it back), without a
+            // Message-ID to recognise it by, or already at the provider: nothing to copy.
+            if (!$m || (int) $m['folder_id'] !== (int) (Folders::byRole((int) $user['id'], 'inbox')['id'] ?? 0) || $m['message_id'] === ''
+                || $m['storage_path'] === '' || !is_file($path) || $client->searchMessageId((string) $m['message_id'])) {
+                DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
+                continue;
+            }
+            try {
+                $client->append('INBOX', self::providerRaw((string) file_get_contents($path)),
+                    array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []), (int) ($m['date_received'] ?: time()));
+                DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
+            } catch (\Throwable $e) {
+                error_log('[m4w] provider copy ' . (int) $r['message_id'] . ': ' . $e->getMessage());
+                if ((int) $r['tries'] >= 20) {
+                    DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
+                } else {
+                    DB::run('UPDATE provider_copies SET tries = tries + 1 WHERE id = :id', ['id' => $r['id']]);
+                }
+            }
+        }
+    }
+
+    /** A stored message as the provider should get it: without our own delivery and filtering lines. */
+    private static function providerRaw(string $raw): string
+    {
+        $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+        $raw = preg_replace('/^Delivered-To: [^\n]*\n/', '', $raw, 1) ?? $raw;
+        foreach (['X-M4W-Fetched', 'X-M4W-Spam', 'X-M4W-AV', 'X-M4W-Auth', 'X-M4W-Unrouted'] as $own) {
+            $raw = Delivery::stripHeader($raw, $own);
+        }
+        return $raw;
+    }
+
+    /**
      * Copy the mail kept here back into the person's own mailbox (after it was emptied by a
      * clean-up, or to bring the two together). Inbox and Sent, oldest first, done a little at
      * every synchronisation; what the mailbox already has is skipped.
@@ -683,13 +750,8 @@ final class RemoteMailbox
                 continue;
             }
             try {
-                $raw = (string) file_get_contents($path);
                 // Our own lines (delivery, collection, antispam, antivirus) are not part of the message.
-                $raw = str_replace(["\r\n", "\r"], "\n", $raw);
-                $raw = preg_replace('/^Delivered-To: [^\n]*\n/', '', $raw, 1) ?? $raw;
-                foreach (['X-M4W-Fetched', 'X-M4W-Spam', 'X-M4W-AV', 'X-M4W-Auth', 'X-M4W-Unrouted'] as $own) {
-                    $raw = Delivery::stripHeader($raw, $own);
-                }
+                $raw = self::providerRaw((string) file_get_contents($path));
                 $flags = array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []);
                 $client->append($target, $raw, $flags, (int) ($m['date_received'] ?: $m['date_sent']));
                 $st['done']++;

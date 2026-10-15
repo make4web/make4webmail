@@ -9,6 +9,28 @@ final class Migrator
 {
     public static function migrate(): int
     {
+        // One process at a time: two requests arriving together after an update must not both
+        // apply the same step (MySQL commits each ALTER TABLE at once: "Duplicate column").
+        $dir = \M4W\Core\Config::storagePath('tmp');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0750, true);
+        }
+        $lock = @fopen($dir . '/migrate.lock', 'c');
+        if ($lock) {
+            flock($lock, LOCK_EX);
+        }
+        try {
+            return self::apply();
+        } finally {
+            if ($lock) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+        }
+    }
+
+    private static function apply(): int
+    {
         $driver = Database::driver();
         $pdo = Database::pdo();
         $pdo->exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
