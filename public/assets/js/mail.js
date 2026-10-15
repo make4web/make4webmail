@@ -449,6 +449,7 @@
       + (msg.bcc.length ? '<tr><td class="text-muted pe-2 align-top">Cci</td><td>' + msg.bcc.map(function (a) { return esc(a.email); }).join('<br>') + '</td></tr>' : '')
       + '<tr><td class="text-muted pe-2">' + esc(t('date')) + '</td><td>' + esc(M4W.date(msg.date, true)) + '</td></tr>'
       + '<tr><td class="text-muted pe-2">' + esc(t('size')) + '</td><td>' + esc(M4W.bytes(msg.size)) + '</td></tr>'
+      + (msg.fetched ? '<tr><td class="text-muted pe-2 align-top">' + esc(t('fetched_from')) + '</td><td>' + esc(msg.fetched.box) + ' <span class="text-muted">(' + esc(t('fetched_' + msg.fetched.kind)) + (msg.fetched.folder && msg.fetched.folder !== 'INBOX' ? ', ' + esc(msg.fetched.folder) : '') + ')</span></td></tr>' : '')
       + '</table></div></span></div>';
     var banner = '';
     var verdict = msg.auth && msg.auth.verdict;

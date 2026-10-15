@@ -232,6 +232,7 @@ final class MailController extends Controller
             'reply_target' => self::replyTargetKind($parsed),
             'spam'        => self::spamInfo($parsed, (int) $m['folder_id']),
             'impersonation' => self::impersonation($parsed),
+            'fetched'     => self::fetchedFrom($parsed),
             'invitation'  => $m['has_attachments'] && !$m['is_draft'] ? self::invitation($u, $parsed) : null,
             'text'        => mb_substr($parsed->text(), 0, 50000),
         ];
@@ -245,6 +246,16 @@ final class MailController extends Controller
             error_log('[m4w] invitation card: ' . $e->getMessage());
             return null;
         }
+    }
+
+    /** Mailbox at the provider this message was collected from (X-M4W-Fetched), or null. */
+    private static function fetchedFrom(\M4W\Mail\ParsedMessage $p): ?array
+    {
+        $h = (string) $p->header('X-M4W-Fetched');
+        if ($h === '' || !preg_match('/^([^;]+);\s*(collector|own|webmail);\s*([^;]*);/', $h, $m)) {
+            return null;
+        }
+        return ['box' => trim($m[1]), 'kind' => $m[2], 'folder' => trim($m[3])];
     }
 
     /** An outside sender using a colleague's name, or a domain imitating ours. */

@@ -88,7 +88,8 @@ final class Collector
             }
             $users = [$fallback];
         }
-        $hash = hash('sha256', $p->messageId() !== '' ? 'id:' . mb_strtolower($p->messageId()) : 'raw:' . $raw);
+        // Without Message-ID, the content itself (our collection line apart) identifies the copies.
+        $hash = hash('sha256', $p->messageId() !== '' ? 'id:' . mb_strtolower($p->messageId()) : 'raw:' . (preg_replace('/^X-M4W-Fetched: [^\n]*\n/', '', str_replace("\r\n", "\n", $raw)) ?? $raw));
         $rp = trim((string) $p->header('Return-Path'));
         $envelope = preg_match('/<([^>]*)>/', $rp, $m) ? trim($m[1]) : ($rp !== '' ? $rp : ($p->from()['email'] ?? ''));
         if ($envelope !== '' && !is_valid_email(Address::asciiEmail($envelope))) {

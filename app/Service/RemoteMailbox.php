@@ -441,7 +441,10 @@ final class RemoteMailbox
         foreach (array_slice($uids, 0, $max) as $uid) {
             $msg = $client->fetchMessage($uid);
             if ($msg !== null) {
-                self::import($user, $msg['raw'], $local, $msg, $uid <= $boundary);
+                // Where it was collected, shown in the message details (and stripped when copied back).
+                $kind = (int) $acc['user_id'] === Collector::ACCOUNT ? 'collector' : (self::isOwn($acc) ? 'own' : 'webmail');
+                $trace = 'X-M4W-Fetched: ' . preg_replace('/[^\w.@+\-]/', '', (string) self::effective($acc)['login']) . '; ' . $kind . '; ' . preg_replace('/[^\w.\-\/ ]/', '', $remote) . '; uid=' . $uid . '; ' . date('r') . "\r\n";
+                self::import($user, $trace . Delivery::stripHeader(str_replace(["\r\n", "\r"], "\n", $msg['raw']), 'X-M4W-Fetched'), $local, $msg, $uid <= $boundary);
                 DB::insert('remote_uids', ['account_id' => $acc['id'], 'folder' => $local, 'validity' => $info['uidvalidity'], 'uid' => $uid, 'imported_at' => time()]);
                 $n++;
             }
@@ -660,8 +663,12 @@ final class RemoteMailbox
             }
             try {
                 $raw = (string) file_get_contents($path);
-                // Our own delivery line is not part of the message.
+                // Our own lines (delivery, collection, antispam, antivirus) are not part of the message.
+                $raw = str_replace(["\r\n", "\r"], "\n", $raw);
                 $raw = preg_replace('/^Delivered-To: [^\n]*\n/', '', $raw, 1) ?? $raw;
+                foreach (['X-M4W-Fetched', 'X-M4W-Spam', 'X-M4W-AV', 'X-M4W-Auth', 'X-M4W-Unrouted'] as $own) {
+                    $raw = Delivery::stripHeader($raw, $own);
+                }
                 $flags = array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []);
                 $client->append($target, $raw, $flags, (int) ($m['date_received'] ?: $m['date_sent']));
                 $st['done']++;
@@ -686,6 +693,10 @@ final class RemoteMailbox
         if ($days < 0) {
             return;
         }
+        // The collector set up on somebody's own mailbox: that mailbox keeps its own rule.
+        if ((int) $acc['user_id'] === Collector::ACCOUNT && self::sharedWithOwn($acc)) {
+            return;
+        }
         $limit = time() - $days * 86400;
         $spam = trim((string) Settings::get('webmail.spam_folder', ''));
         foreach (['inbox' => 'INBOX', 'spam' => $spam] as $local => $remote) {
@@ -705,10 +716,33 @@ final class RemoteMailbox
                 $client->expunge();
                 [$in, $params] = DB::in('r', array_column($rows, 'id'));
                 DB::run("DELETE FROM remote_uids WHERE id IN $in", $params);
+                // Kept count, so that one can tell whether the webmail empties a mailbox.
+                $key = 'webmail.deleted.' . (int) $acc['id'];
+                Settings::set($key, json_encode(['n' => (int) ((json_decode((string) Settings::get($key, ''), true) ?: [])['n'] ?? 0) + count($rows), 'last' => time(), 'days' => $days]));
             } catch (\RuntimeException) {
                 // retried at the next run
             }
         }
+    }
+
+    /** Messages this webmail removed from the provider mailbox: {n, last, days} or null. */
+    public static function deletedStats(array $acc): ?array
+    {
+        $d = json_decode((string) Settings::get('webmail.deleted.' . (int) $acc['id'], ''), true);
+        return is_array($d) && ($d['n'] ?? 0) > 0 ? $d : null;
+    }
+
+    /** The collector account and an own mailbox are one and the same mailbox. */
+    public static function sharedWithOwn(array $collector): bool
+    {
+        $e = self::effective($collector);
+        foreach (DB::all('SELECT * FROM remote_accounts WHERE forced = 1 AND user_id <> :c', ['c' => Collector::ACCOUNT]) as $own) {
+            $o = self::effective($own);
+            if (mb_strtolower((string) $o['login']) === mb_strtolower((string) $e['login']) && mb_strtolower((string) $o['imap_host']) === mb_strtolower((string) $e['imap_host'])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Scheduler: every enabled account whose last run is older than the interval. */
