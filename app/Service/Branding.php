@@ -63,16 +63,77 @@ final class Branding
             . "--bs-border-radius-xl:" . ($radius ? $radius + 6 : 0) . "px;--bs-border-radius-xxl:" . ($radius ? $radius * 2 : 0) . "px;--bs-border-radius-pill:" . ($radius ? '50rem' : '0') . ";"
             . "--bs-focus-ring-color:rgba($r,$g,$b,.25);--bs-body-font-family:$font;"
             . "}\n";
-        if ($sidebar === 'brand') {
-            $css .= ":root{--m4w-sidebar-bg:$p;--m4w-sidebar-fg:" . self::contrast($p) . ";--m4w-sidebar-hover:rgba(0,0,0,.1);--m4w-sidebar-active:rgba(0,0,0,.2);--m4w-sidebar-muted:" . (self::contrast($p) === '#ffffff' ? 'rgba(255,255,255,.88)' : 'rgba(15,23,42,.75)') . "}\n";
-        } elseif ($sidebar === 'dark') {
-            $css .= ":root{--m4w-sidebar-bg:#0f172a;--m4w-sidebar-fg:#e2e8f0;--m4w-sidebar-hover:rgba(255,255,255,.07);--m4w-sidebar-active:rgba($r,$g,$b,.35);--m4w-sidebar-muted:#94a3b8}\n";
-        }
+        $css .= self::chromeCss($sidebar, $p, $a, [$r, $g, $b]);
         $custom = (string) Settings::get('brand.custom_css', '');
         if ($custom !== '') {
             $css .= "/* custom */\n" . str_ireplace(['</style', '<script', 'javascript:', 'expression('], '', $custom) . "\n";
         }
         return $css;
+    }
+
+    public const SIDEBAR_STYLES = ['light', 'dark', 'brand', 'accent', 'custom', 'image'];
+
+    /** Side menu (and header) colours: a colour of the brand, one of one's own, or a picture. */
+    private static function chromeCss(string $style, string $p, string $a, array $rgb): string
+    {
+        [$r, $g, $b] = $rgb;
+        if ($style === 'dark') {
+            return ":root{--m4w-sidebar-bg:#0f172a;--m4w-sidebar-fg:#e2e8f0;--m4w-sidebar-hover:rgba(255,255,255,.07);--m4w-sidebar-active:rgba($r,$g,$b,.35);--m4w-sidebar-muted:#94a3b8}\n";
+        }
+        $bg = self::chromeColor($style);
+        if ($bg === '') {
+            return '';
+        }
+        $light = self::contrast($bg) === '#ffffff'; // light text on it
+        $vars = "--m4w-sidebar-bg:$bg;--m4w-sidebar-fg:" . ($light ? '#ffffff' : '#0f172a') . ';'
+            . '--m4w-sidebar-hover:' . ($light ? 'rgba(0,0,0,.12)' : 'rgba(0,0,0,.06)') . ';--m4w-sidebar-active:' . ($light ? 'rgba(0,0,0,.22)' : 'rgba(0,0,0,.1)') . ';'
+            . '--m4w-sidebar-muted:' . ($light ? 'rgba(255,255,255,.88)' : 'rgba(15,23,42,.75)') . ';';
+        $file = (string) Settings::get('brand.sidebar_bg', '');
+        if ($style === 'image' && $file !== '' && preg_match('/^[\w.\-]+$/', $file)) {
+            // A veil keeps the text readable whatever the picture; fixed, so header and menu join up.
+            $veil = $light ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.45)';
+            $size = Settings::get('brand.sidebar_bg_fit', 'cover') === 'tile' ? 'auto' : 'cover';
+            $vars .= "--m4w-chrome-bg:linear-gradient($veil,$veil),url('" . url('brand/' . $file) . "') center/$size " . ($size === 'auto' ? 'repeat' : 'no-repeat') . " fixed,$bg;";
+        }
+        return ":root{{$vars}}\n";
+    }
+
+    /** Background colour of the side menu for a style ('' for the light one). */
+    private static function chromeColor(string $style): string
+    {
+        return match ($style) {
+            'dark' => '#0f172a',
+            'brand' => self::color('brand.primary', '#2563eb'),
+            'accent' => self::color('brand.accent', '#0ea5e9'),
+            'custom' => self::color('brand.sidebar_color', '#0f766e'),
+            'image' => self::color('brand.sidebar_bg_avg', '#334155'),
+            default => '',
+        };
+    }
+
+    /** Classes of <body> for the side menu style: coloured, light text on it, carried over to the header. */
+    public static function bodyClasses(): string
+    {
+        $style = (string) Settings::get('brand.sidebar', 'light');
+        $bg = in_array($style, self::SIDEBAR_STYLES, true) ? self::chromeColor($style) : '';
+        if ($bg === '') {
+            return '';
+        }
+        return 'has-chrome' . (self::contrast($bg) === '#ffffff' ? ' chrome-on-dark' : '') . ((int) Settings::get('brand.sidebar_header', 1) ? ' chrome-header' : '');
+    }
+
+    /** Average colour of a picture (GD), to pick the text colour that goes on it. */
+    public static function averageColor(string $path): string
+    {
+        $data = @file_get_contents($path);
+        $im = $data !== false && function_exists('imagecreatefromstring') ? @imagecreatefromstring($data) : false;
+        if (!$im) {
+            return '#334155';
+        }
+        $px = imagecreatetruecolor(1, 1);
+        imagecopyresampled($px, $im, 0, 0, 0, 0, 1, 1, imagesx($im), imagesy($im));
+        $c = imagecolorat($px, 0, 0);
+        return sprintf('#%02x%02x%02x', ($c >> 16) & 255, ($c >> 8) & 255, $c & 255);
     }
 
     private static function color(string $key, string $default): string

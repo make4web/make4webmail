@@ -582,7 +582,10 @@ final class AdminController extends Controller
             'brand.address' => mb_substr($r->str('address'), 0, 255),
             'brand.primary' => $color($r->str('primary'), '#2563eb'),
             'brand.accent' => $color($r->str('accent'), '#0ea5e9'),
-            'brand.sidebar' => in_array($r->str('sidebar'), ['light', 'dark', 'brand'], true) ? $r->str('sidebar') : 'light',
+            'brand.sidebar' => in_array($r->str('sidebar'), Branding::SIDEBAR_STYLES, true) ? $r->str('sidebar') : 'light',
+            'brand.sidebar_color' => $color($r->str('sidebar_color'), '#0f766e'),
+            'brand.sidebar_header' => $r->bool('sidebar_header') ? 1 : 0,
+            'brand.sidebar_bg_fit' => $r->str('sidebar_bg_fit') === 'tile' ? 'tile' : 'cover',
             'brand.radius' => max(0, min(24, $r->int('radius', 10))),
             'brand.font' => $r->str('font') === 'system' ? 'system' : 'inter',
             'brand.login_message' => mb_substr($r->str('login_message'), 0, 500),
@@ -592,13 +595,17 @@ final class AdminController extends Controller
             'brand.reader_bg_fit' => in_array($r->str('reader_bg_fit'), ['cover', 'contain', 'tile'], true) ? $r->str('reader_bg_fit') : 'cover',
         ];
         try {
-            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg', 'reader_bg' => 'readerbg'] as $field => $prefix) {
+            foreach (['logo' => 'logo', 'logo_dark' => 'logodark', 'favicon' => 'favicon', 'login_bg' => 'loginbg', 'reader_bg' => 'readerbg', 'sidebar_bg' => 'sidebarbg'] as $field => $prefix) {
                 if ($r->bool('remove_' . $field)) {
                     $values['brand.' . $field] = '';
                 }
                 $f = $r->files[$field] ?? null;
                 if (is_array($f) && ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, in_array($field, ['login_bg', 'reader_bg'], true) ? 6_000_000 : 2_000_000);
+                    $values['brand.' . $field] = Branding::storeImage($f, $prefix, in_array($field, ['login_bg', 'reader_bg', 'sidebar_bg'], true) ? 6_000_000 : 2_000_000);
+                    if ($field === 'sidebar_bg') {
+                        // Its average colour decides the text colour (light on dark, dark on light).
+                        $values['brand.sidebar_bg_avg'] = Branding::averageColor(storage_path('uploads/brand/' . $values['brand.sidebar_bg']));
+                    }
                 }
             }
         } catch (\InvalidArgumentException $e) {

@@ -4,7 +4,7 @@
 <head>
 <?php include __DIR__ . '/../partials/head.php'; ?>
 </head>
-<body data-sidebar="<?= e(Settings::get('brand.sidebar', 'light')) ?>" data-density="<?= e($currentUser['prefs']['density'] ?? 'comfortable') ?>" class="m4w-mail-page">
+<body data-sidebar="<?= e(Settings::get('brand.sidebar', 'light')) ?>" data-density="<?= e($currentUser['prefs']['density'] ?? 'comfortable') ?>" class="m4w-mail-page <?= M4W\Service\Branding::bodyClasses() ?>">
 <a class="visually-hidden-focusable" href="#m4w-list"><?= te('nav.skip') ?></a>
 <div class="m4w-loading-bar" id="m4w-loading"></div>
 <?php $topbarMode = 'mail'; include __DIR__ . '/../partials/topbar.php'; ?>

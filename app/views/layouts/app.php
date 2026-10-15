@@ -8,7 +8,7 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 <head>
 <?php include __DIR__ . '/../partials/head.php'; ?>
 </head>
-<body data-sidebar="<?= e(Settings::get('brand.sidebar', 'light')) ?>" class="m4w-area-<?= $area ?>">
+<body data-sidebar="<?= e(Settings::get('brand.sidebar', 'light')) ?>" class="m4w-area-<?= $area ?> <?= M4W\Service\Branding::bodyClasses() ?>">
 <div class="m4w-loading-bar" id="m4w-loading"></div>
 <?php $topbarMode = 'page'; include __DIR__ . '/../partials/topbar.php'; ?>
 <div class="m4w-page">

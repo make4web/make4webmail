@@ -928,6 +928,30 @@ test('antivirus unreachable: the reason is explained and a daemon elsewhere is f
     @unlink($sock);
     M4W\Core\Settings::set('security.clamd', $prev);
 });
+test('branding: side menu (and header) in a colour of choice or a picture, readable text', function () {
+    $B = M4W\Service\Branding::class;
+    $keep = array_map(static fn($k) => Settings::get($k), $keys = ['brand.sidebar', 'brand.sidebar_color', 'brand.sidebar_header', 'brand.sidebar_bg', 'brand.sidebar_bg_avg', 'brand.accent']);
+    Settings::setMany(['brand.sidebar' => 'light']);
+    eq($B::bodyClasses(), '', 'light: nothing');
+    Settings::setMany(['brand.sidebar' => 'custom', 'brand.sidebar_color' => '#0f766e', 'brand.sidebar_header' => 1]);
+    ok(str_contains($B::css(), '--m4w-sidebar-bg:#0f766e;--m4w-sidebar-fg:#ffffff'), 'custom colour, white text');
+    eq($B::bodyClasses(), 'has-chrome chrome-on-dark chrome-header');
+    Settings::setMany(['brand.sidebar' => 'custom', 'brand.sidebar_color' => '#fde68a', 'brand.sidebar_header' => 0]);
+    ok(str_contains($B::css(), '--m4w-sidebar-fg:#0f172a'), 'dark text on a light colour');
+    eq($B::bodyClasses(), 'has-chrome', 'header left alone');
+    Settings::setMany(['brand.sidebar' => 'accent', 'brand.accent' => '#7c3aed']);
+    ok(str_contains($B::css(), '--m4w-sidebar-bg:#7c3aed'), 'secondary colour');
+    // Picture: its average colour decides the text colour; the picture goes with a veil.
+    $im = imagecreatetruecolor(20, 20); imagefill($im, 0, 0, imagecolorallocate($im, 240, 230, 200));
+    $f = tempnam(sys_get_temp_dir(), 'bg'); imagepng($im, $f);
+    eq($B::averageColor($f), '#f0e6c8');
+    Settings::setMany(['brand.sidebar' => 'image', 'brand.sidebar_bg' => 'sidebarbg-0123456789ab.png', 'brand.sidebar_bg_avg' => '#f0e6c8']);
+    $css = $B::css();
+    ok(str_contains($css, '--m4w-sidebar-fg:#0f172a') && str_contains($css, "url('") && str_contains($css, 'rgba(255,255,255,.45)'), 'light picture: dark text, light veil');
+    Settings::setMany(['brand.sidebar_bg' => '../../etc/passwd']);
+    ok(!str_contains($B::css(), 'url('), 'odd file names ignored');
+    Settings::setMany(array_combine($keys, $keep));
+});
 test('pinned messages stay at the top of their folder, not in search results', function () use ($alice) {
     $uid = (int) $alice['id'];
     $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
