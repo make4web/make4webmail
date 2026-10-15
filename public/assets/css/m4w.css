@@ -1265,3 +1265,12 @@ html[data-zoom="80"] { font-size: 80%; --m4w-s: .8; }
 html[data-zoom="90"] { font-size: 90%; --m4w-s: .9; }
 html[data-zoom="110"] { font-size: 110%; --m4w-s: 1.1; }
 html[data-zoom="120"] { font-size: 120%; --m4w-s: 1.2; }
+
+/* Attachment viewer (mail) */
+.m4w-att-view-body { padding: 0; min-height: 50vh; height: 72vh; display: flex; align-items: center; justify-content: center; background: var(--m4w-surface-2, #f1f5f9); }
+.m4w-att-view-body img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.m4w-att-view-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.m4w-att-view-icon { width: 36px; height: 36px; flex: 0 0 36px; }
+.m4w-att-view-none { text-align: center; color: var(--m4w-muted); }
+.m4w-att-view-none .bi { font-size: 3rem; }
+@media (max-width: 991.98px) { .m4w-att-view-body { height: auto; flex: 1 1 auto; } }

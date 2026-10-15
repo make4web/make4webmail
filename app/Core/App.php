@@ -232,6 +232,7 @@ final class App
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
         $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
+        $r->get('/api/messages/{id}/part/{part}/preview', [Controller\MailController::class, 'partPreview']);
         $r->get('/api/messages/{id}/source', [Controller\MailController::class, 'source']);
         $r->get('/api/messages/{id}/download', [Controller\MailController::class, 'download']);
         $r->get('/api/messages/{id}/print', [Controller\MailController::class, 'printView']);

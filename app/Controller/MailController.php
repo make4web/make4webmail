@@ -419,6 +419,40 @@ final class MailController extends Controller
         return $r;
     }
 
+    /** Office document, CSV or text attachment rendered as a static page (no script, nothing fetched). */
+    public function partPreview(string $id, string $part): Response
+    {
+        Session::close();
+        $m = $this->message($id);
+        $p = Mailbox::parsed($m)->findPart(rawurldecode($part));
+        if (!$p || $p->isMultipart()) {
+            throw new HttpException(404, t('mail.not_found'));
+        }
+        $name = $p->filename() ?: 'attachment';
+        $tmp = null;
+        try {
+            if (!\M4W\Service\DocPreview::supports($name)) {
+                throw new \InvalidArgumentException(t('files.preview_unsupported'));
+            }
+            $tmp = tempnam(storage_path('tmp'), 'att');
+            file_put_contents($tmp, $p->decodedBody());
+            $html = \M4W\Service\DocPreview::render($tmp, $name);
+        } catch (\InvalidArgumentException $e) {
+            $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font:14px system-ui,sans-serif;color:#475569;display:flex;align-items:center;justify-content:center;height:90vh;text-align:center}</style></head><body><p>' . e($e->getMessage()) . '</p></body></html>';
+        } finally {
+            if ($tmp) {
+                @unlink($tmp);
+            }
+        }
+        return new Response($html, 200, [
+            'Content-Type' => 'text/html; charset=utf-8',
+            'Cache-Control' => 'private, max-age=0, no-store',
+            'Content-Security-Policy' => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
+            'X-Frame-Options' => 'SAMEORIGIN',
+            'Cross-Origin-Resource-Policy' => 'same-origin',
+        ]);
+    }
+
     /** All attachments of a message as a single ZIP archive. */
     public function zip(string $id): Response
     {
