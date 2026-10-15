@@ -810,7 +810,8 @@ final class RemoteMailbox
                 // 1. Gone from the provider folder, or marked deleted there (many mail apps only
                 //    set \Deleted and erase later): deleted (or archived) on the phone.
                 if (!isset($index[$ruid]) || in_array('\\deleted', $index[$ruid]['flags'], true)) {
-                    if ($m && (int) $m['folder_id'] === $roles[$local]) {
+                    // Wherever its copy is here (inbox, a folder of one's own…), unless already in the Trash.
+                    if ($m && (int) $m['folder_id'] !== $roles['trash']) {
                         $archived = false;
                         if (($arch = self::providerFolder($client, $acc, 'archive_folder')) !== '' && $roles['archive']) {
                             try {
