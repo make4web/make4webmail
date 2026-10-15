@@ -189,7 +189,7 @@ En mode boîte collectrice :
 
 ## Licences tierces
 - Navigateur (`public/assets/vendor/`) : MIT (jQuery, Bootstrap, Bootstrap Icons, AOS, Jodit, qrcode-generator), OFL (police Inter).
-- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache) et **LGPL-3.0 pour PHPWord**.
+- PHP (`app/vendor/`, sources seules, chargées par `app/vendor/autoload.php`) : MIT (PhpSpreadsheet, PHPOffice Math, markbaker/matrix et complex, ZipStream, composer/pcre, psr/simple-cache, phpseclib pour le SFTP, paragonie/constant_time_encoding) et **LGPL-3.0 pour PHPWord**.
 
 La LGPL autorise l'usage de PHPWord dans un produit propriétaire ou un SaaS, à condition de le livrer sans modification, avec sa licence, et de laisser l'utilisateur le remplacer par une autre version (c'est le cas : ses sources sont dans `app/vendor/phpoffice/phpword`). Le webmail peut donc être distribué ou exploité sous licence propriétaire en conservant les fichiers de licence (`public/assets/vendor/*/LICENSE*`, `app/vendor/*/*/LICENSE*`).
 
@@ -238,6 +238,28 @@ Choisissez l'un des deux modes :
 
 ### 6. Envoi
 Dans « Administration → Serveur de messagerie », renseignez le relais SMTP de votre fournisseur. Si vous laissez le champ vide, la messagerie remet directement les messages aux serveurs MX, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Générez la clé DKIM et publiez les enregistrements DNS proposés.
+
+## Sauvegarde et restauration
+Administration → Fichiers → **Sauvegarde** : chaque jour, à l'heure choisie (3 h, heure de Paris, par défaut ; jours et fuseau réglables), un zip est envoyé en **SFTP, FTPS, FTP** ou dans un **dossier local** (NAS monté). Il contient :
+- `database/` : la base complète (copie SQLite cohérente, ou dump SQL pour MySQL) ;
+- `storage/` : le courrier, la file d'envoi, les pièces en cours et les listes ;
+- `config/config.php` : la configuration, avec la clé qui déchiffre les secrets enregistrés ;
+- `fichiers/utilisateurs/<adresse>/…`, `fichiers/espaces/<nom>/…`, `fichiers/archives/…` : l'espace Fichiers tel qu'on le voit, lisible sans l'application.
+
+Fonctionnement :
+- Mot de passe du zip en option, chiffré en AES-256.
+- Rotation : les N dernières sauvegardes sont gardées.
+- Envoi sous un nom temporaire, renommé une fois complet.
+- Historique, test de connexion et bouton « Sauvegarder maintenant ». Un échec est signalé dans la boîte des administrateurs.
+- La sauvegarde tourne dans sa propre tâche planifiée (`bin/backup.php --if-due`, installée par le script Debian) : elle ne retarde jamais le courrier.
+- Il faut sur le serveur un espace libre au moins égal à la taille de la sauvegarde ; la page l'indique.
+
+Restauration, sur le même serveur ou un nouveau (installé sans lancer l'assistant) :
+```bash
+sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…'          # aperçu, rien n'est modifié
+sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…' --yes    # restauration
+```
+L'option `--config` reprend aussi la configuration sur un serveur déjà configuré. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
 
 ## Outils en ligne de commande
 | Commande | Rôle |

@@ -6,7 +6,8 @@ declare(strict_types=1);
  * and licences are kept; see README "Licences tierces".
  *   phpoffice/phpspreadsheet 5.8.1 (MIT), phpoffice/phpword 1.4.0 (LGPL-3.0, unmodified),
  *   phpoffice/math 0.3.0 (MIT), markbaker/matrix 3.0.1 + complex 3.0.2 (MIT),
- *   maennchen/zipstream-php 3.1.1 (MIT), composer/pcre 3.4.0 (MIT), psr/simple-cache 3.0.0 (MIT)
+ *   maennchen/zipstream-php 3.1.1 (MIT), composer/pcre 3.4.0 (MIT), psr/simple-cache 3.0.0 (MIT),
+ *   phpseclib/phpseclib 3.0.57 (MIT, SFTP of the backups), paragonie/constant_time_encoding 3.1.3 (MIT)
  */
 spl_autoload_register(static function (string $class): void {
     static $map = [
@@ -18,6 +19,8 @@ spl_autoload_register(static function (string $class): void {
         'ZipStream\\' => 'maennchen/zipstream-php/src/',
         'Composer\\Pcre\\' => 'composer/pcre/src/',
         'Psr\\SimpleCache\\' => 'psr/simple-cache/src/',
+        'phpseclib3\\' => 'phpseclib/phpseclib/phpseclib/',
+        'ParagonIE\\ConstantTime\\' => 'paragonie/constant_time_encoding/src/',
     ];
     foreach ($map as $prefix => $dir) {
         if (str_starts_with($class, $prefix)) {

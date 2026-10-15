@@ -2158,6 +2158,121 @@ test('push: a device moves to whoever signs in on it, and leaves with a deleted 
     eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
 });
 
+// ------------------------------------------------------------------ backups
+echo "\nBackups (zip to a backup disk)\n";
+use M4W\Service\Backup;
+$bkDir = $tmp . '/backup-disk';
+Settings::setMany(['backup.protocol' => 'local', 'backup.path' => $bkDir, 'backup.keep' => 2, 'backup.zip_password' => '', 'backup.enabled' => 0, 'backup.requested' => 0]);
+$bkZip = static function () use ($bkDir): string {
+    $files = glob($bkDir . '/m4w-backup-*.zip') ?: [];
+    rsort($files);
+    return $files[0] ?? '';
+};
+test('backup: one zip with the database, mail, configuration and the file space as people see it', function () use ($bkZip, $fsBob) {
+    eq(Backup::test(), '', 'backup disk writable');
+    $r = Backup::run('manual');
+    eq($r['status'], 'ok', $r['message']);
+    $z = new \ZipArchive();
+    ok($z->open($bkZip()) === true);
+    $names = [];
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $names[] = $z->getNameIndex($i);
+    }
+    foreach (['manifest.json', 'LISEZMOI.txt', 'database/m4w.sqlite', 'config/config.php'] as $n) {
+        ok(in_array($n, $names, true), $n);
+    }
+    ok((bool) array_filter($names, static fn($n) => str_starts_with($n, 'storage/mail/')), 'mail store');
+    ok(!array_filter($names, static fn($n) => str_starts_with($n, 'storage/tmp/') || str_starts_with($n, 'storage/sessions/')), 'no temporary data');
+    // A file of Bob's personal space, under his address, with its content.
+    $root = (int) Files::personalRoot((int) $fsBob['id'])['id'];
+    $f = DB::one('SELECT * FROM fs_files WHERE folder_id = :f AND deleted_at = 0 ORDER BY id LIMIT 1', ['f' => $root]);
+    ok((bool) $f, 'Bob has a file');
+    $path = 'fichiers/utilisateurs/' . $fsBob['email'] . '/' . $f['name'];
+    $content = '';
+    M4W\Storage\Storage::store()->read($f['blob_id'], static function ($b) use (&$content) { $content .= $b; });
+    eq($z->getFromName($path), $content, 'readable as in the file space');
+    // The database copy is complete.
+    $copy = tempnam(sys_get_temp_dir(), 'db');
+    file_put_contents($copy, $z->getFromName('database/m4w.sqlite'));
+    eq((int) (new \PDO('sqlite:' . $copy))->query('SELECT COUNT(*) FROM users')->fetchColumn(), (int) DB::value('SELECT COUNT(*) FROM users'));
+    @unlink($copy);
+    $z->close();
+});
+test('backup: AES-256 password, rotation, one run at a time, failures reported', function () use ($bkZip, $bkDir, $fsAdmin) {
+    Settings::setSecret('backup.zip_password', 'Sauvegarde!2026');
+    eq(Backup::run('manual')['status'], 'ok');
+    $z = new \ZipArchive();
+    $z->open($bkZip());
+    eq($z->statName('database/m4w.sqlite')['encryption_method'], \ZipArchive::EM_AES_256, 'encrypted');
+    ok($z->getFromName('config/config.php') === false, 'unreadable without the password');
+    $z->setPassword('Sauvegarde!2026');
+    ok(str_contains((string) $z->getFromName('config/config.php'), 'app_key'), 'readable with it');
+    $z->close();
+    Backup::run('manual');
+    $GLOBALS['bkMessages'] = (int) DB::value('SELECT COUNT(*) FROM messages');
+    $GLOBALS['bkMailFiles'] = count(array_filter(iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(M4W\Core\Config::storagePath('mail'), \FilesystemIterator::SKIP_DOTS))), static fn($f) => $f->isFile()));
+    eq(count(glob($bkDir . '/m4w-backup-*.zip') ?: []), 2, 'only the 2 most recent kept');
+    // One at a time.
+    $lock = fopen(M4W\Core\Config::storagePath('tmp/backup.lock'), 'c');
+    flock($lock, LOCK_EX);
+    eq(Backup::run('manual')['status'], 'busy');
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    // A failure reaches the administrators' inbox.
+    Settings::set('backup.path', '/proc/m4w-impossible');
+    $r = Backup::run('scheduled');
+    eq($r['status'], 'failed');
+    ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'Échec de la sauvegarde'", ['u' => $fsAdmin['id']]), 'administrators alerted');
+    eq(DB::value("SELECT status FROM backup_runs ORDER BY id DESC LIMIT 1"), 'failed', 'history');
+    Settings::set('backup.path', $bkDir);
+});
+test('backup: schedule in the chosen time zone, once a day, "now" from the administration', function () {
+    Settings::setMany(['backup.enabled' => 1, 'backup.timezone' => 'Europe/Paris', 'backup.days' => '1234567', 'backup.last_scheduled' => 0, 'backup.requested' => 0]);
+    $paris = new \DateTimeImmutable('now', new \DateTimeZone('Europe/Paris'));
+    Settings::set('backup.time', $paris->modify('-2 minutes')->format('H:i'));
+    if ($paris->format('H:i') >= '00:02') {
+        eq(Backup::due(), 'scheduled', 'time has come');
+        Settings::set('backup.last_scheduled', time());
+        eq(Backup::due(), null, 'once a day');
+    }
+    Settings::setMany(['backup.last_scheduled' => 0, 'backup.time' => $paris->modify('+30 minutes')->format('H:i')]);
+    if ($paris->format('H:i') < '23:29') {
+        eq(Backup::due(), null, 'not yet');
+        ok(Backup::nextRun() - time() <= 1800 && Backup::nextRun() > time(), 'next run shown');
+    }
+    Settings::set('backup.days', '');
+    Settings::set('backup.days', str_replace($paris->format('N'), '', '1234567'));
+    Settings::set('backup.time', '00:00');
+    eq(Backup::due(), null, 'not on an excluded day');
+    Settings::set('backup.requested', 1);
+    eq(Backup::due(), 'manual', 'asked from the administration');
+    Settings::setMany(['backup.enabled' => 0, 'backup.requested' => 0, 'backup.days' => '1234567']);
+});
+test('backup: restored on another server (database, mail, configuration)', function () use ($bkZip, $tmp) {
+    $other = $tmp . '/restore-target';
+    @mkdir($other . '/storage', 0777, true);
+    $cfg = require getenv('M4W_CONFIG');
+    $cfg['storage_path'] = $other . '/storage';
+    $cfg['db'] = ['driver' => 'sqlite', 'path' => $other . '/storage/restored.sqlite'];
+    file_put_contents($other . '/config.php', '<?php return ' . var_export($cfg, true) . ';');
+    $zip = $bkZip();
+    $cmd = [PHP_BINARY, dirname(__DIR__) . '/bin/restore.php', $zip, '--password=Sauvegarde!2026'];
+    $run = static function (array $cmd) use ($other): string {
+        $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['M4W_CONFIG' => $other . '/config.php'] + getenv());
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        proc_close($p);
+        return $out;
+    };
+    ok(str_contains($run($cmd), 'Nothing changed'), 'dry run without --yes');
+    $out = $run(array_merge($cmd, ['--yes']));
+    ok(str_contains($out, 'SQLite database restored'), $out);
+    eq((int) (new \PDO('sqlite:' . $other . '/storage/restored.sqlite'))->query('SELECT COUNT(*) FROM messages')->fetchColumn(), $GLOBALS['bkMessages'], 'every message at backup time');
+    $count = static fn(string $d) => count(array_filter(iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($d, \FilesystemIterator::SKIP_DOTS))), static fn($f) => $f->isFile()));
+    eq($count($other . '/storage/mail'), $GLOBALS['bkMailFiles'], 'mail store');
+    ok(str_contains($run([PHP_BINARY, dirname(__DIR__) . '/bin/restore.php', $zip, '--password=faux', '--yes']), 'wrong password'), 'wrong password refused');
+    Settings::set('backup.zip_password', '');
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

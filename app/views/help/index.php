@@ -527,6 +527,17 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <p>Les <strong>expéditeurs autorisés</strong> passent toujours (sauf usurpation), les <strong>bloqués</strong> sont toujours supprimés. Pour régler les seuils, collez la source d'un message dans « Tester un message » : le détail du score s'affiche.</p>
   </section>
 
+  <section id="a-backup" class="m4w-help-section admin">
+    <h2><i class="bi bi-cloud-arrow-up"></i>Sauvegarde</h2>
+    <p>Dans <?= $go('admin/files', 'Fichiers') ?>, section « Sauvegarde », indiquez votre disque de sauvegarde (SFTP, FTPS, FTP ou dossier local), l'heure et les jours. Chaque nuit, un zip complet y est envoyé : base de données, courrier, configuration, et l'espace Fichiers rangé par utilisateur et par espace, lisible directement. Les plus anciennes sauvegardes sont supprimées au-delà du nombre choisi.</p>
+    <ul>
+      <li><strong>Tester la connexion</strong> écrit puis supprime un petit fichier sur le disque de sauvegarde.</li>
+      <li><strong>Sauvegarder maintenant</strong> lance une sauvegarde dans la minute ; le résultat s'affiche dans l'historique. Un échec vous est aussi signalé par message.</li>
+      <li><strong>Mot de passe du zip</strong> : recommandé, sinon quiconque lit le disque lit tout le courrier. Conservez-le en lieu sûr : sans lui, aucune restauration n'est possible.</li>
+      <li><strong>Restaurer</strong> : sur le serveur, <code>php bin/restore.php fichier.zip --password=… --yes</code> (voir le fichier LISEZMOI.txt du zip).</li>
+    </ul>
+  </section>
+
   <section id="a-security" class="m4w-help-section admin">
     <h2><i class="bi bi-shield-check"></i>Politique de sécurité</h2>
     <p>Réglages de <?= $go('admin/security', 'Sécurité') ?> :</p>

@@ -598,5 +598,20 @@ static function (): void {
 "CREATE INDEX send_log_account ON send_log(account, created_at)",
 "CREATE INDEX messages_msgid ON messages(user_id, message_id)",
 ],
+16 => [
+// History of the backups sent to the backup server.
+"CREATE TABLE backup_runs (
+  id {PK},
+  started_at INTEGER NOT NULL DEFAULT 0,
+  finished_at INTEGER NOT NULL DEFAULT 0,
+  status VARCHAR(10) NOT NULL DEFAULT 'running',
+  origin VARCHAR(10) NOT NULL DEFAULT 'manual',
+  file VARCHAR(190) NOT NULL DEFAULT '',
+  size BIGINT NOT NULL DEFAULT 0,
+  entries INTEGER NOT NULL DEFAULT 0,
+  message VARCHAR(500) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE INDEX backup_runs_started ON backup_runs(started_at)",
+],
 ];
 

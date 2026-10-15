@@ -60,6 +60,81 @@
 </table></div>
 <?php endif; ?>
 
+<?php
+$bk = M4W\Service\Backup::config();
+$bkNext = M4W\Service\Backup::nextRun();
+$bkCron = (int) S::get('backup.cron_seen', 0);
+$bkHist = M4W\Service\Backup::history(10);
+$bkEst = M4W\Service\Backup::estimate();
+$bkFree = (int) @disk_free_space(M4W\Core\Config::storagePath('tmp'));
+$bkDays = (string) S::get('backup.days', '1234567');
+?>
+<form method="post" action="<?= e(url('admin/files/backup')) ?>" class="mt-4">
+  <?= csrf_field() ?>
+  <div class="m4w-section" id="backup">
+    <div class="m4w-section-title"><i class="bi bi-cloud-arrow-up me-2 text-primary"></i><?= te('backup.title') ?>
+      <?php if (M4W\Service\Backup::enabled()): ?><span class="badge badge-soft-success ms-2"><?= te('backup.next', ['date' => $bkNext ? (new DateTimeImmutable('@' . $bkNext))->setTimezone(M4W\Service\Backup::timezone())->format('d/m H:i') : '—']) ?></span><?php else: ?><span class="badge badge-soft-secondary ms-2"><?= te('backup.off') ?></span><?php endif; ?></div>
+    <p class="small text-muted"><?= te('backup.desc') ?></p>
+    <?php if (M4W\Service\Backup::enabled() && $bkCron < time() - 600): ?>
+    <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-1"></i><?= te('backup.no_cron') ?><code class="d-block mt-1">* * * * * www-data php <?= e(M4W_ROOT) ?>/bin/backup.php --if-due</code></div>
+    <?php endif; ?>
+    <div class="m4w-setting-row"><div class="label"><?= te('backup.enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enabled" value="1" aria-label="<?= te('backup.enable') ?>" <?= M4W\Service\Backup::enabled() ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('backup.server') ?><small><?= te('backup.server_hint') ?></small></div>
+      <div class="d-flex flex-column gap-2" style="max-width:520px">
+        <div class="input-group">
+          <select class="form-select" style="max-width:150px" name="protocol" aria-label="<?= te('backup.protocol') ?>">
+            <?php foreach (M4W\Service\Backup::PROTOCOLS as $pr): ?><option value="<?= $pr ?>" <?= $bk['protocol'] === $pr ? 'selected' : '' ?>><?= te('backup.p_' . $pr) ?></option><?php endforeach; ?>
+          </select>
+          <input class="form-control m4w-code" name="host" value="<?= e($bk['host']) ?>" placeholder="backup.exemple.fr" aria-label="<?= te('backup.host') ?>">
+          <input class="form-control" style="max-width:90px" type="number" name="port" value="<?= (int) S::get('backup.port') ?: '' ?>" placeholder="<?= $bk['port'] ?>" aria-label="Port">
+        </div>
+        <div class="input-group">
+          <input class="form-control" name="user" value="<?= e($bk['user']) ?>" placeholder="<?= te('backup.user') ?>" aria-label="<?= te('backup.user') ?>" autocomplete="off">
+          <input class="form-control" type="password" name="password" autocomplete="new-password" aria-label="<?= te('backup.password') ?>" placeholder="<?= S::get('backup.password', '') !== '' ? '••••••••  (' . te('admin.kept') . ')' : te('backup.password') ?>">
+        </div>
+        <input class="form-control m4w-code" name="path" value="<?= e((string) S::get('backup.path')) ?>" aria-label="<?= te('backup.path') ?>" placeholder="/make4webmail">
+        <div class="form-check"><input class="form-check-input" type="checkbox" name="tls_verify" value="1" id="bk-tls" <?= $bk['verify'] ? 'checked' : '' ?>><label class="form-check-label small" for="bk-tls"><?= te('backup.tls_verify') ?></label></div>
+        <div><button type="button" class="btn btn-light btn-sm" data-remote-action="<?= e(url('admin/files/backup/test')) ?>"><i class="bi bi-plug me-1"></i><?= te('backup.test') ?></button> <span class="small" data-remote-result role="status"></span></div>
+      </div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('backup.schedule') ?><small><?= te('backup.schedule_hint') ?></small></div>
+      <div class="d-flex flex-column gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          <input class="form-control" style="max-width:120px" type="time" name="time" value="<?= e((string) S::get('backup.time')) ?>" aria-label="<?= te('backup.time') ?>">
+          <select class="form-select" style="max-width:240px" name="timezone" aria-label="<?= te('backup.timezone') ?>">
+            <?php foreach (DateTimeZone::listIdentifiers() as $tz): ?><option value="<?= e($tz) ?>" <?= M4W\Service\Backup::timezone()->getName() === $tz ? 'selected' : '' ?>><?= e($tz) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+        <div class="d-flex gap-3 flex-wrap" role="group" aria-label="<?= te('backup.days') ?>">
+          <?php foreach ([1, 2, 3, 4, 5, 6, 7] as $d): ?><div class="form-check form-check-inline m-0"><input class="form-check-input" type="checkbox" name="days[]" value="<?= $d ?>" id="bk-d<?= $d ?>" <?= str_contains($bkDays, (string) $d) ? 'checked' : '' ?>><label class="form-check-label small" for="bk-d<?= $d ?>"><?= te('backup.day_' . $d) ?></label></div><?php endforeach; ?>
+        </div>
+      </div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('backup.keep') ?><small><?= te('backup.keep_hint') ?></small></div><div class="input-group" style="max-width:200px"><input class="form-control" type="number" min="1" max="365" name="keep" value="<?= (int) S::get('backup.keep') ?>" aria-label="<?= te('backup.keep') ?>"><span class="input-group-text"><?= te('backup.copies') ?></span></div></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('backup.zip_password') ?><small><?= te('backup.zip_password_hint') ?></small></div><div style="max-width:320px"><input class="form-control" type="password" name="zip_password" autocomplete="new-password" aria-label="<?= te('backup.zip_password') ?>" placeholder="<?= S::get('backup.zip_password', '') !== '' ? '••••••••  (' . te('admin.kept') . ')' : te('backup.zip_password_none') ?>">
+      <?php if (S::get('backup.zip_password', '') !== ''): ?><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="zip_password_clear" value="1" id="bk-zc"><label class="form-check-label small" for="bk-zc"><?= te('backup.zip_password_clear') ?></label></div><?php endif; ?></div></div>
+    <p class="small text-muted mt-2 mb-0"><?= te('backup.size', ['size' => format_bytes($bkEst), 'free' => format_bytes($bkFree)]) ?></p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button>
+    <button class="btn btn-light" name="now" value="1"><i class="bi bi-cloud-arrow-up me-1"></i><?= te('backup.now') ?></button>
+  </div>
+</form>
+<?php if ($bkHist): ?>
+<div class="table-responsive mb-4"><table class="table table-sm align-middle m4w-table">
+  <thead><tr><th><?= te('backup.h_date') ?></th><th><?= te('backup.h_status') ?></th><th class="d-none d-md-table-cell"><?= te('backup.h_file') ?></th><th class="text-end"><?= te('backup.h_size') ?></th><th class="d-none d-lg-table-cell"><?= te('backup.h_duration') ?></th></tr></thead>
+  <tbody>
+  <?php foreach ($bkHist as $h): ?>
+    <tr>
+      <td class="small text-nowrap"><?= e(format_datetime((int) $h['started_at'])) ?> <span class="text-muted">· <?= te('backup.o_' . $h['origin']) ?></span></td>
+      <td><span class="badge <?= ['ok' => 'badge-soft-success', 'failed' => 'badge-soft-danger', 'running' => 'badge-soft-warning'][$h['status']] ?? 'badge-soft-secondary' ?>"><?= te('backup.s_' . $h['status']) ?></span><?php if ($h['status'] === 'failed'): ?><div class="small text-danger mt-1"><?= e($h['message']) ?></div><?php endif; ?></td>
+      <td class="small m4w-code d-none d-md-table-cell"><?= e($h['file']) ?></td>
+      <td class="small text-end text-nowrap"><?= $h['size'] ? e(format_bytes((int) $h['size'])) : '—' ?></td>
+      <td class="small d-none d-lg-table-cell"><?= $h['finished_at'] ? e(gmdate((int) $h['finished_at'] - (int) $h['started_at'] >= 3600 ? 'G\h i\m\i\n' : 'i\m\i\n s\s', (int) $h['finished_at'] - (int) $h['started_at'])) : '…' ?></td>
+    </tr>
+  <?php endforeach; ?>
+  </tbody>
+</table></div>
+<?php endif; ?>
+
 <h2 class="h5 mt-5 mb-1" id="archive"><?= te('admin.files_archive') ?></h2>
 <p class="small text-muted mb-3"><?= te('admin.files_archive_desc') ?></p>
 <?php if (!$archived): ?>

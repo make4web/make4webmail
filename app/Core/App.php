@@ -312,6 +312,8 @@ final class App
         $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
         $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
         $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $admin);
+        $r->post('/admin/files/backup', [Controller\AdminController::class, 'saveBackup'], $admin);
+        $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $admin);
         $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
         $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
 

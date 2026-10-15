@@ -697,6 +697,51 @@ final class AdminController extends Controller
         return $this->back('/admin/files', 'success', t('settings.saved'));
     }
 
+    /** Backup settings; "Back up now" asks the backup task (bin/backup.php) to start within a minute. */
+    public function saveBackup(): Response
+    {
+        $r = $this->req;
+        $protocol = in_array($r->str('protocol'), \M4W\Service\Backup::PROTOCOLS, true) ? $r->str('protocol') : 'sftp';
+        $host = trim($r->str('host'));
+        $path = '/' . trim(str_replace('\\', '/', $r->str('path')), '/');
+        if (($host !== '' && !preg_match('/^[a-z0-9.\-]+$/i', $host)) || preg_match('/[\x00-\x1f]|\.\./', $path)) {
+            return $this->back('/admin/files#backup', 'danger', t('backup.invalid'));
+        }
+        if ($protocol === 'local' && \M4W\Service\Backup::unsafeLocalPath($path)) {
+            return $this->back('/admin/files#backup', 'danger', t('backup.public_path'));
+        }
+        $days = implode('', array_values(array_intersect(['1', '2', '3', '4', '5', '6', '7'], (array) ($r->post['days'] ?? []))));
+        $time = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $r->str('time')) ? $r->str('time') : '03:00';
+        $tz = in_array($r->str('timezone'), \DateTimeZone::listIdentifiers(), true) ? $r->str('timezone') : 'Europe/Paris';
+        Settings::setMany([
+            'backup.enabled' => $r->bool('enabled') ? 1 : 0, 'backup.protocol' => $protocol, 'backup.host' => mb_strtolower($host),
+            'backup.port' => max(0, min(65535, $r->int('port'))), 'backup.user' => mb_substr($r->str('user'), 0, 190), 'backup.path' => mb_substr($path, 0, 250),
+            'backup.tls_verify' => $r->bool('tls_verify') ? 1 : 0, 'backup.time' => $time, 'backup.timezone' => $tz,
+            'backup.days' => $days !== '' ? $days : '1234567', 'backup.keep' => max(1, min(365, $r->int('keep', 7))),
+        ]);
+        if ($r->raw('password') !== '') {
+            Settings::setSecret('backup.password', $r->raw('password'));
+        }
+        if ($r->raw('zip_password') !== '') {
+            Settings::setSecret('backup.zip_password', $r->raw('zip_password'));
+        } elseif ($r->bool('zip_password_clear')) {
+            Settings::set('backup.zip_password', '');
+        }
+        Audit::log('admin.backup_saved');
+        if ($r->bool('now')) {
+            Settings::set('backup.requested', 1);
+            return $this->back('/admin/files#backup', 'success', t('backup.requested'));
+        }
+        return $this->back('/admin/files#backup', 'success', t('settings.saved'));
+    }
+
+    /** Backup server reachable and writable (AJAX, saved settings). */
+    public function testBackup(): Response
+    {
+        $e = \M4W\Service\Backup::test();
+        return $e === '' ? $this->ok(['message' => t('backup.test_ok')]) : $this->fail($e);
+    }
+
     /** Online editing: reach the office server and read its formats (AJAX). */
     public function officeTest(): Response
     {
