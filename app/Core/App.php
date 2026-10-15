@@ -376,6 +376,7 @@ final class App
         $r->post('/settings/rules/toggle', [Controller\SettingsController::class, 'toggleRule']);
         $r->post('/settings/rules/order', [Controller\SettingsController::class, 'orderRules']);
         $r->post('/settings/rules/run', [Controller\SettingsController::class, 'runRule']);
+        $r->post('/settings/rules/trusted/remove', [Controller\SettingsController::class, 'removeTrusted']);
         $r->get('/settings/vacation', [Controller\SettingsController::class, 'vacation']);
         $r->post('/settings/vacation', [Controller\SettingsController::class, 'saveVacation']);
         $r->get('/settings/forwarding', [Controller\SettingsController::class, 'forwarding']);

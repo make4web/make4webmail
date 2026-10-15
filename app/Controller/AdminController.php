@@ -1011,6 +1011,7 @@ final class AdminController extends Controller
             'security.disposable_allow' => self::domainList($r->str('disposable_allow')),
             'security.disposable_autoupdate' => $r->bool('disposable_autoupdate') ? 1 : 0,
             'security.link_check' => $r->bool('link_check') ? 1 : 0,
+            'security.idn_links' => in_array($r->str('idn_links'), ['block', 'suspicious', 'warn'], true) ? $r->str('idn_links') : 'block',
             'security.link_block' => self::domainList($r->str('link_block')),
             'security.safebrowsing_api' => $r->str('safebrowsing_api') === 'webrisk' ? 'webrisk' : 'safebrowsing',
             'security.safebrowsing_delivery' => $r->bool('safebrowsing_delivery') ? 1 : 0,

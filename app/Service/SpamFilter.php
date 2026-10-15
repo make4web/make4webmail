@@ -201,7 +201,7 @@ final class SpamFilter
                 $seen[$pb] = true;
             }
         }
-        $weights = ['mismatch' => 4, 'ip' => 2.5, 'shortener' => 1, 'punycode' => 2, 'userinfo' => 3, 'script' => 3];
+        $weights = ['mismatch' => 4, 'ip' => 2.5, 'shortener' => 1, 'punycode' => 2, 'homograph' => 5, 'mixed_script' => 4, 'userinfo' => 3, 'script' => 3];
         foreach (array_keys($seen) as $pb) {
             $add('LINK_' . strtoupper($pb), $weights[$pb] ?? 1);
         }
@@ -234,6 +234,15 @@ final class SpamFilter
         if (self::lookalikeDomain(Address::domain($from)) !== null) {
             $add('LOOKALIKE_DOMAIN', 4);
         }
+        // "service@paypаl.com" with a Cyrillic "а": a sender address imitating another one.
+        $fromDomain = Address::domain($from);
+        if ($fromDomain !== '' && \M4W\Mail\Homograph::isIdn($fromDomain)) {
+            if (\M4W\Mail\Homograph::imitates($fromDomain) !== null) {
+                $add('FROM_HOMOGRAPH', 6);
+            } elseif (\M4W\Mail\Homograph::mixedScript($fromDomain)) {
+                $add('FROM_MIXED_SCRIPT', 4);
+            }
+        }
 
         // What people of the organisation taught the filter (Junk / Not junk), and senders they reported.
         $prob = Bayes::score($p);
@@ -265,6 +274,13 @@ final class SpamFilter
         }
         $from = strtolower($p->from()['email']);
         $authOk = $auth === null || (($auth['verdict'] ?? 'ok') === 'ok' && (($auth['spf'] ?? '') === 'pass' || array_filter($auth['dkim'] ?? [], static fn($d) => ($d['result'] ?? '') === 'pass')));
+        // The person said "Not junk" for this sender: the inbox, if the message is authentic.
+        if ($from !== '' && $authOk && TrustedSenders::has($userId, $from)) {
+            $base['tests']['USER_TRUSTED'] = -20.0;
+            $base['score'] = round($base['score'] - 20, 1);
+            $base['level'] = 'ok';
+            return $base;
+        }
         if ($from !== '' && $authOk && DB::value('SELECT COUNT(*) FROM contacts WHERE user_id = :u AND LOWER(email) = :e', ['u' => $userId, 'e' => $from])) {
             $base['tests']['KNOWN_CORRESPONDENT'] = -3.0;
             $base['score'] = round($base['score'] - 3, 1);

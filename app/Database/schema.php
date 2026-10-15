@@ -838,5 +838,15 @@ static function (): void {
 // Messages pinned at the top of their folder.
 "ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
 ],
+26 => [
+// Senders a person took out of Junk ("not junk"): their mail no longer goes there.
+"CREATE TABLE spam_trusted (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  address VARCHAR(255) NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX spam_trusted_ua ON spam_trusted(user_id, address)",
+],
 ];
 

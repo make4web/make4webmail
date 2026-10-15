@@ -36,8 +36,22 @@ final class LinkController extends Controller
 
     private function page(array $d, int $status = 200): Response
     {
+        // Never show a look-alike name as the destination: its real (punycode) form instead.
+        $d['display_href'] = $d['href'];
+        if ($d['host'] !== '' && \M4W\Mail\Homograph::isIdn($d['host'])) {
+            $ascii = \M4W\Mail\Homograph::ascii(\M4W\Mail\Homograph::unicode($d['host']));
+            $d['display_href'] = preg_replace('#^(https?://(?:[^/@?\#]*@)?)[^/:?\#]+#i', '${1}' . $ascii, $d['href']) ?? $d['href'];
+        }
         $d['registrable'] = LinkCheck::registrable($d['host']);
         $d['shown'] = LinkCheck::textDomain($d['text']);
+        // An internationalised name is shown as read (look-alike letters marked) and as sent.
+        $d['idn'] = $d['host'] !== '' && \M4W\Mail\Homograph::isIdn($d['host'])
+            ? ['html' => \M4W\Mail\Homograph::highlight($d['host']), 'ascii' => \M4W\Mail\Homograph::ascii(\M4W\Mail\Homograph::unicode($d['host'])), 'imitates' => \M4W\Mail\Homograph::imitates($d['host'])]
+            : null;
+        if ($d['idn']) {
+            $d['host'] = $d['idn']['ascii'];
+            $d['registrable'] = LinkCheck::registrable($d['host']);
+        }
         $r = $this->view('mail/link', $d, 'layouts/blank');
         $r->status = $status;
         return $r->header('Referrer-Policy', 'no-referrer')->header('Cache-Control', 'private, no-store');

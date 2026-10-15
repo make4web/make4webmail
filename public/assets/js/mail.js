@@ -458,10 +458,13 @@
     if (msg.impersonation) {
       var im = msg.impersonation;
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-person-exclamation"></i><span><strong>' + esc(t('imp_' + im.kind + '_title')) + '</strong> '
-        + esc(t('imp_' + im.kind + '_text', { address: im.address, colleague: im.colleague || '', domain: im.domain || '' })) + '</span></div>';
+        + esc(t('imp_' + im.kind + '_text', { address: im.address, colleague: im.colleague || '', domain: im.domain || '', real: im.real || '' })) + '</span></div>';
     }
-    if (msg.spam && msg.spam.reasons.length) {
-      banner += '<div class="m4w-msg-banner warn"><i class="bi bi-funnel-fill text-warning"></i><span><strong>' + esc(t('spam_why', { score: msg.spam.score })) + '</strong> ' + esc(msg.spam.reasons.join(' · ')) + '</span></div>';
+    if (msg.spam) {
+      // In Junk: say why, and let the person correct the filter in one click.
+      banner += '<div class="m4w-msg-banner warn"><i class="bi bi-funnel-fill text-warning"></i><span>'
+        + (msg.spam.reasons.length ? '<strong>' + esc(t('spam_why', { score: msg.spam.score })) + '</strong> ' + esc(msg.spam.reasons.join(' · ')) : '<strong>' + esc(t('spam_in_junk')) + '</strong>')
+        + '</span><button type="button" class="btn btn-sm btn-success ms-auto text-nowrap" data-not-spam="' + msg.id + '"><i class="bi bi-hand-thumbs-up me-1"></i>' + esc(t('not_spam_btn')) + '</button></div>';
     }
     if (msg.reply_target) {
       banner += '<div class="m4w-msg-banner warn"><i class="bi bi-reply-fill text-warning"></i><span>' + esc(t('reply_target_' + msg.reply_target)) + '</span></div>';
@@ -584,7 +587,7 @@
     var pos = S.cursor >= 0 ? t('position', { n: S.offset + S.cursor + 1, total: S.total }) : '';
     var tb = '<button class="btn btn-ghost btn-icon" data-reader="back" title="' + esc(t('back')) + ' (U)"><i class="bi bi-arrow-left"></i></button>'
       + (folder.role !== 'archive' ? '<button class="btn btn-ghost btn-icon" data-reader="archive" title="' + esc(t('archive')) + ' (E)"><i class="bi bi-archive"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('move_inbox')) + '"><i class="bi bi-inbox"></i></button>')
-      + (inSpam ? '<button class="btn btn-ghost btn-icon" data-reader="inbox" title="' + esc(t('not_spam')) + '"><i class="bi bi-shield-check"></i></button>' : '<button class="btn btn-ghost btn-icon" data-reader="spam" title="' + esc(t('spam')) + ' (!)"><i class="bi bi-exclamation-octagon"></i></button>')
+      + (inSpam ? '<button class="btn btn-sm btn-success mx-1 text-nowrap" data-reader="not_spam" title="' + esc(t('not_spam_hint')) + '"><i class="bi bi-hand-thumbs-up me-1"></i>' + esc(t('not_spam_btn')) + '</button>' : '<button class="btn btn-ghost btn-icon" data-reader="spam" title="' + esc(t('spam')) + ' (!)"><i class="bi bi-exclamation-octagon"></i></button>')
       + (folder.role !== 'sent' && folder.role !== 'drafts' ? '<button class="btn btn-ghost btn-icon" data-reader="phish" title="' + esc(t('phish_report')) + '" aria-label="' + esc(t('phish_report')) + '"><i class="bi bi-shield-exclamation"></i></button>' : '')
       + '<button class="btn btn-ghost btn-icon" data-reader="delete" title="' + esc(inTrash ? t('delete_forever') : t('delete')) + ' (#)"><i class="bi bi-trash3"></i></button>'
       + '<span class="vr"></span>'
@@ -651,7 +654,7 @@
   }
   M4W.action = action;
 
-  var LABELS = { archive: 'archived', delete: 'deleted', spam: 'marked_spam', move: 'moved', inbox: 'moved_inbox', purge: 'deleted_forever' };
+  var LABELS = { archive: 'archived', delete: 'deleted', spam: 'marked_spam', move: 'moved', inbox: 'moved_inbox', purge: 'deleted_forever', not_spam: 'not_spam_done' };
 
   function bulk(name, ids, opts) {
     opts = opts || {};
@@ -665,7 +668,7 @@
     }
     doIt(name);
     function doIt(n) {
-      var removing = ['archive', 'delete', 'spam', 'move', 'inbox', 'purge'].indexOf(n) !== -1;
+      var removing = ['archive', 'delete', 'spam', 'move', 'inbox', 'purge', 'not_spam'].indexOf(n) !== -1;
       var threaded = S.prefs.conversations && !S.q && !isSentLike();
       if (removing) {
         // Optimistic UI
@@ -679,8 +682,9 @@
         clearSelection();
         if (LABELS[n]) {
           var moved = r.ids || ids;
-          M4W.toast(t(LABELS[n], { n: ids.length }), 'success', n === 'purge' ? {} : {
-            action: { label: t('undo'), fn: function () { action('move', moved, { folder: origin }).done(function () { M4W.toast(t('undone'), 'info'); }); } }
+          var msgTxt = n === 'not_spam' && r.trusted && r.trusted.length ? t('not_spam_trusted', { n: ids.length, sender: r.trusted.join(', ') }) : t(LABELS[n], { n: ids.length });
+          M4W.toast(msgTxt, 'success', n === 'purge' ? {} : {
+            action: { label: t('undo'), fn: function () { (n === 'not_spam' ? action('spam', moved) : action('move', moved, { folder: origin })).done(function () { M4W.toast(t('undone'), 'info'); }); } }
           });
         }
         if (['read', 'unread', 'flag', 'unflag'].indexOf(n) !== -1) { ids.forEach(function (id) { var it = itemById(id); if (!it) return; if (n === 'read') it.unread = false; if (n === 'unread') it.unread = true; if (n === 'flag') it.flagged = true; if (n === 'unflag') it.flagged = false; }); }
@@ -901,6 +905,7 @@
       });
     });
     $(document).on('click', '[data-action=compose]', function () { M4W.Compose.open({ mode: 'new' }); });
+    $(document).on('click', '[data-not-spam]', function () { bulk('not_spam', [+$(this).attr('data-not-spam')]); });
     $(document).on('click', '[data-att-send]', function () { M4W.Compose.open({ mode: 'attach', id: +$(this).attr('data-att-send'), part: String($(this).attr('data-part')) }); });
     $(document).on('click', '[data-save-files]', function () {
       var id = $(this).attr('data-save-files'), parts = String($(this).attr('data-parts')).split(',');
@@ -1101,7 +1106,7 @@
       + '<button class="dropdown-item" data-ctx="' + (anyUnread ? 'read' : 'unread') + '"><i class="bi bi-envelope' + (anyUnread ? '-open' : '') + '"></i>' + esc(anyUnread ? t('mark_read') : t('mark_unread')) + '</button>'
       + '<button class="dropdown-item" data-ctx="flag"><i class="bi bi-star"></i>' + esc(t('star')) + '</button>'
       + (allPinned ? '<button class="dropdown-item" data-ctx="unpin"><i class="bi bi-pin-angle"></i>' + esc(t('unpin')) + '</button>' : '<button class="dropdown-item" data-ctx="pin"><i class="bi bi-pin-angle-fill"></i>' + esc(t('pin')) + '</button>')
-      + '<button class="dropdown-item" data-ctx="spam"><i class="bi bi-exclamation-octagon"></i>' + esc(t('spam')) + '</button>'
+      + ((S.byId[S.folder] || {}).role === 'spam' ? '<button class="dropdown-item" data-ctx="not_spam"><i class="bi bi-hand-thumbs-up"></i>' + esc(t('not_spam_btn')) + '</button>' : '<button class="dropdown-item" data-ctx="spam"><i class="bi bi-exclamation-octagon"></i>' + esc(t('spam')) + '</button>')
       + '<div class="dropdown-divider"></div><h6 class="dropdown-header">' + esc(t('move_to')) + '</h6>'
       + S.folders.filter(function (f) { return f.role !== 'drafts' && f.role !== 'sent' && f.id !== S.folder; }).map(function (f) { return '<button class="dropdown-item" data-move-to="' + f.id + '"><i class="bi bi-' + esc(f.icon) + '"></i>' + esc(f.name) + '</button>'; }).join('')
       + '</div>';

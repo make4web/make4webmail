@@ -60,7 +60,7 @@ sudo systemctl stop clamav-freshclam &amp;&amp; sudo freshclam &amp;&amp; sudo s
 sudo systemctl enable --now clamav-daemon
 sudo systemctl status clamav-daemon
 ls -l /var/run/clamav/</pre></details>
-      <a class="btn btn-sm btn-warning mt-2" href="<?= e(url('admin/security')) ?>#antivirus"><i class="bi bi-arrow-repeat me-1"></i><?= te('av.retest') ?></a>
+      <a class="btn btn-sm btn-warning mt-2" href="<?= e(url('admin/security', ['retest' => time()])) ?>#antivirus" data-av-retest><i class="bi bi-arrow-repeat me-1"></i><?= te('av.retest') ?></a>
     </div></div>
     <?php endif; ?>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.av_enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="antivirus" value="1" aria-label="<?= te('admin.av_enable') ?>" <?= S::get('security.antivirus') ? 'checked' : '' ?>></div></div>
@@ -73,6 +73,10 @@ ls -l /var/run/clamav/</pre></details>
     <div class="m4w-section-title"><i class="bi bi-link-45deg me-2 text-primary"></i><?= te('admin.links_title') ?></div>
     <p class="small text-muted"><?= te('admin.links_desc') ?></p>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.links_check') ?><small><?= te('admin.links_check_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="link_check" value="1" aria-label="<?= te('admin.links_check') ?>" <?= S::get('security.link_check') ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><label for="sec-idn"><?= te('admin.idn_links') ?></label><small><?= te('admin.idn_links_desc') ?></small></div><div>
+      <select class="form-select" style="max-width:420px" id="sec-idn" name="idn_links">
+        <?php foreach (['block', 'suspicious', 'warn'] as $o): ?><option value="<?= $o ?>" <?= S::get('security.idn_links', 'block') === $o ? 'selected' : '' ?>><?= te('admin.idn_' . $o) ?></option><?php endforeach; ?>
+      </select></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.links_sb') ?><small><?= te('admin.links_sb_desc') ?></small></div>
       <div class="d-flex flex-column gap-2" style="max-width:420px">
         <select class="form-select" name="safebrowsing_api" aria-label="<?= te('admin.links_sb_api') ?>">

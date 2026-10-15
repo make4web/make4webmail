@@ -63,7 +63,29 @@ final class LinkGuard
     public static function assess(string $href, string $text = ''): array
     {
         $host = LinkCheck::host($href);
-        return ['problems' => LinkCheck::problems($href, $text), 'threat' => self::threats([$href])[$href] ?? '', 'host' => $host];
+        $problems = LinkCheck::problems($href, $text);
+        $threat = self::threats([$href])[$href] ?? '';
+        if ($threat === '') {
+            $threat = self::idnThreat($problems);
+        }
+        return ['problems' => $problems, 'threat' => $threat, 'host' => $host];
+    }
+
+    /**
+     * Internationalised names (security.idn_links): "block" blocks them all (default),
+     * "suspicious" only the imitations and mixed scripts (the others ask for confirmation),
+     * "warn" always asks for confirmation.
+     */
+    public static function idnThreat(array $problems): string
+    {
+        $policy = (string) Settings::get('security.idn_links', 'block');
+        if ($policy !== 'warn' && array_intersect(['homograph', 'mixed_script'], $problems)) {
+            return 'HOMOGRAPH';
+        }
+        if ($policy === 'block' && in_array('punycode', $problems, true)) {
+            return 'IDN';
+        }
+        return '';
     }
 
     /** @param string[] $urls @return array<string,string> url => threat (only the threats) */

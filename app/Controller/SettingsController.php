@@ -96,7 +96,15 @@ final class SettingsController extends Controller
         return $this->page('rules', [
             'rules' => RuleEngine::forUser($uid),
             'folders' => Folders::listWithCounts($uid),
+            'trusted' => \M4W\Service\TrustedSenders::list($uid),
         ]);
+    }
+
+    /** "Not junk" senders: take one back off the list. */
+    public function removeTrusted(): Response
+    {
+        \M4W\Service\TrustedSenders::remove($this->uid(), $this->req->str('address'));
+        return $this->back('/settings/rules#trusted', 'success', t('trusted.removed'));
     }
 
     public function saveRule(): Response

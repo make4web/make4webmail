@@ -60,7 +60,7 @@ final class LinkCheck
 
     /**
      * Problems with one link. @return string[] codes: mismatch, ip, shortener, punycode,
-     * userinfo, script, nontls_login
+     * homograph, mixed_script, userinfo, script, nontls_login
      */
     public static function problems(string $href, string $text = ''): array
     {
@@ -83,8 +83,15 @@ final class LinkCheck
         if (self::isShortener($host)) {
             $out[] = 'shortener';
         }
-        if (str_contains($host, 'xn--') || preg_match('/[^\x00-\x7f]/', $host)) {
+        if (Homograph::isIdn($host)) {
             $out[] = 'punycode';
+            // "amαzon.com", "amаzon.com": letters of another alphabet passing for Latin ones.
+            if (Homograph::imitates($host) !== null) {
+                $out[] = 'homograph';
+            }
+            if (Homograph::mixedScript($host)) {
+                $out[] = 'mixed_script';
+            }
         }
         // http://paypal.com@evil.example/ : everything before "@" is decoration.
         if (preg_match('#^https?://[^/?\#]*@#i', $href)) {

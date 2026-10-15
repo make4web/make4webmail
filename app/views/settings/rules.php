@@ -5,6 +5,21 @@
 <div id="rules-list" data-rules="<?= e(json_encode($rules, JSON_UNESCAPED_UNICODE)) ?>" data-folders="<?= e(json_encode(array_map(static fn($f) => ['id' => $f['id'], 'name' => $f['name'], 'role' => $f['role']], $folders), JSON_UNESCAPED_UNICODE)) ?>" data-prefill="<?= e(json_encode(['from' => (string) ($_GET['from'] ?? ''), 'subject' => (string) ($_GET['subject'] ?? '')], JSON_UNESCAPED_UNICODE)) ?>"></div>
 <div class="alert alert-info mt-4"><i class="bi bi-lightbulb"></i><div><?= te('rules.tip') ?></div></div>
 
+<section class="m4w-section mt-4" id="trusted" aria-labelledby="trusted-title">
+  <h2 class="m4w-section-title fs-6" id="trusted-title"><i class="bi bi-hand-thumbs-up me-2 text-success"></i><?= te('trusted.title') ?></h2>
+  <p class="small text-muted"><?= te('trusted.desc') ?></p>
+  <?php if (!$trusted): ?><p class="small text-muted mb-0"><?= te('trusted.none') ?></p><?php else: ?>
+  <ul class="list-group">
+    <?php foreach ($trusted as $t): ?>
+    <li class="list-group-item d-flex align-items-center gap-2"><i class="bi bi-person-check text-success"></i><span class="flex-grow-1 text-truncate"><?= e($t['address']) ?></span>
+      <span class="small text-muted d-none d-sm-inline"><?= e(date('d/m/Y', (int) $t['created_at'])) ?></span>
+      <form method="post" action="<?= e(url('settings/rules/trusted/remove')) ?>" class="m-0"><?= csrf_field() ?><input type="hidden" name="address" value="<?= e($t['address']) ?>">
+        <button class="btn btn-ghost btn-sm text-danger" aria-label="<?= te('trusted.remove_for', ['address' => $t['address']]) ?>"><i class="bi bi-x-lg"></i></button></form></li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</section>
+
 <div class="modal fade" id="rule-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" id="rule-form">

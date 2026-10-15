@@ -631,9 +631,40 @@ test('links: misleading text, IP, shorteners, look-alikes', function () {
     eq(M4W\Mail\LinkCheck::problems('https://example.com/', 'Cliquez ici'), [], 'plain text is not an address');
     eq(M4W\Mail\LinkCheck::problems('http://192.168.4.20/login'), ['ip']);
     eq(M4W\Mail\LinkCheck::problems('https://bit.ly/3xYz'), ['shortener']);
-    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode']);
+    eq(M4W\Mail\LinkCheck::problems('https://xn--pypal-4ve.com/'), ['punycode', 'homograph', 'mixed_script'], 'pаypal.com (Cyrillic а), punycode form');
     eq(M4W\Mail\LinkCheck::problems('https://www.paypal.com@evil.example/'), ['userinfo']);
     eq(M4W\Mail\LinkCheck::problems('javascript:alert(1)'), ['script']);
+});
+test('links: homographs (amαzon / amаzon), mixed scripts, punycode blocked', function () {
+    $H = M4W\Mail\Homograph::class;
+    $P = static fn(string $h) => M4W\Mail\LinkCheck::problems('https://' . $h . '/login');
+    eq($H::imitates('amαzon.com'), 'amazon.com', 'Greek alpha');
+    eq($H::imitates('amаzon.com'), 'amazon.com', 'Cyrillic a');
+    eq($H::imitates($H::ascii('amаzon.com')), 'amazon.com', 'punycode form too');
+    eq($H::imitates('аррӏе.com'), 'apple.com', 'whole name in Cyrillic');
+    eq($H::imitates('ɡoogle.com'), 'google.com', 'Latin script g');
+    eq($H::imitates('amazon.com'), null);
+    eq($H::imitates('élysée.fr'), null, 'an accented name is not an imitation');
+    eq($H::imitates('münchen.de'), null);
+    ok($H::mixedScript('amаzon.com') && $H::mixedScript('paypαl.com'), 'Latin + Cyrillic / Greek');
+    ok(!$H::mixedScript('аррӏе.com') && !$H::mixedScript('élysée.fr') && !$H::mixedScript('例え.jp') && !$H::mixedScript('ソニーsony.jp'), 'single script, or Japanese with Latin');
+    eq($P('amαzon.com'), ['punycode', 'homograph', 'mixed_script']);
+    eq($P('élysée.fr'), ['punycode']);
+    ok(str_contains($H::highlight('amаzon.com'), '<mark title="U+0430">а</mark>'), 'look-alike letter marked');
+    // Blocking policy.
+    $prev = Settings::get('security.idn_links');
+    Settings::set('security.idn_links', 'block');
+    eq([M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), M4W\Service\LinkGuard::idnThreat($P('élysée.fr')), M4W\Service\LinkGuard::idnThreat($P('amazon.com'))], ['HOMOGRAPH', 'IDN', ''], 'block: every IDN');
+    Settings::set('security.idn_links', 'suspicious');
+    eq([M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), M4W\Service\LinkGuard::idnThreat($P('élysée.fr'))], ['HOMOGRAPH', ''], 'suspicious: imitations only');
+    Settings::set('security.idn_links', 'warn');
+    eq(M4W\Service\LinkGuard::idnThreat($P('amаzon.com')), '', 'warn: confirmation only');
+    Settings::set('security.idn_links', $prev);
+});
+test('antispam: a sender address in another alphabet weighs heavily', function () {
+    $p = M4W\Mail\MimeParser::parse("From: Service <securite@paypаl.com>\r\nTo: a@test.local\r\nSubject: Info\r\n\r\nBonjour");
+    $r = SpamFilter::evaluate($p, null);
+    ok(isset($r['tests']['FROM_HOMOGRAPH']), json_encode($r['tests']));
 });
 test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendTo) {
     $spamId = (int) Folders::byRole((int) $bob['id'], 'spam')['id'];
@@ -686,6 +717,34 @@ test('antispam: inbox, Junk, quarantine, deleted', function () use ($bob, $sendT
     Settings::setMany(['spam.quarantine' => 10, 'spam.delete' => 20]);
     eq(SpamFilter::level(4.5), 'ok');
     eq(SpamFilter::level(20), 'delete');
+});
+test('antispam: "not junk" puts the message back, teaches the filter and trusts the sender', function () use ($bob, $sendTo) {
+    $uid = (int) $bob['id'];
+    $spamId = (int) Folders::byRole($uid, 'spam')['id'];
+    $inboxId = (int) Folders::byRole($uid, 'inbox')['id'];
+    $body = '<p>Votre compte est suspendu. Vérifiez votre compte : <a href="https://secure-verif.example.ru/login">www.mabanque.fr</a></p>';
+    $one = static function (string $subject) use ($sendTo, $body) {
+        Delivery::deliver($sendTo('bob@test.local', $subject, 'alertes@fournisseur-ext.com', [], $body), 'alertes@fournisseur-ext.com', ['bob@test.local']);
+        return DB::one('SELECT * FROM messages WHERE subject = :s ORDER BY id DESC', ['s' => $subject]);
+    };
+    $m = $one('URGENT VERIFIEZ VOTRE COMPTE!!!');
+    eq((int) $m['folder_id'], $spamId, 'filed as junk');
+    $r = M4W\Service\TrustedSenders::notJunk($uid, [(int) $m['id']], $uid);
+    eq([$r['count'], $r['senders']], [1, ['alertes@fournisseur-ext.com']]);
+    $m = DB::one('SELECT * FROM messages WHERE id = :id', ['id' => $m['id']]);
+    eq([(int) $m['folder_id'], (int) $m['bayes']], [$inboxId, -1], 'back in the inbox, learnt as not junk');
+    ok((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'spam.false_positive'") > 0, 'false positive recorded');
+    // Next one from the same sender: inbox.
+    $m2 = $one('URGENT VERIFIEZ VOTRE COMPTE ENCORE!!!');
+    eq((int) $m2['folder_id'], $inboxId, 'trusted sender reaches the inbox');
+    ok(str_contains((string) Mailbox::parsed($m2)->header(SpamFilter::HEADER), 'USER_TRUSTED'), 'reason recorded');
+    // Not for someone else.
+    ok(!M4W\Service\TrustedSenders::has((int) DB::value("SELECT id FROM users WHERE email = 'alice@test.local'"), 'alertes@fournisseur-ext.com'), 'per person');
+    // Junk after all: trust withdrawn.
+    M4W\Service\TrustedSenders::remove($uid, 'alertes@fournisseur-ext.com');
+    eq(M4W\Service\TrustedSenders::list($uid), [], 'removed');
+    // An address of our own domains is never trusted this way.
+    eq(M4W\Service\TrustedSenders::notJunk($uid, [], $uid)['senders'], [], 'nothing to trust');
 });
 test('antispam: people the user writes to are trusted a little more', function () use ($bob, $sendTo) {
     $body = '<p>Voir <a href="https://bit.ly/abc">le lien</a></p>';

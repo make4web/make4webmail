@@ -107,6 +107,7 @@ final class Settings
         'backup.keep' => 7,
         'backup.zip_password' => '',
         'security.link_check' => 1,
+        'security.idn_links' => 'block',
         'security.link_block' => '',
         'security.safebrowsing_api' => 'safebrowsing',
         'security.safebrowsing_key' => '',
