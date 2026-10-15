@@ -478,9 +478,134 @@
     $f.find('[data-cal-copyjoin]').toggleClass('d-none', !F.meetingUrl);
     $f.find('[data-cal-meetrow]').toggleClass('d-none', !Object.keys(meets).length && !F.meetingUrl);
     refreshRooms(true);
+    // An existing event opens on its summary (when, where, who, what); a new one on the form.
+    F.data = data;
+    $modal.find('[data-cal-tabs]').toggleClass('d-none', !F.uri);
+    if (F.uri) renderSummary(data);
+    setTab(F.uri ? 'summary' : 'form');
     bootstrap.Modal.getOrCreateInstance($modal[0]).show();
   }
   $modal.on('shown.bs.modal', function () { if (!F.uri) $f.find('[name=title]').trigger('focus'); });
+
+  // ---------------------------------------------------------------- summary tab
+  function setTab(name) {
+    $modal.find('[data-cal-pane]').each(function () { this.hidden = $(this).data('cal-pane') !== name; });
+    $modal.find('[data-cal-tabs] [data-cal-tab]').each(function () { var on = $(this).data('cal-tab') === name; $(this).toggleClass('active', on).attr({ 'aria-selected': on ? 'true' : 'false', tabindex: on ? '0' : '-1' }); });
+    var summary = name === 'summary';
+    $f.find('[data-cal-save]').toggleClass('d-none', summary || !F.writable);
+    $f.find('[data-cal-editbtn]').toggleClass('d-none', !summary || !F.writable || !F.organizer);
+    $f.find('[data-cal-cancel]').text(summary ? t('close') : t('cancel'));
+    $('#cal-event-title').text(!F.uri ? t('cal_new_event') : (summary || !F.writable || !F.organizer ? t('cal_event') : t('cal_edit_event')));
+  }
+  $modal.on('click', '[data-cal-tab]', function () { setTab($(this).data('cal-tab')); if ($(this).data('cal-tab') === 'form' && F.writable && F.organizer) $f.find('[name=title]').trigger('focus'); });
+  $modal.on('keydown', '[data-cal-tabs] [data-cal-tab]', function (ev) {
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    var next = $(this).data('cal-tab') === 'summary' ? 'form' : 'summary';
+    setTab(next); $modal.find('[data-cal-tabs] [data-cal-tab="' + next + '"]').trigger('focus');
+  });
+  // The form was changed: the summary follows.
+  $f.on('change input', 'input, select, textarea', M4W.debounce(function () { if (F.uri) renderSummary(formSnapshot()); }, 200));
+  function formSnapshot() {
+    var all = $f.find('[name=all_day]').is(':checked');
+    return $.extend({}, F.data, {
+      title: $f.find('[name=title]').val(), location: $f.find('[name=location]').val(), description: $f.find('[name=description]').val(), all_day: all,
+      start: $f.find('[name=start_date]').val() + (all ? '' : ' ' + $f.find('[name=start_time]').val()), end: $f.find('[name=end_date]').val() + (all ? '' : ' ' + $f.find('[name=end_time]').val()),
+      repeat: $f.find('[name=repeat]').val(), repeat_until: $f.find('[name=repeat_until]').val(), reminder: +$f.find('[name=reminder]').val(),
+      calendar_id: +$f.find('[name=calendar_id]').val(), attendees: F.attendees,
+      room_name: +$f.find('[name=room_id]').val() ? $f.find('[name=room_id] option:selected').text().split(' · ')[0] : (F.data.room_name || '')
+    });
+  }
+  function duration(min) {
+    var d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60, out = [];
+    if (d) out.push(t('cal_n_days', { n: d }));
+    if (h) out.push(h + ' h');
+    if (m) out.push(m + ' min');
+    return out.join(' ');
+  }
+  function renderSummary(d) {
+    var $p = $modal.find('[data-cal-pane=summary]').empty();
+    var cal = calById(d.calendar_id) || {}, all = !!d.all_day;
+    var s = parseLocal(d.start.slice(0, 10), all ? '00:00' : d.start.slice(11, 16)), e = parseLocal(d.end.slice(0, 10), all ? '00:00' : d.end.slice(11, 16));
+    var row = function (icon, label, $content) {
+      return $('<div class="m4w-cal-sum-row"></div>').append($('<i class="bi" aria-hidden="true"></i>').addClass('bi-' + icon))
+        .append($('<div class="min-w-0 flex-grow-1"></div>').append($('<div class="m4w-cal-sum-label"></div>').text(label)).append($content));
+    };
+    // What
+    var $head = $('<div class="m4w-cal-sum-head"></div>').css('--ev', cal.color || 'var(--m4w-primary)');
+    $head.append($('<h3 class="m4w-cal-sum-title"></h3>').text(d.title || t('cal_untitled')));
+    var meta = $('<div class="small text-muted"></div>').append($('<span class="m4w-cal-sum-cal"></span>').text(cal.name || ''));
+    if (d.status === 'CANCELLED') meta.append(' · ').append($('<span class="badge badge-soft-danger"></span>').text(t('cal_cancelled')));
+    var now = Date.now() / 1000;
+    if (ts(s) <= now && ts(e) > now) meta.append(' · ').append($('<span class="badge badge-soft-success"></span>').text(t('cal_in_progress')));
+    $head.append(meta);
+    $p.append($head);
+    if (!F.organizer && F.uri) {
+      $p.append($('<div class="alert alert-info py-2 small mb-3" role="status"></div>').append('<i class="bi bi-envelope-paper me-1" aria-hidden="true"></i>')
+        .append(document.createTextNode(t('cal_invited_by', { name: d.organizer_name || d.organizer }) + (F.partstat ? ' — ' + t('cal_ps_' + F.partstat.toLowerCase().replace('-', '_')) : ''))));
+    }
+    // When
+    var when;
+    if (all) {
+      var last = addDays(e, sameDay(s, e) ? 0 : -1);
+      when = sameDay(s, last) ? fmt(s, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + t('cal_all_day')
+        : t('cal_from_to', { from: fmt(s, { weekday: 'short', day: 'numeric', month: 'long' }), to: fmt(last, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) }) + ' · ' + t('cal_all_day');
+    } else if (sameDay(s, e)) {
+      when = fmt(s, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + time(s) + ' – ' + time(e);
+    } else {
+      when = fmt(s, { weekday: 'short', day: 'numeric', month: 'long' }) + ' ' + time(s) + ' → ' + fmt(e, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) + ' ' + time(e);
+    }
+    var $when = $('<div></div>').append($('<div class="fw-semibold text-capitalize-first"></div>').text(when));
+    var extra = [];
+    if (!all) extra.push(duration(Math.round((e - s) / 60000)));
+    if (d.repeat && d.repeat !== 'none') extra.push(t('cal_repeat_' + d.repeat).replace(/^./, function (c) { return c.toLowerCase(); }) + (d.repeat_until ? ' ' + t('cal_until', { date: fmt(parseLocal(d.repeat_until), { day: 'numeric', month: 'long', year: 'numeric' }) }) : ''));
+    if (d.reminder >= 0) extra.push(t('cal_reminder_before', { d: d.reminder ? duration(d.reminder) : t('cal_at_start') }));
+    if (extra.length) $when.append($('<div class="small text-muted"></div>').text(extra.join(' · ')));
+    $p.append(row('clock', t('cal_when'), $when));
+    // Where
+    var $where = $('<div class="d-flex flex-column gap-1"></div>'), any = false;
+    if (d.room_name) {
+      any = true;
+      var st = d.room_status === 'pending' ? ['warning', t('cal_room_st_pending')] : (d.room_status === 'approved' || d.room_status === 'confirmed' ? ['success', t('cal_room_st_ok')] : (d.room_status === 'declined' ? ['danger', t('cal_room_st_declined')] : null));
+      $where.append($('<div></div>').append('<i class="bi bi-door-open me-1" aria-hidden="true"></i>').append($('<span class="fw-semibold"></span>').text(d.room_name)).append(st ? $('<span class="badge ms-2"></span>').addClass('badge-soft-' + st[0]).text(st[1]) : ''));
+    }
+    if (d.location && d.location !== d.room_name) { any = true; $where.append($('<div class="fw-semibold"></div>').text(d.location)); }
+    if (d.meeting_url) {
+      any = true;
+      $where.append($('<div class="d-flex flex-wrap align-items-center gap-2"></div>')
+        .append($('<a class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer"></a>').attr('href', d.meeting_url).append('<i class="bi bi-camera-video me-1"></i>').append(document.createTextNode(t('cal_join_with', { name: (BOOT.meetings || {})[d.meeting] || d.meeting || '' }).trim())))
+        .append($('<button type="button" class="btn btn-ghost btn-sm" data-cal-copyjoin></button>').append('<i class="bi bi-clipboard me-1"></i>').append(document.createTextNode(t('cal_copy_link')))));
+    }
+    if (!any) $where.append($('<span class="text-muted"></span>').text(t('cal_no_place')));
+    $p.append(row('geo-alt', t('cal_where'), $where));
+    // Who
+    var $who = $('<div></div>'), people = $('<ul class="m4w-cal-people list-unstyled mb-0"></ul>');
+    var orgEmail = d.organizer || BOOT.me.email, orgName = d.organizer_name || (orgEmail === BOOT.me.email ? BOOT.me.name : '');
+    var person = function (name, email, tag, ps) {
+      var icon = { ACCEPTED: 'check-circle-fill text-success', DECLINED: 'x-circle-fill text-danger', TENTATIVE: 'question-circle-fill text-warning' }[ps] || (ps ? 'clock text-muted' : '');
+      var $li = $('<li></li>').append(M4W.avatar(name || email, email));
+      $li.append($('<div class="min-w-0 flex-grow-1"></div>').append($('<div class="text-truncate fw-medium"></div>').text(name || email)).append($('<div class="small text-muted text-truncate"></div>').text(tag || email)));
+      if (icon) $li.append($('<i class="bi" role="img"></i>').addClass('bi-' + icon).attr({ title: t('cal_ps_' + String(ps).toLowerCase().replace('-', '_')), 'aria-label': t('cal_ps_' + String(ps).toLowerCase().replace('-', '_')) }));
+      return $li;
+    };
+    people.append(person(orgName, orgEmail, t('cal_organizer') + (orgEmail === BOOT.me.email ? ' · ' + t('cal_you') : '')));
+    var counts = { ACCEPTED: 0, TENTATIVE: 0, DECLINED: 0, 'NEEDS-ACTION': 0 };
+    (d.attendees || []).forEach(function (a) {
+      var ps = a.partstat || 'NEEDS-ACTION'; counts[ps] = (counts[ps] || 0) + 1;
+      people.append(person(a.name, a.email, a.email === BOOT.me.email ? t('cal_you') : (a.name ? a.email : ''), ps));
+    });
+    if ((d.attendees || []).length) {
+      var parts = [];
+      if (counts.ACCEPTED) parts.push(t('cal_n_accepted', { n: counts.ACCEPTED }));
+      if (counts.TENTATIVE) parts.push(t('cal_n_tentative', { n: counts.TENTATIVE }));
+      if (counts.DECLINED) parts.push(t('cal_n_declined', { n: counts.DECLINED }));
+      if (counts['NEEDS-ACTION']) parts.push(t('cal_n_waiting', { n: counts['NEEDS-ACTION'] }));
+      $who.append($('<div class="small mb-2"></div>').text(t('cal_n_guests', { n: d.attendees.length }) + ' — ' + parts.join(' · ')));
+    }
+    $who.append(people);
+    $p.append(row('people', t('cal_who'), $who));
+    // Notes
+    if (d.description) $p.append(row('text-left', t('cal_notes'), $('<div class="m4w-cal-sum-notes"></div>').text(d.description)));
+  }
 
   /** Rooms offered for the slot: only the free ones, open at that time (every occurrence). */
   var roomsReq = null;

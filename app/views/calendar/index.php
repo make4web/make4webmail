@@ -30,7 +30,13 @@ $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['ema
         <h2 class="modal-title fs-5" id="cal-event-title"><?= te('cal.event') ?></h2>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?= te('common.close') ?>"></button>
       </div>
+      <ul class="nav nav-tabs m4w-cal-tabs px-3 d-none" role="tablist" data-cal-tabs>
+        <li class="nav-item" role="presentation"><button type="button" class="nav-link active" role="tab" id="cal-tab-summary" aria-controls="cal-pane-summary" aria-selected="true" data-cal-tab="summary"><i class="bi bi-card-text me-1"></i><?= te('cal.tab_summary') ?></button></li>
+        <li class="nav-item" role="presentation"><button type="button" class="nav-link" role="tab" id="cal-tab-form" aria-controls="cal-pane-form" aria-selected="false" data-cal-tab="form"><i class="bi bi-sliders me-1"></i><?= te('cal.tab_details') ?></button></li>
+      </ul>
       <div class="modal-body">
+        <div class="m4w-cal-summary" id="cal-pane-summary" role="tabpanel" aria-labelledby="cal-tab-summary" data-cal-pane="summary" hidden></div>
+        <div id="cal-pane-form" role="tabpanel" aria-labelledby="cal-tab-form" data-cal-pane="form">
         <div class="alert alert-info py-2 d-none" data-cal-invite role="status"></div>
         <div class="mb-3"><label class="form-label" for="cal-f-title"><?= te('cal.f_title') ?></label><input class="form-control form-control-lg" id="cal-f-title" name="title" maxlength="250" required></div>
         <div class="row g-2 align-items-end mb-2">
@@ -77,6 +83,7 @@ $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['ema
           <div class="m4w-cal-busy d-none" data-cal-busy></div>
         </div>
         <div class="mb-1"><label class="form-label" for="cal-f-desc"><?= te('cal.f_description') ?></label><textarea class="form-control" id="cal-f-desc" name="description" rows="3" maxlength="20000"></textarea></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-danger me-auto d-none" data-cal-delete><i class="bi bi-trash me-1"></i><?= te('common.delete') ?></button>
@@ -85,7 +92,8 @@ $boot = ['calendars' => $calendars, 'me' => ['email' => mb_strtolower($user['ema
           <button type="button" class="btn btn-light" data-partstat="TENTATIVE"><i class="bi bi-question-lg me-1 text-warning"></i><?= te('cal.tentative') ?></button>
           <button type="button" class="btn btn-light" data-partstat="DECLINED"><i class="bi bi-x-lg me-1 text-danger"></i><?= te('cal.decline') ?></button>
         </div>
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal"><?= te('common.cancel') ?></button>
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal" data-cal-cancel><?= te('common.cancel') ?></button>
+        <button type="button" class="btn btn-primary d-none" data-cal-tab="form" data-cal-editbtn><i class="bi bi-pencil me-1"></i><?= te('cal.edit') ?></button>
         <button type="submit" class="btn btn-primary" data-cal-save><?= te('common.save') ?></button>
       </div>
     </form>
