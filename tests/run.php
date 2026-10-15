@@ -1905,14 +1905,26 @@ test('own mailbox: its own clean-up rule, sent copies, copy back to the provider
         $st['boxes']['paul@test.local']['Sent'] = ['validity' => 1, 'msgs' => []];
     });
     DB::run('UPDATE remote_accounts SET last_sync_at = 0, blocked_until = 0, overflow = 0');
+    $deleted = static fn() => (int) (RemoteMailbox::deletedStats(RemoteMailbox::find($uid))['n'] ?? 0);
+    $before = $deleted(); // earlier tests used this account in webmail mode, where it was emptied
     eq(RemoteMailbox::sync(RemoteMailbox::find($uid))['error'], '');
     eq((int) RemoteMailbox::find($uid)['leave_days'], -1, 'never emptied by default');
     ok(count($box('INBOX')) >= 2, 'his box is not emptied by the collector rule');
+    eq($deleted(), $before, 'nothing deleted there, and the count says so');
+    $kept = DB::one("SELECT * FROM messages WHERE user_id = :u AND subject = 'Garde-moi'", ['u' => $uid]);
+    ok(preg_match('/^X-M4W-Fetched: paul@test\.local; own; INBOX; uid=1001;/m', (string) Mailbox::raw($kept)) === 1, 'where it was collected is recorded: ' . substr((string) Mailbox::raw($kept), 0, 300));
+    // The collector set up on the same mailbox as Paul's: it never deletes there.
+    $col = M4W\Service\Collector::account();
+    ok(!RemoteMailbox::sharedWithOwn($col), 'separate mailboxes');
+    DB::update('remote_accounts', ['login' => 'paul@test.local'], 'id = :id', ['id' => $col['id']]);
+    ok(RemoteMailbox::sharedWithOwn(M4W\Service\Collector::account()), 'same mailbox detected');
+    DB::update('remote_accounts', ['login' => $col['login']], 'id = :id', ['id' => $col['id']]);
     // His own rule applies when chosen.
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => 0, 'save_sent' => 1], (int) $fsAdmin['id']);
     DB::run('UPDATE remote_accounts SET last_sync_at = 0');
     RemoteMailbox::sync(RemoteMailbox::find($uid));
     eq(count($box('INBOX')), 0, 'emptied when he chose it');
+    ok($deleted() >= $before + 2, 'deletions counted');
     Settings::set('webmail.leave_days', $prevLeave);
     // Sent from the webmail: a copy lands in the Sent folder of his box, read.
     Composer::send(Users::find($uid), ['to' => 'g@ext.com', 'subject' => 'Copie du message', 'html' => '<p>x</p>']);
@@ -1931,7 +1943,7 @@ test('own mailbox: its own clean-up rule, sent copies, copy back to the provider
     ok($rs['finished'] > 0 && $rs['failed'] === 0, 'finished');
     eq([$rs['done'], $rs['skipped']], [$inbox + $sentHere - 1, 1], 'the sent copy already there is skipped');
     eq(count($box('INBOX')), $inbox, 'inbox back at the provider');
-    ok(!str_starts_with($box('INBOX')[0]['raw'], 'Delivered-To:'), 'without our delivery line');
+    ok(!str_starts_with($box('INBOX')[0]['raw'], 'Delivered-To:') && !str_contains(implode('', array_column($box('INBOX'), 'raw')), 'X-M4W-Fetched'), 'without our delivery and collection lines');
     // The next synchronisation sees them as new UIDs: nothing comes in twice.
     DB::run('UPDATE remote_accounts SET last_sync_at = 0');
     RemoteMailbox::sync(RemoteMailbox::find($uid));

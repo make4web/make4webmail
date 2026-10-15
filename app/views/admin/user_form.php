@@ -67,7 +67,11 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           </div>
           <?php if ($rm): $eff = M4W\Service\RemoteMailbox::effective($rm); ?>
           <div class="small mt-3 p-2 rounded-3 bg-body-tertiary"><i class="bi bi-hdd-network me-1"></i><?= te('own.effective', ['login' => $eff['login'], 'imap' => $eff['imap_host'] . ':' . $eff['imap_port'], 'smtp' => $eff['smtp_host'] . ':' . $eff['smtp_port']]) ?>
-            <?php if ((string) $rm['imap_host'] === '' || (string) $rm['smtp_host'] === ''): ?><div class="text-warning-emphasis mt-1"><i class="bi bi-info-circle me-1"></i><?= te('own.inherited') ?></div><?php endif; ?></div>
+            <?php if ((string) $rm['imap_host'] === '' || (string) $rm['smtp_host'] === ''): ?><div class="text-warning-emphasis mt-1"><i class="bi bi-info-circle me-1"></i><?= te('own.inherited') ?></div><?php endif; ?>
+            <?php $del = M4W\Service\RemoteMailbox::deletedStats($rm); ?>
+            <div class="mt-1"><i class="bi bi-trash3 me-1"></i><?= $del ? te('own.deleted_n', ['n' => $del['n'], 'date' => date('d/m/Y H:i', (int) $del['last'])]) : te('own.deleted_none') ?></div>
+            <?php $col = M4W\Service\Collector::account(); if ($col && M4W\Service\RemoteMailbox::sharedWithOwn($col) && mb_strtolower((string) M4W\Service\RemoteMailbox::effective($col)['login']) === mb_strtolower((string) $eff['login'])): ?>
+            <div class="text-danger mt-1"><i class="bi bi-exclamation-triangle me-1"></i><?= te('own.same_as_collector') ?></div><?php endif; ?></div>
           <?php endif; ?>
           <?php endif; ?>
           <?php if ($rm): ?>

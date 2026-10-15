@@ -19,6 +19,10 @@ final class Delivery
      */
     public static function deliver(string $raw, string $envelopeFrom, array $recipients, string $source = 'smtp', bool $applyRules = true, ?array $auth = null): array
     {
+        // Only the synchronisation writes where a message was collected; nobody else may claim it.
+        if ($source !== 'sync') {
+            $raw = self::stripHeader(str_replace(["\r\n", "\r"], "\n", $raw), 'X-M4W-Fetched');
+        }
         $raw = self::sanitizeIncoming($raw);
         if ($auth !== null) {
             $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
