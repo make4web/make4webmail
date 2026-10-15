@@ -2000,4 +2000,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.download_to_phone' => 'Download to my phone',
     'js.att_send' => 'Send in a new message',
     'js.att_no_preview' => 'No preview for this type of file.',
+    'js.zoom_hint' => 'Wheel to zoom, drag to move, double-click to reset',
 ];

@@ -381,7 +381,7 @@
     $m.find('[data-pos]').text(list.length > 1 ? (idx + 1) + ' / ' + list.length : '');
     $m.find('[data-att-nav]').toggleClass('d-none', list.length < 2).each(function () { var d = +$(this).attr('data-att-nav'); $(this).prop('disabled', !list[idx + d]).off('click').on('click', function () { openAttachment(msgId, idx + d); }); });
     var $b = $m.find('[data-body]').empty();
-    if (kind === 'img') $b.append($('<img alt="">').attr({ src: inlineUrl, alt: a.name }));
+    if (kind === 'img') M4W.zoomable($('<img alt="">').attr({ src: inlineUrl, alt: a.name, title: t('zoom_hint') }).appendTo($b)[0]);
     else if (kind === 'pdf') $b.append($('<iframe referrerpolicy="no-referrer"></iframe>').attr({ title: a.name, src: inlineUrl }));
     else if (kind === 'doc') $b.append($('<iframe sandbox="" referrerpolicy="no-referrer"></iframe>').attr({ title: a.name, src: M4W.url(base + '/preview') }));
     else $b.append('<div class="m4w-att-view-none"><i class="bi bi-' + ic[1] + '"></i><p>' + esc(t('att_no_preview')) + '</p></div>');

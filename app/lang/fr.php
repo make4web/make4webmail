@@ -2073,4 +2073,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.download_to_phone' => 'Télécharger sur mon téléphone',
     'js.att_send' => 'Envoyer dans un nouveau message',
     'js.att_no_preview' => 'Pas d\'aperçu pour ce type de fichier.',
+    'js.zoom_hint' => 'Molette pour zoomer, glisser pour déplacer, double-clic pour revenir',
 ];

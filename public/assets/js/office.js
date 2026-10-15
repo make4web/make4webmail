@@ -15,7 +15,7 @@
     if (!m || !m.MessageId) return;
     if (m.MessageId === 'App_LoadingStatus' && m.Values && m.Values.Status === 'Frame_Ready') post({ MessageId: 'Host_PostmessageReady' });
     if (m.MessageId === 'UI_Close' || m.MessageId === 'close') {
-      if (window.top !== window) window.top.postMessage({ m4w: 'office-close' }, window.location.origin);
+      if (window.top !== window) window.parent.postMessage({ m4w: 'editor-close' }, window.location.origin);
       else window.location.href = box.getAttribute('data-back');
     }
   });

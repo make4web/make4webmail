@@ -5,7 +5,7 @@ $back = url('files') . '#f/' . (int) $file['folder_id'];
 <link rel="stylesheet" href="<?= e(asset('vendor/jodit/jodit.min.css')) ?>">
 <div class="m4w-doc" data-doc data-id="<?= (int) $file['id'] ?>">
   <header class="m4w-sheet-bar">
-    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>"><i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline"><?= te('office.back') ?></span></a>
+    <a class="btn btn-ghost btn-sm" href="<?= e($back) ?>" data-editor-back><i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline"><?= te('office.back') ?></span></a>
     <i class="bi bi-file-earmark-word text-primary fs-5"></i>
     <h1 class="m4w-sheet-name text-truncate"><?= e($file['name']) ?></h1>
     <span class="m4w-sheet-status small text-muted text-truncate" data-status role="status"></span>

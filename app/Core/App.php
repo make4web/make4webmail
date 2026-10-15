@@ -483,7 +483,8 @@ final class App
                 "object-src 'none'",
                 "base-uri 'self'",
                 "form-action 'self'",
-                "frame-ancestors 'none'",
+                // Pages that ask for it (the document editors) may be framed by the application itself.
+                $res->getHeader('X-Frame-Options') === 'SAMEORIGIN' ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
             ]));
         }
         if ($res->getHeader('X-Frame-Options') === null) {

@@ -28,11 +28,10 @@
     if (DOC_EDIT.indexOf(extOf(f)) !== -1) return 'doc';
     return TEXT_EDIT.indexOf(extOf(f)) !== -1 ? 'text' : '';
   }
+  // Editors open over the file space, in the same tab; back to the list when closed.
   function editFile(f) {
-    var mode = editMode(f);
-    if (mode === 'office') window.open(M4W.url('files/edit/' + f.id), '_blank', 'noopener');
-    else if (mode === 'sheet') window.open(M4W.url('files/sheet/' + f.id), '_blank', 'noopener');
-    else if (mode === 'doc') window.open(M4W.url('files/doc/' + f.id), '_blank', 'noopener');
+    var mode = editMode(f), path = { office: 'files/edit/', sheet: 'files/sheet/', doc: 'files/doc/' }[mode];
+    if (path) M4W.openEditor(M4W.url(path + f.id), f.name, function () { refresh(); });
     else if (mode === 'text') textEditor(f);
   }
   var DOCPREVIEW = /^(docx|xlsx|pptx|odt|csv|tsv|txt|log|md|json|xml|ini|conf|ya?ml|sql|eml)$/;
@@ -368,7 +367,7 @@
     }
     if (!PREVIEW.test(f.mime)) { window.location.href = fileUrl(f); return; }
     var src = fileUrl(f, true);
-    if (/^image\//.test(f.mime)) $b.append($('<img alt="">').attr('src', src).attr('alt', f.name));
+    if (/^image\//.test(f.mime)) M4W.zoomable($('<img alt="">').attr({ src: src, alt: f.name, title: t('zoom_hint') }).appendTo($b)[0]);
     else if (/^audio\//.test(f.mime)) $b.append($('<audio controls></audio>').attr('src', src));
     else if (/^video\//.test(f.mime)) $b.append($('<video controls></video>').attr('src', src));
     else $b.append($('<iframe sandbox="" referrerpolicy="no-referrer"></iframe>').attr('title', f.name).attr('src', src));
@@ -459,7 +458,7 @@
     },
     move: function (items) { transfer(items || selectedItems(), 'move'); },
     edit: function (items) { var it = (items || selectedItems())[0]; if (it) editFile(it); },
-    'edit-builtin': function (items) { var it = (items || selectedItems())[0]; if (it) window.open(M4W.url((DOC_EDIT.indexOf(extOf(it)) !== -1 ? 'files/doc/' : 'files/sheet/') + it.id), '_blank', 'noopener'); },
+    'edit-builtin': function (items) { var it = (items || selectedItems())[0]; if (it) M4W.openEditor(M4W.url((DOC_EDIT.indexOf(extOf(it)) !== -1 ? 'files/doc/' : 'files/sheet/') + it.id), it.name, function () { refresh(); }); },
     expiry: function (items) {
       var it = (items || selectedItems())[0];
       if (it) M4W.get('api/files/file/' + it.id + '/expiry').done(expiryDialog);

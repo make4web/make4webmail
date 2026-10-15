@@ -1878,6 +1878,15 @@ test('pictures: re-encoded by GD (size capped, metadata and payloads dropped), t
     $tall = (function () { $im = imagecreatetruecolor(800, 9000); ob_start(); imagepng($im); return (string) ob_get_clean(); })();
     eq(MailAssets::clean($tall)['height'], 4000, 'very long pictures cropped');
 });
+test('pictures: an attachment shown again comes from the cleaned copy, whole', function () use ($png, $bob) {
+    $uid = (int) $bob['id'];
+    $mid = Mailbox::store($uid, (int) Folders::byRole($uid, 'inbox')['id'], "From: a@ext.com\r\nSubject: Photo\r\n\r\nx");
+    $first = MailAssets::inline($mid, $uid, 'part:2', $png(300, 200));
+    $again = MailAssets::inline($mid, $uid, 'part:2', $png(300, 200));
+    eq([(int) $again['size'], $again['mime'], $again['blob_id']], [(int) $first['size'], $first['mime'], $first['blob_id']], 'same picture, with its size');
+    ok((int) $again['size'] > 0);
+    Mailbox::delete($uid, [$mid], true);
+});
 test('pictures: fetched once after delivery, served locally, trackers removed, cleaned up with the message', function () use ($png, $bob, $sendTo) {
     $calls = [];
     MailAssets::$http = function (string $url) use (&$calls, $png) {

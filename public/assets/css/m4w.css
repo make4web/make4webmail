@@ -1274,3 +1274,16 @@ html[data-zoom="120"] { font-size: 120%; --m4w-s: 1.2; }
 .m4w-att-view-none { text-align: center; color: var(--m4w-muted); }
 .m4w-att-view-none .bi { font-size: 3rem; }
 @media (max-width: 991.98px) { .m4w-att-view-body { height: auto; flex: 1 1 auto; } }
+
+/* Document editors over the page */
+.m4w-editor-overlay { position: fixed; inset: 0; z-index: 1090; background: var(--m4w-surface, #fff); animation: m4w-editor-in .16s ease-out; }
+.m4w-editor-overlay iframe { width: 100%; height: 100%; border: 0; display: block; }
+body.m4w-editor-open { overflow: hidden; }
+@keyframes m4w-editor-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .m4w-editor-overlay { animation: none; } }
+
+/* Zoomable picture (wheel, drag, double-click) */
+.m4w-zoom-box { overflow: hidden; position: relative; touch-action: none; }
+.m4w-zoom-box img { transition: transform .06s linear; cursor: zoom-in; transform-origin: center center; }
+.m4w-zoom-box img.is-zoomed { cursor: grab; }
+.m4w-zoom-box[data-zoom-level]:not([data-zoom-level=""])::after { content: attr(data-zoom-level); position: absolute; right: .75rem; bottom: .75rem; padding: .15rem .5rem; border-radius: 999px; background: rgba(15, 23, 42, .75); color: #fff; font-size: .75rem; pointer-events: none; }
