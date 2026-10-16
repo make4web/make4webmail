@@ -1423,3 +1423,21 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-pw-rules { list-style: none; padding: 0; margin: .35rem 0 0; font-size: .8rem; color: var(--m4w-muted); }
 .m4w-pw-rules li { display: flex; align-items: center; gap: .35rem; }
 .m4w-pw-rules li.ok { color: var(--bs-success); }
+
+/* New mail: filled pills that catch the eye (side menu, other mailboxes), a red dot on the avatar. */
+.m4w-new-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--m4w-primary); color: var(--m4w-on-primary, #fff); font-size: .72rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px rgba(var(--m4w-primary-rgb), .18); }
+.m4w-nav-item .m4w-count.m4w-new-badge { font-size: .72rem; font-weight: 700; color: var(--m4w-on-primary, #fff); }
+.m4w-nav-item.active .m4w-count.m4w-new-badge { background: var(--m4w-on-primary, #fff); color: var(--m4w-primary); box-shadow: none; }
+.m4w-avatar-btn { position: relative; }
+.m4w-avatar-badge { position: absolute; top: -4px; right: -6px; min-width: 18px; height: 18px; font-size: .66rem; padding: 0 5px;
+  background: #ef4444; color: #fff; box-shadow: 0 0 0 2px var(--m4w-chrome-bg, var(--m4w-bg)); }
+.m4w-shared-pill .m4w-new-badge, .m4w-deleg-pill .m4w-new-badge { background: #ef4444; color: #fff; box-shadow: none; }
+.m4w-bump { animation: m4w-bump .6s cubic-bezier(.3, 1.6, .5, 1) 2; }
+@keyframes m4w-bump { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .m4w-bump { animation: none; } }
+/* New mail since the last look: a halo around the bubble (sonar), until the person acts. */
+.m4w-new-badge.m4w-pulse { animation: m4w-pulse 1.8s ease-out infinite; }
+@keyframes m4w-pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .65); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+@media (prefers-reduced-motion: reduce) { .m4w-new-badge.m4w-pulse { animation: none; } }

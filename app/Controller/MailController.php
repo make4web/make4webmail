@@ -804,6 +804,8 @@ final class MailController extends Controller
         $stamp = self::folderStamp((int) $u['id'], (int) ($this->req->query['folder'] ?? 0));
         return $this->ok([
             'stamp'   => $stamp,
+            // Unread mail in the other mailboxes of the signed-in person (badges of the account menu).
+            'boxes'   => \M4W\Service\SharedMailboxes::counts((int) $this->actor()['id']),
             'remote'  => ($rmAcc = \M4W\Service\RemoteMailbox::active() ? \M4W\Service\RemoteMailbox::find((int) $u['id']) : \M4W\Service\RemoteMailbox::personal((int) $u['id'])) !== null || \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status($rmAcc)] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],

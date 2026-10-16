@@ -4,8 +4,13 @@ $u = $currentUser;
 $isMail = ($topbarMode ?? '') === 'mail';
 $prefs = $u['prefs'] ?? [];
 ?>
-<?php $deleg = $delegation ?? null; $delegatedTo = M4W\Service\Delegation::delegatedTo((int) $u['id']); $shared = $sharedBox ?? null; $myBoxes = M4W\Service\SharedMailboxes::of((int) $u['id']); ?>
-<header class="m4w-topbar<?= $deleg ? ' is-delegated' : '' ?>" role="banner">
+<?php $deleg = $delegation ?? null; $delegatedTo = M4W\Service\Delegation::delegatedTo((int) $u['id']); $shared = $sharedBox ?? null; $myBoxes = M4W\Service\SharedMailboxes::of((int) $u['id']);
+// Unread mail of all the person's mailboxes (own = 0, then the other ones): shown on the avatar,
+// so that new mail anywhere is seen without opening the menu.
+$curBox = $shared ? (int) $shared['id'] : ($deleg ? -1 : 0);
+$boxCounts = [0 => M4W\Service\SharedMailboxes::unread((int) $u['id'])] + array_map('intval', array_column($myBoxes, 'unread', 'id'));
+$elsewhere = array_sum($boxCounts); ?>
+<header class="m4w-topbar<?= $deleg ? ' is-delegated' : '' ?>" role="banner" data-current-box="<?= $curBox ?>">
   <button class="btn btn-ghost btn-icon m4w-mobile-only" type="button" data-action="toggle-sidebar" aria-label="<?= te('nav.menu') ?>"><i class="bi bi-list"></i></button>
   <?php include __DIR__ . '/brand.php'; ?>
   <form class="m4w-search" role="search" action="<?= e(url('mail')) ?>" method="get" id="m4w-search-form" autocomplete="off">
@@ -42,7 +47,7 @@ $prefs = $u['prefs'] ?? [];
     <?= csrf_field() ?>
     <span class="m4w-avatar sm" style="background:<?= e(avatar_color($deleg['email'])) ?>" aria-hidden="true"><?= e(initials($deleg['name'] ?: $deleg['email'])) ?></span>
     <span class="text-truncate"><span class="m4w-deleg-label"><?= te('deleg.mailbox_of') ?></span> <strong><?= e($deleg['name'] ?: $deleg['email']) ?></strong></span>
-    <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span></button>
+    <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span><span class="m4w-new-badge ms-1<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0" title="<?= te('shared.unread_title') ?>"><?= (int) $boxCounts[0] ?></span></button>
   </form>
   <?php endif; ?>
   <?php if ($shared): ?>
@@ -50,7 +55,7 @@ $prefs = $u['prefs'] ?? [];
     <?= csrf_field() ?><input type="hidden" name="id" value="0">
     <i class="bi bi-inboxes" aria-hidden="true"></i>
     <span class="text-truncate"><span class="m4w-deleg-label"><?= te('shared.pill') ?></span> <strong><?= e($shared['email']) ?></strong></span>
-    <button class="btn btn-sm" type="submit" title="<?= te('shared.back_mine') ?>"><i class="bi bi-arrow-return-left"></i><span class="m4w-hide-xs ms-1"><?= te('shared.back_short') ?></span></button>
+    <button class="btn btn-sm" type="submit" title="<?= te('shared.back_mine') ?>"><i class="bi bi-arrow-return-left"></i><span class="m4w-hide-xs ms-1"><?= te('shared.back_short') ?></span><span class="m4w-new-badge ms-1<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0" title="<?= te('shared.unread_title') ?>"><?= (int) $boxCounts[0] ?></span></button>
   </form>
   <?php endif; ?>
   <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); if ($cs['level'] === 'full' || $cs['level'] === 'high'): ?>
@@ -121,6 +126,7 @@ $prefs = $u['prefs'] ?? [];
     <div class="dropdown">
       <button class="m4w-avatar-btn ms-1" type="button" data-bs-toggle="dropdown" aria-label="<?= te('nav.account') ?>">
         <span class="m4w-avatar" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span>
+        <span class="m4w-new-badge m4w-avatar-badge<?= $elsewhere ? '' : ' d-none' ?>" data-boxes-elsewhere title="<?= te('shared.unread_all') ?>"><?= $elsewhere ?></span>
       </button>
       <div class="dropdown-menu dropdown-menu-end" style="width:300px">
         <div class="d-flex align-items-center gap-3 p-2 pb-3">
@@ -133,10 +139,10 @@ $prefs = $u['prefs'] ?? [];
         <?php endif; ?>
         <h6 class="dropdown-header"><?= te('shared.menu') ?></h6>
         <?php if ($shared || $deleg): ?>
-        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="0"><button class="dropdown-item" type="submit"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span><span class="text-truncate"><?= te('shared.my_box') ?></span></button></form>
+        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="0"><button class="dropdown-item" type="submit"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span><span class="text-truncate flex-grow-1"><?= te('shared.my_box') ?></span><span class="m4w-new-badge ms-2<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0"><?= (int) $boxCounts[0] ?></span></button></form>
         <?php endif; ?>
         <?php foreach ($myBoxes as $mb): $mbn = $mb['display_name'] ?: $mb['email']; $isCur = $shared && (int) $shared['id'] === (int) $mb['id']; ?>
-        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $mb['id'] ?>"><button class="dropdown-item<?= $isCur ? ' active' : '' ?>" type="submit"<?= $isCur ? ' aria-current="true"' : '' ?>><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($mb['email'])) ?>"><?= e(initials($mbn)) ?></span><span class="min-w-0 flex-grow-1"><span class="d-block text-truncate"><?= e($mbn) ?></span><small class="d-block text-truncate text-muted"><?= e($mb['email']) ?></small></span><?php if ((int) $mb['unread']): ?><span class="badge rounded-pill text-bg-primary ms-2"><?= (int) $mb['unread'] ?></span><?php endif; ?></button></form>
+        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $mb['id'] ?>"><button class="dropdown-item<?= $isCur ? ' active' : '' ?>" type="submit"<?= $isCur ? ' aria-current="true"' : '' ?>><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($mb['email'])) ?>"><?= e(initials($mbn)) ?></span><span class="min-w-0 flex-grow-1"><span class="d-block text-truncate"><?= e($mbn) ?></span><small class="d-block text-truncate text-muted"><?= e($mb['email']) ?></small></span><span class="m4w-new-badge ms-2<?= (int) $mb['unread'] ? '' : ' d-none' ?>" data-box-unread="<?= (int) $mb['id'] ?>"><?= (int) $mb['unread'] ?></span></button></form>
         <?php endforeach; ?>
         <a class="dropdown-item" href="<?= e(url('settings/mailboxes')) ?>#add"><i class="bi bi-plus-lg"></i><?= te('shared.menu_add') ?></a>
         <div class="dropdown-divider"></div>

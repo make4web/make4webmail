@@ -18,6 +18,10 @@ self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: event.data ? event.data.text() : '' }; }
   var base = self.registration.scope;
+  // Badge of the installed app (desktop, Android, iOS 16.4+): the unread total, even app closed.
+  if (typeof data.count === 'number' && self.navigator && self.navigator.setAppBadge) {
+    try { data.count ? self.navigator.setAppBadge(data.count) : self.navigator.clearAppBadge(); } catch (e) {}
+  }
   event.waitUntil(self.registration.showNotification(data.title || 'Make4WebMail', {
     body: data.body || '',
     tag: data.tag || 'm4w',

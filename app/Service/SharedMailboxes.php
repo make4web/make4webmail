@@ -26,12 +26,40 @@ final class SharedMailboxes
     /** @var array<string, array|null> */
     private static array $current = [];
 
-    /** Mailboxes attached to a person's account, with their unread inbox count. */
+    /**
+     * Unread mail that waits for someone: the inbox and the person's own folders (where rules
+     * file it), not spam, trash, sent, drafts or archive. SQL for a mailbox id in $col.
+     */
+    private static function unreadSql(string $col): string
+    {
+        return "(SELECT COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = $col AND (f.role = 'inbox' OR f.role IS NULL) AND m.is_read = 0 AND m.is_draft = 0)";
+    }
+
+    /** Unread mail waiting in a mailbox (see unreadSql). */
+    public static function unread(int $mailboxId): int
+    {
+        return (int) DB::value('SELECT ' . self::unreadSql(':u'), ['u' => $mailboxId]);
+    }
+
+    /**
+     * Unread counts of the mailboxes someone can switch to: 0 = their own, then each of their
+     * other mailboxes by id. @return array<int,int>
+     */
+    public static function counts(int $userId): array
+    {
+        $out = [0 => self::unread($userId)];
+        foreach (self::of($userId) as $mb) {
+            $out[(int) $mb['id']] = (int) $mb['unread'];
+        }
+        return $out;
+    }
+
+    /** Mailboxes attached to a person's account, with their unread count (inbox and own folders). */
     public static function of(int $userId): array
     {
         return DB::all(
             "SELECT u.id, u.email, u.display_name, u.first_name, u.last_name, l.id AS link_id, l.created_at, l.method,
-                (SELECT COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = u.id AND f.role = 'inbox' AND m.is_read = 0) AS unread
+                " . self::unreadSql('u.id') . " AS unread
              FROM mailbox_links l JOIN users u ON u.id = l.mailbox_id
              WHERE l.user_id = :u AND u.status = 'active' ORDER BY u.email",
             ['u' => $userId]
