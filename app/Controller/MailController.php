@@ -760,6 +760,17 @@ final class MailController extends Controller
         return $this->ok([]);
     }
 
+    /**
+     * The quick check of the open list (every 10 s): only the folder's fingerprint, a few bytes,
+     * no synchronisation, no counters. When it changes, the page asks for the rest (api/poll).
+     */
+    public function stamp(): Response
+    {
+        $u = $this->user();
+        Session::close();
+        return $this->ok(['stamp' => self::folderStamp((int) $u['id'], (int) ($this->req->query['folder'] ?? 0))]);
+    }
+
     /** Changes with any message of the folder coming, going, read, starred or pinned ('' if none). */
     private static function folderStamp(int $uid, int $fid): string
     {
