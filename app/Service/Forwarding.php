@@ -70,15 +70,22 @@ final class Forwarding
         if (!$targets) {
             return;
         }
-        $headers = 'X-M4W-Loop: ' . $user['email'] . "\r\n"
-            . 'Resent-From: ' . $user['email'] . "\r\n"
-            . 'Resent-Date: ' . date('r') . "\r\n"
-            . 'Resent-To: ' . implode(', ', $targets) . "\r\n";
         $raw = str_replace("\r\n", "\n", $raw);
-        if (RemoteMailbox::mode() !== 'server' || RemoteMailbox::personal((int) $user['id'])) {
-            $raw = self::rewriteSender($raw, $user);
+        // Mailboxes of this server get the message as it came (the author stays the author, their
+        // rules on the sender keep working); "Name via Julie" is only for mail leaving the server.
+        $rewrite = RemoteMailbox::mode() !== 'server' || RemoteMailbox::personal((int) $user['id']);
+        $inside = $rewrite ? array_values(array_filter($targets, static fn($t) => Users::resolveLocal($t) !== null)) : $targets;
+        $outside = array_values(array_diff($targets, $inside));
+        foreach ([[$inside, $raw], [$outside, $outside ? self::rewriteSender($raw, $user) : '']] as [$to, $msg]) {
+            if (!$to) {
+                continue;
+            }
+            $headers = 'X-M4W-Loop: ' . $user['email'] . "\r\n"
+                . 'Resent-From: ' . $user['email'] . "\r\n"
+                . 'Resent-Date: ' . date('r') . "\r\n"
+                . 'Resent-To: ' . implode(', ', $to) . "\r\n";
+            Transport::enqueue($headers . str_replace("\n", "\r\n", $msg), $user['email'], $to, (int) $user['id'], 'forward');
         }
-        Transport::enqueue($headers . str_replace("\n", "\r\n", $raw), $user['email'], $targets, (int) $user['id'], 'forward');
     }
 
     /**

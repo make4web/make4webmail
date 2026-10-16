@@ -406,6 +406,65 @@ test('rule: redirect (sent on, not kept) vs forward a copy (kept)', function () 
     DB::run('DELETE FROM rules WHERE id IN (:a, :b)', ['a' => $r1, 'b' => $r2]);
     DB::run('DELETE FROM mail_queue');
 });
+test('rule chain: A → B redirects to C → C forwards a copy to D → D files it', function () use ($sendTo) {
+    $mkUser = static fn(string $e) => Users::find(Users::create(['email' => $e, 'password' => 'Secret!Pass123', 'first_name' => ucfirst(strtok($e, '@'))]));
+    [$A, $B, $C, $D] = [$mkUser('chain.a@test.local'), $mkUser('chain.b@test.local'), $mkUser('chain.c@test.local'), $mkUser('chain.d@test.local')];
+    $rule = static function (array $u, array $action, string $field = 'subject', string $value = 'chaîne') {
+        DB::insert('rules', RuleEngine::normalize((int) $u['id'], ['name' => 'chain', 'enabled' => 1,
+            'conditions' => [['field' => $field, 'op' => 'contains', 'value' => $value]], 'actions' => [$action]])
+            + ['user_id' => $u['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    };
+    $dossier = Folders::create((int) $D['id'], 'Chaîne');
+    $rule($B, ['type' => 'divert', 'to' => 'chain.c@test.local']);
+    $rule($C, ['type' => 'redirect', 'to' => 'chain.d@test.local']);
+    $rule($D, ['type' => 'move', 'folder' => $dossier], 'from', 'chain.a@test.local'); // D files what A wrote
+    $in = static fn(array $u) => DB::all('SELECT m.subject, m.from_email, f.role, f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u ORDER BY m.id', ['u' => $u['id']]);
+    DB::run('DELETE FROM mail_queue');
+
+    // A writes to B from the webmail: local delivery, then the queue carries each hop.
+    $b = new MimeBuilder();
+    $b->from = ['email' => 'chain.a@test.local', 'name' => 'A'];
+    $b->to = [['email' => 'chain.b@test.local', 'name' => '']];
+    $b->subject = 'Test de la chaîne';
+    $b->text = 'Bonjour';
+    $b->messageId = MimeBuilder::newMessageId('test.local');
+    Delivery::deliver($b->build(), 'chain.a@test.local', ['chain.b@test.local'], 'local');
+    for ($i = 0; $i < 4; $i++) {
+        Transport::processQueue(50);
+    }
+    eq($in($B), [], 'B: redirected, nothing kept');
+    eq(array_column($in($C), 'role'), ['inbox'], 'C: forwarded a copy and kept it');
+    $d = $in($D);
+    eq(count($d), 1, 'D: received once');
+    eq([$d[0]['name'], $d[0]['subject']], ['Chaîne', 'Test de la chaîne'], 'D: filed by its rule');
+    eq($d[0]['from_email'], 'chain.a@test.local', 'D still sees A as the author (rule on the sender works)');
+    eq((int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status <> 'sent'"), 0, 'queue empty: no loop, nothing stuck');
+
+    // Same chain through an outside relay: the hops stay inside, the author is not rewritten
+    // ("A via B" is only for mail leaving the server, where DMARC would refuse it).
+    $keepMode = [Settings::get('mail.mode'), Settings::get('smtp.host')];
+    Settings::setMany(['mail.mode' => 'relay', 'smtp.host' => 'relay.invalid']);
+    DB::run('DELETE FROM mail_queue');
+    $b->messageId = MimeBuilder::newMessageId('test.local');
+    Delivery::deliver($b->build(), 'chain.a@test.local', ['chain.b@test.local'], 'local');
+    for ($i = 0; $i < 4; $i++) {
+        Transport::processQueue(50);
+    }
+    Settings::setMany(['mail.mode' => $keepMode[0], 'smtp.host' => $keepMode[1]]);
+    $d = $in($D);
+    eq(count($d), 2, 'relay mode: D received it too');
+    eq([$d[1]['name'], $d[1]['from_email']], ['Chaîne', 'chain.a@test.local'], 'relay mode: still from A, filed by the rule');
+    // Leaving the server, it is still sent "via" the mailbox (DMARC).
+    DB::run('DELETE FROM mail_queue');
+    Settings::setMany(['mail.mode' => 'relay', 'smtp.host' => 'relay.invalid']);
+    Forwarding::redirect($C, $b->build(), ['chain.d@test.local', 'dehors@ext.com']);
+    Settings::setMany(['mail.mode' => $keepMode[0], 'smtp.host' => $keepMode[1]]);
+    $q = DB::all("SELECT * FROM mail_queue WHERE kind = 'forward' ORDER BY id");
+    eq(array_map(static fn($r) => json_decode($r['recipients'], true), $q), [['chain.d@test.local'], ['dehors@ext.com']], 'inside and outside apart');
+    ok(preg_match('/^From: A <chain\.a@test\.local>/mi', (string) file_get_contents(storage_path($q[0]['raw_path']))) === 1, 'inside: from A');
+    ok(preg_match('/^From: .*via.*<chain\.c@test\.local>/mi', (string) file_get_contents(storage_path($q[1]['raw_path']))) === 1, 'outside: via C');
+    DB::run('DELETE FROM mail_queue');
+});
 test('forward loop protection', function () use ($alice, $bob, $sendTo) {
     Forwarding::save((int) $alice['id'], true, ['bob@test.local'], true);
     Forwarding::save((int) $bob['id'], true, ['admin@test.local'], true);
