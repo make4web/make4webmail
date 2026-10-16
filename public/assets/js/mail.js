@@ -30,6 +30,16 @@
       route();
       poll(true);
       setInterval(function () { if (!document.hidden) poll(false); }, 30000);
+      // Quick check of the open folder every 10 s (a few bytes): changed elsewhere, everything is
+      // refreshed at once instead of at the next full check.
+      setInterval(function () {
+        var f = S.folder && !S.q ? S.folder : 0;
+        if (document.hidden || !f || S.checking || !S.stamp || S.stamp.folder !== f) return;
+        S.checking = true;
+        M4W.get('api/stamp', { folder: f }, { silent: true, quiet: true }).done(function (r) {
+          if (r.stamp && S.stamp && S.stamp.folder === f && r.stamp !== S.stamp.value) poll(false);
+        }).always(function () { S.checking = false; });
+      }, 10000);
       if (boot.compose && M4W.Compose) M4W.Compose.open({ mode: 'new', to: boot.compose.to, subject: boot.compose.subject, files: boot.compose.files });
     });
     bindUi();

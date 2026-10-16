@@ -242,6 +242,7 @@ final class App
         $r->post('/api/messages/{id}/phishing', [Controller\MailController::class, 'phishing']);
         $r->get('/api/poll', [Controller\MailController::class, 'poll']);
         $r->get('/api/ping', [Controller\MailController::class, 'ping']);
+        $r->get('/api/stamp', [Controller\MailController::class, 'stamp']);
         $r->post('/api/prefs', [Controller\MailController::class, 'prefs']);
 
         $r->get('/api/compose', [Controller\ComposeController::class, 'prefill']);
