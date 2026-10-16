@@ -417,10 +417,13 @@ body.m4w-resizing iframe { pointer-events: none; }
 .m4w-msg-recipients .dropdown-toggle::after { vertical-align: .15em; }
 .m4w-msg-snippet { font-size: .82rem; color: var(--m4w-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m4w-msg-date { font-size: .78rem; color: var(--m4w-muted); white-space: nowrap; text-align: right; }
-.m4w-msg-body { padding: .25rem 1rem 1rem 4.4rem; }
+.m4w-msg-body { padding: .25rem 1rem 1rem; }
 .m4w-msg-body iframe { width: 100%; border: 0; display: block; min-height: 60px; background: transparent; color-scheme: light; }
-.m4w-msg-banner { margin: 0 1rem .75rem 4.4rem; padding: .55rem .8rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-2); border: 1px solid var(--m4w-border); font-size: .8rem; color: var(--m4w-text-2); display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.m4w-msg-atts { padding: 0 1rem 1rem 4.4rem; display: flex; flex-wrap: wrap; gap: .5rem; }
+.m4w-msg-banner { margin: 0 1rem .75rem; padding: .55rem .8rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-2); border: 1px solid var(--m4w-border); font-size: .8rem; color: var(--m4w-text-2); display: flex; align-items: flex-start; gap: .5rem; flex-wrap: wrap; }
+/* Icon on the left, text beside it (not under it); the action links follow, or go below when short of room. */
+.m4w-msg-banner > .bi { flex: 0 0 auto; line-height: 1.35; margin-top: .05rem; }
+.m4w-msg-banner > span { flex: 1 1 14rem; min-width: 0; line-height: 1.45; }
+.m4w-msg-atts { padding: 0 1rem 1rem; display: flex; flex-wrap: wrap; gap: .5rem; }
 .m4w-att {
   display: flex; align-items: center; gap: .6rem; padding: .5rem .65rem; border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius-sm);
   background: var(--m4w-surface); max-width: 260px; min-width: 190px; color: var(--m4w-text); text-decoration: none; transition: border-color .15s, box-shadow .15s;
@@ -435,7 +438,7 @@ body.m4w-resizing iframe { pointer-events: none; }
 .m4w-att-icon.zip { background: rgba(217, 119, 6, .12); color: #d97706; }
 .m4w-att-name { font-size: .8rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m4w-att-size { font-size: .72rem; color: var(--m4w-muted); }
-.m4w-quick-reply { margin: 1rem 0 0 4.4rem; display: flex; gap: .5rem; flex-wrap: wrap; }
+.m4w-quick-reply { margin: 1rem 0 0 1rem; display: flex; gap: .5rem; flex-wrap: wrap; }
 .m4w-quick-reply .btn { border-radius: var(--m4w-radius-pill); --bs-btn-padding-x: 1rem; }
 .m4w-reader-empty .m4w-empty-icon { background: var(--m4w-surface-3); color: var(--m4w-faint); }
 
@@ -1245,7 +1248,7 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .btn-check:checked + .m4w-cal-swatch { border-color: var(--m4w-surface); box-shadow: 0 0 0 2px var(--ev); }
 .btn-check:focus-visible + .m4w-cal-swatch { outline: 2px solid var(--m4w-primary); outline-offset: 2px; }
 /* invitation card in a message */
-.m4w-invite { display: flex; gap: .9rem; margin: 0 1rem .9rem 4.4rem; padding: .9rem 1rem; border: 1px solid var(--m4w-border); border-left: 4px solid var(--m4w-primary); border-radius: var(--m4w-radius); background: var(--m4w-surface-2); }
+.m4w-invite { display: flex; gap: .9rem; margin: 0 1rem .9rem; padding: .9rem 1rem; border: 1px solid var(--m4w-border); border-left: 4px solid var(--m4w-primary); border-radius: var(--m4w-radius); background: var(--m4w-surface-2); }
 .m4w-invite-icon { width: 2.6rem; height: 2.6rem; border-radius: var(--m4w-radius); display: grid; place-items: center; flex: none; background: var(--m4w-primary-soft); color: var(--m4w-primary); font-size: 1.25rem; }
 .m4w-invite-title { font-size: 1.05rem; font-weight: 650; margin: .1rem 0 .4rem; }
 .m4w-invite-dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem .9rem; font-size: .85rem; margin-bottom: .6rem; }
