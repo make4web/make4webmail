@@ -123,9 +123,11 @@
       + '<div class="m4w-field d-none" data-f="cc"><label>Cc</label><div class="m4w-recipients" data-r="cc" data-label="Cc"></div></div>'
       + '<div class="m4w-field d-none" data-f="bcc"><label>' + esc(t('bcc')) + '</label><div class="m4w-recipients" data-r="bcc" data-label="' + esc(t('bcc')) + '"></div></div>'
       + '<div class="m4w-field"><input class="plain" name="subject" placeholder="' + esc(t('subject')) + '" aria-label="' + esc(t('subject')) + '" maxlength="500"></div>'
+      // Attachments under the subject, as when reading: seen at once, even under a long text.
+      + '<div class="m4w-compose-atts" data-atts></div>'
       + '<div class="m4w-editor-wrap"><div class="m4w-dropzone"><i class="bi bi-cloud-arrow-up"></i>' + esc(t('drop_files')) + '</div><div data-editor-host class="d-flex flex-column flex-grow-1"></div>'
       + '<div class="m4w-sig-preview d-none" data-sig-out data-label="' + esc(t('signature_auto')) + '"><div class="m4w-sig-content"></div></div>'
-      + '<div class="m4w-compose-atts" data-atts></div></div>'
+      + '</div>'
       + '<div data-toolbar-slot class="d-none"></div>'
       + '</div>'
       + '<div class="m4w-compose-footer">'
