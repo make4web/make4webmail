@@ -1009,6 +1009,7 @@ final class AdminController extends Controller
             'security.session_absolute' => max(30, min(43200, $r->int('session_absolute', 720))),
             'security.session_keepalive' => $r->bool('session_keepalive') ? 1 : 0,
             'security.session_persist' => $r->bool('session_persist') ? 1 : 0,
+            'offline.enabled' => $r->bool('offline_enabled') ? 1 : 0,
             'security.enforce_2fa_admin' => $r->bool('enforce_2fa_admin') ? 1 : 0,
             'security.allow_external_forward' => $r->bool('allow_external_forward') ? 1 : 0,
             'security.forward_whitelist' => mb_strtolower($r->str('forward_whitelist')),

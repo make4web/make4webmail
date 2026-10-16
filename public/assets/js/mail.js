@@ -44,6 +44,14 @@
     });
     bindUi();
     bindKeyboard();
+    // Connection lost or back: the list is drawn again (messages not kept greyed, or not).
+    var wasOffline = false;
+    if (M4W.Offline && M4W.Offline.onChange) M4W.Offline.onChange(function (o) {
+      if (o.offline === wasOffline) return;
+      wasOffline = o.offline;
+      if (S.items) renderList();
+      if (!o.offline && S.folder) { loadList(true); poll(false); }
+    });
     // Folder menus: the open one goes above the following rows of the list.
     $(document).on('show.bs.dropdown', '.m4w-folder-dd', function () { $(this).addClass('open'); })
       .on('hidden.bs.dropdown', '.m4w-folder-dd', function () { $(this).removeClass('open'); });
@@ -307,7 +315,9 @@
     if (m.answered) icons += '<i class="bi bi-reply" title="' + esc(t('answered')) + '"></i>';
     if (m.forwarded) icons += '<i class="bi bi-forward" title="' + esc(t('forwarded')) + '"></i>';
     var folderChip = (S.q && S.byId[m.folder_id] && S.byId[m.folder_id].role !== 'inbox') ? '<span class="m4w-chip-folder">' + esc(S.byId[m.folder_id].name) + '</span>' : '';
-    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (m.pinned ? ' pinned' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
+    // Offline: a message not kept on the device is there, but greyed (readable when back online).
+    var off = M4W.Offline && M4W.Offline.offline && !M4W.Offline.hasMsg(m.id);
+    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (m.pinned ? ' pinned' : '') + (off ? ' m4w-unavailable' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
       + '<input type="checkbox" class="form-check-input m4w-check" ' + (S.selected[m.id] ? 'checked' : '') + ' aria-label="' + esc(t('select')) + '">'
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
       + M4W.avatar(who, whoEmail, '', sent || m.draft ? '' : m.bimi)
@@ -389,6 +399,10 @@
   // --------------------------------------------------------------- reader
   function openMessage(id) {
     var item = itemById(id);
+    if (M4W.Offline && M4W.Offline.offline && !M4W.Offline.hasMsg(id)) {
+      M4W.toast(M4W.t('off_msg_unavailable'), 'warning');
+      return;
+    }
     if (item && item.draft && M4W.Compose) {
       M4W.Compose.open({ mode: 'draft', id: id });
       var f = S.folder; if (f) history.replaceState(null, '', '#f/' + f);
@@ -665,6 +679,10 @@
   });
 
   function iframeHtml(id, images) {
+    // Offline: the document kept on the device (pictures inside), shown in the same sandbox.
+    if (M4W.Offline && M4W.Offline.offline) {
+      return '<iframe sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="' + esc(t('message_content')) + '" data-offline-body="' + (+id) + '"></iframe>';
+    }
     var src = M4W.url('api/messages/' + id + '/body', images ? { images: 1 } : null);
     return '<iframe sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" loading="lazy" title="' + esc(t('message_content')) + '" src="' + esc(src) + '"></iframe>';
   }
@@ -679,6 +697,7 @@
   }
 
   function bindIframes($ctx) {
+    if (M4W.Offline && M4W.Offline.fillBodies) M4W.Offline.fillBodies($ctx);
     $ctx.find('iframe').each(function () {
       var frame = this;
       $(frame).off('load.m4w').on('load.m4w', function () {
@@ -870,7 +889,7 @@
         });
         if (S.prefs.notifications && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
-            var notif = new Notification(n.from_name || n.from_email, { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, icon: $('link[rel=icon]').attr('href') });
+            var notif = new Notification(t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, icon: $('link[rel=apple-touch-icon]').attr('href') });
             notif.onclick = function () { window.focus(); go(S.byRole.inbox.id, +n.id); notif.close(); };
           } catch (e) {}
         }

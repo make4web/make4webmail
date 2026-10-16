@@ -924,5 +924,34 @@ static function (): void {
 // (a message that keeps doing it is set aside, "parked", instead of blocking the queue).
 "ALTER TABLE mail_queue ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0",
 "ALTER TABLE mail_queue ADD COLUMN crashes INTEGER NOT NULL DEFAULT 0",
+],34 => [
+// Offline mode: one key per person and device (the device keeps a copy only while signed in:
+// its stored mail and pending work are unreadable once the session ends, until the same person
+// signs in again), and the actions it replayed (each applied once, in order, never too old).
+"CREATE TABLE offline_devices (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  device VARCHAR(64) NOT NULL,
+  key_enc VARCHAR(255) NOT NULL,
+  session_id INTEGER NOT NULL DEFAULT 0,
+  last_seq INTEGER NOT NULL DEFAULT 0,
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX offline_devices_user ON offline_devices(user_id, device)",
+"CREATE INDEX offline_devices_session ON offline_devices(session_id)",
+"CREATE TABLE offline_actions (
+  id {PK},
+  device_id INTEGER NOT NULL,
+  action_id VARCHAR(64) NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 0,
+  path VARCHAR(100) NOT NULL DEFAULT '',
+  status INTEGER NOT NULL DEFAULT 0,
+  response {TEXT},
+  created_at INTEGER NOT NULL DEFAULT 0,
+  applied_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX offline_actions_id ON offline_actions(device_id, action_id)",
 ],
 ];

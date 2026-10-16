@@ -110,26 +110,51 @@
   // ---- API
   M4W.api = function (method, path, data, opts) {
     opts = opts || {};
+    var off = M4W.Offline;
+    // Without a connection: what the device kept answers, work done is queued (offline.js).
+    if (off && off.handles && off.handles(method, path, opts)) return off.request(method, path, data, opts);
     var isForm = data instanceof FormData;
     if (!opts.silent) bar(true);
-    return $.ajax({
+    var headers = { 'X-CSRF-Token': CSRF, 'X-Requested-With': 'XMLHttpRequest' };
+    if (opts.offlineStamp) headers['X-M4W-Offline'] = JSON.stringify(opts.offlineStamp);
+    var out = $.Deferred();
+    var xhr = $.ajax({
       url: M4W.url(path),
       method: method,
       data: method === 'GET' ? data : (isForm ? data : JSON.stringify(data || {})),
       contentType: method === 'GET' ? undefined : (isForm ? false : 'application/json'),
       processData: method === 'GET',
       dataType: 'json',
-      headers: { 'X-CSRF-Token': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+      headers: headers,
       xhr: opts.xhr
-    }).always(function () { if (!opts.silent) bar(false); }).then(function (res) {
-      if (res && res.ok === false) return $.Deferred().reject({ responseJSON: res }).promise();
-      return res;
-    }).fail(function (xhr) {
-      var r = xhr && xhr.responseJSON;
-      if (r && r.login) { window.location.href = M4W.url('login'); return; }
-      if (r && r.too_big) { M4W.tooBig(r); return; }
-      if (!opts.quiet && xhr && xhr.statusText !== 'abort') M4W.toast((r && r.error) || M4W.t('error_network'), 'danger');
     });
+    xhr.always(function () { if (!opts.silent) bar(false); }).then(function (res) {
+      if (res && res.ok === false) return $.Deferred().reject({ responseJSON: res, status: 200 }).promise();
+      return res;
+    }).done(function (res) {
+      if (off && off.capture && method === 'GET') off.capture(path, data, res);
+      out.resolve(res);
+    }).fail(function (x) {
+      var r = x && x.responseJSON;
+      // The connection is gone: the offline mode takes the request over.
+      if (x && x.status === 0 && x.statusText !== 'abort' && !isForm && !opts.noOffline && off && off.fallback && off.fallback(method, path)) {
+        off.goneOffline();
+        off.request(method, path, data, opts).then(out.resolve, out.reject);
+        return;
+      }
+      if (r && r.login) {
+        // Session over: what the device keeps becomes unreadable before going to the sign-in page.
+        $.when(off && off.lock ? off.lock() : null).always(function () { window.location.href = M4W.url('login'); });
+        out.reject(x);
+        return;
+      }
+      if (r && r.too_big) { M4W.tooBig(r); out.reject(x); return; }
+      if (!opts.quiet && x && x.statusText !== 'abort') M4W.toast((r && r.error) || M4W.t('error_network'), 'danger');
+      out.reject(x);
+    });
+    var p = out.promise();
+    p.abort = function () { xhr.abort(); };
+    return p;
   };
   M4W.get = function (p, d, o) { return M4W.api('GET', p, d, o); };
 

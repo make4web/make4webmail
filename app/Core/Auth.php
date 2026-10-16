@@ -180,7 +180,10 @@ final class Auth
     {
         $token = Session::get('stoken');
         if (is_string($token)) {
+            $sid = (int) Database::value('SELECT id FROM user_sessions WHERE token_hash = :h', ['h' => hash('sha256', $token)]);
             Database::update('user_sessions', ['revoked' => 1], 'token_hash = :h', ['h' => hash('sha256', $token)]);
+            // Signed out: the offline keys of this session are gone, what the device kept is unreadable.
+            \M4W\Service\Offline::forgetSession($sid);
         }
         Session::destroy();
         self::$user = null;
@@ -189,6 +192,7 @@ final class Auth
     public static function revokeOtherSessions(int $userId, int $keepSessionId = 0): void
     {
         Database::update('user_sessions', ['revoked' => 1], 'user_id = :u AND id <> :k', ['u' => $userId, 'k' => $keepSessionId]);
+        \M4W\Service\Offline::forgetOthers($userId, $keepSessionId);
     }
 
     /** Validate password strength against the admin policy. Returns error message or null. */

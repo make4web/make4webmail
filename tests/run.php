@@ -3094,8 +3094,9 @@ test('push: new inbox mail reaches the devices; expired ones are forgotten', fun
         ok(str_starts_with($h['Authorization'], 'vapid t='), 'VAPID');
         $dev = $devices[$ep];
         $msg = json_decode($pushDecrypt($body, $dev[0], $dev[1], $dev[2]), true);
-        eq($msg['title'], 'Client Ext');
+        eq($msg['title'], t('push.title_from', ['name' => 'Client Ext']), 'who it is from, said plainly');
         eq($msg['body'], 'Devis à valider');
+        ok(isset($msg['icon']) && is_int($msg['count']), 'the app icon and the unread total (badge)');
         ok((bool) preg_match('~^mail#f/\d+/m/\d+$~', $msg['url']), 'opens the message: ' . $msg['url']);
         eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 1, 'expired subscription removed');
         eq(M4W\Service\WebPush::deviceLabel(M4W\Service\WebPush::devices((int) $bob['id'])[0]['user_agent']), 'Chrome · Android');
@@ -3114,7 +3115,21 @@ test('push: new inbox mail reaches the devices; expired ones are forgotten', fun
         $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
         ok(!str_contains($msg['body'], 'médecin'), 'personal subject hidden');
 
-        // Mail filed away by a rule, or turned off in preferences: no alert.
+        // Filed by a rule in one of the person's folders: alerted too, with where it went.
+        $proj = Folders::create((int) $bob['id'], 'Projet Lune');
+        $rid = DB::insert('rules', RuleEngine::normalize((int) $bob['id'], ['name' => 'lune', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'lune']],
+            'actions' => [['type' => 'move', 'folder' => $proj]]]) + ['user_id' => $bob['id'], 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Rapport lune', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        $msg = json_decode($pushDecrypt($sent[0][2], $dev[0], $dev[1], $dev[2]), true);
+        ok(str_contains($msg['body'], 'Rapport lune') && str_contains($msg['body'], 'Projet Lune'), 'filed by a rule: alerted, with the folder');
+        DB::delete('rules', 'id = :id', ['id' => $rid]);
+        // Spam: no alert.
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'WIN', 'spam@ext.com', ['X-Spam-Flag' => 'YES']), 'spam@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'spam: no alert');
+
+        // Turned off in preferences: no alert.
         $sent = [];
         Users::savePrefs((int) $bob['id'], ['notifications' => 0]);
         Delivery::deliver($sendTo('bob@test.local', 'Silence', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
@@ -4086,6 +4101,73 @@ test('unread count of a mailbox: inbox and own folders, not spam, trash or draft
     $put((int) Folders::byRole($uid, 'drafts')['id'], 0, 1);
     eq(M4W\Service\SharedMailboxes::unread($uid), 3, '1 in the inbox + 2 filed in a folder by a rule');
     eq(M4W\Service\SharedMailboxes::counts($uid)[0], 3, 'own mailbox under 0');
+});
+
+test('offline: one key per person and device, unreadable after signing out', function () {
+    $O = M4W\Service\Offline::class;
+    $u = Users::find(Users::create(['email' => 'off.line@test.local', 'password' => 'Secret!Pass123']));
+    $uid = (int) $u['id'];
+    $dev = 'devA_' . bin2hex(random_bytes(8));
+    $k1 = $O::key($uid, 101, $dev);
+    eq(strlen($k1), 32);
+    eq($O::key($uid, 102, $dev), $k1, 'session expired, same person signs in again: same key, nothing lost');
+    ok($O::key($uid, 102, 'devB_' . bin2hex(random_bytes(8))) !== $k1, 'another device, another key');
+    $other = Users::find(Users::create(['email' => 'off.other@test.local', 'password' => 'Secret!Pass123']));
+    ok($O::key((int) $other['id'], 201, $dev) !== $k1, 'another person on the same device: another key');
+    ok(!str_contains((string) DB::value('SELECT key_enc FROM offline_devices WHERE user_id = :u AND device = :d', ['u' => $uid, 'd' => $dev]), base64_encode($k1)), 'stored encrypted');
+    $thrown = false;
+    try { $O::key($uid, 102, 'x'); } catch (\InvalidArgumentException) { $thrown = true; }
+    ok($thrown, 'device id checked');
+    eq($O::forgetSession(102), 2, 'signing out: the keys handed to that session are deleted');
+    ok($O::key($uid, 103, $dev) !== $k1, 'after signing out the old key is gone for good');
+    // Password changed: other sessions' devices go too.
+    $O::key($uid, 104, 'devC_' . bin2hex(random_bytes(8)));
+    M4W\Core\Auth::revokeOtherSessions($uid, 104);
+    eq((int) DB::value('SELECT COUNT(*) FROM offline_devices WHERE user_id = :u', ['u' => $uid]), 1, 'only the current session keeps its device');
+});
+test('offline: replayed work is checked, run once and in order', function () {
+    $O = M4W\Service\Offline::class;
+    $u = Users::findByEmail('off.line@test.local');
+    $uid = (int) $u['id'];
+    $dev = 'devR_' . bin2hex(random_bytes(8));
+    $O::key($uid, 104, $dev);
+    $runs = 0;
+    $run = static function () use (&$runs) { $runs++; return \M4W\Core\Response::json(['ok' => true, 'n' => $runs]); };
+    $stamp = static fn(string $id, int $seq, ?int $at = null, string $device = '') => json_encode(['device' => $device ?: $dev, 'id' => $id, 'seq' => $seq, 'at' => $at ?? time() - 60]);
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0001', 1), $run);
+    eq([$r->status, $runs], [200, 1], 'applied');
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0001', 1), $run);
+    eq([$r->status, $runs, json_decode($r->body, true)['n']], [200, 1, 1], 'sent again (answer lost): same answer, not done twice');
+    $r = $O::guard($u, '/api/compose/send', $stamp('act-0002', 2), $run);
+    eq([$r->status, $runs], [200, 2], 'next one');
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0003', 2), $run);
+    eq([$r->status, json_decode($r->body, true)['offline'], $runs], [409, 'out_of_order', 2], 'an older order number is refused');
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0004', 3, time() - $O::MAX_AGE - 10), $run);
+    eq([$r->status, json_decode($r->body, true)['offline']], [422, 'too_old'], 'too old');
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0005', 4, time() + 3600), $run);
+    eq(json_decode($r->body, true)['offline'], 'too_old', 'from the future');
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0006', 5, null, 'devX_' . bin2hex(random_bytes(8))), $run);
+    eq([$r->status, json_decode($r->body, true)['offline']], [403, 'unknown_device'], 'a list made elsewhere (no device key) is refused');
+    $other = Users::findByEmail('off.other@test.local');
+    $r = $O::guard($other, '/api/messages/action', $stamp('act-0007', 6), $run);
+    eq(json_decode($r->body, true)['offline'], 'unknown_device', "someone else's device");
+    $r = $O::guard($u, '/admin/users/save', $stamp('act-0008', 7), $run);
+    eq([$r->status, json_decode($r->body, true)['offline']], [400, 'not_offline'], 'only what can be done offline');
+    $r = $O::guard($u + ['_actor' => ['id' => 1]], '/api/messages/action', $stamp('act-0009', 8), $run);
+    eq(json_decode($r->body, true)['offline'], 'not_own_mailbox', 'not in a delegated mailbox');
+    $r = $O::guard($u, '/api/messages/action', '{"device":"' . $dev . '","id":"x","seq":"9"}', $run);
+    eq(json_decode($r->body, true)['offline'], 'bad_stamp');
+    eq($runs, 2, 'nothing refused was run');
+    // An endpoint that fails: not recorded as applied, may be tried again.
+    $thrown = false;
+    try { $O::guard($u, '/api/messages/action', $stamp('act-0010', 10), static function () { throw new \RuntimeException('db'); }); } catch (\RuntimeException) { $thrown = true; }
+    ok($thrown);
+    $r = $O::guard($u, '/api/messages/action', $stamp('act-0010', 10), $run);
+    eq([$r->status, $runs], [200, 3], 'retried after the failure');
+    ok((bool) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'offline.replay'"), 'logged');
+    $m = $O::manifest($uid);
+    ok(isset($m['messages'], $m['calendar']['start'], $m['calendar']['end']), 'manifest');
+    ok($m['calendar']['start'] < date('Y-m-d', strtotime('-5 months')) && $m['calendar']['end'] > date('Y-m-d', strtotime('+6 months')), 'calendar -6 / +6 months');
 });
 
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";

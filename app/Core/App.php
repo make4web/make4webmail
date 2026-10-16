@@ -150,12 +150,20 @@ final class App
             return Response::redirect($req->path);
         }
 
-        if (is_array($handler)) {
-            [$class, $method] = $handler;
-            $controller = new $class($req);
-            return $controller->$method(...array_values($params));
+        $call = static function () use ($handler, $req, $params): Response {
+            if (is_array($handler)) {
+                [$class, $method] = $handler;
+                $controller = new $class($req);
+                return $controller->$method(...array_values($params));
+            }
+            return $handler($req, ...array_values($params));
+        };
+        // Work done offline and replayed: checked, run once, in order (see Offline::guard).
+        $stamp = $req->header('X-M4W-Offline');
+        if ($stamp !== '' && $user && $req->method === 'POST') {
+            return \M4W\Service\Offline::guard(\M4W\Service\Delegation::mailbox($user), $req->path, $stamp, $call);
         }
-        return $handler($req, ...array_values($params));
+        return $call();
     }
 
     private static function checkAdminIp(Request $req): void
@@ -243,6 +251,9 @@ final class App
         $r->get('/api/poll', [Controller\MailController::class, 'poll']);
         $r->get('/api/ping', [Controller\MailController::class, 'ping']);
         $r->get('/api/stamp', [Controller\MailController::class, 'stamp']);
+        $r->post('/api/offline/key', [Controller\OfflineController::class, 'key']);
+        $r->get('/api/offline/manifest', [Controller\OfflineController::class, 'manifest']);
+        $r->post('/api/offline/forget', [Controller\OfflineController::class, 'forget']);
         $r->post('/api/prefs', [Controller\MailController::class, 'prefs']);
 
         $r->get('/api/compose', [Controller\ComposeController::class, 'prefill']);

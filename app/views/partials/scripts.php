@@ -7,3 +7,4 @@ $jsI18n = M4W\Core\I18n::jsDictionary();
 <script src="<?= e(asset('vendor/bootstrap/js/bootstrap.bundle.min.js')) ?>"></script>
 <script src="<?= e(asset('vendor/aos/aos.js')) ?>"></script>
 <script src="<?= e(asset('js/core.js')) ?>"></script>
+<script src="<?= e(asset('js/offline.js')) ?>"></script>
