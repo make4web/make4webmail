@@ -29,7 +29,12 @@ final class Users
         'meet_teams'     => '',          // personal meeting links
         'meet_meet'      => '',
         'meet_zoom'      => '',
+        'swipe_left'     => 'delete',    // touch screens: action of a row swiped to the left…
+        'swipe_right'    => 'read',      // …and to the right (see SWIPE_ACTIONS)
     ];
+
+    /** What a swipe on a message row can do (touch screens). */
+    public const SWIPE_ACTIONS = ['delete', 'archive', 'read', 'flag', 'none'];
 
     /** Allowed values for enumerated preferences (null = free value). */
     private static function prefChoices(string $key): ?array
@@ -39,6 +44,7 @@ final class Users
             'density' => ['comfortable', 'compact'],
             'reading_pane' => ['right', 'bottom', 'off'],
             'reply_position' => ['top', 'bottom'],
+            'swipe_left', 'swipe_right' => self::SWIPE_ACTIONS,
             'zoom' => [80, 90, 100, 110, 120],
             'compose_font' => array_keys(\M4W\Controller\SettingsController::fonts()),
             'compose_size' => ['12px', '13px', '14px', '16px', '18px'],

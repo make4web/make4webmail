@@ -54,6 +54,11 @@
     <div class="m4w-setting-row"><div class="label"><?= te('settings.mark_read') ?></div><div><select class="form-select" name="mark_read_delay" style="max-width:280px">
       <?php foreach ([0 => 'settings.mr_immediate', 1 => 'settings.mr_1', 3 => 'settings.mr_3', -1 => 'settings.mr_manual'] as $v => $l): ?><option value="<?= $v ?>" <?= (int) $p['mark_read_delay'] === $v ? 'selected' : '' ?>><?= te($l) ?></option><?php endforeach; ?>
     </select></div></div>
+    <?php foreach (['swipe_left' => 'bi-arrow-left', 'swipe_right' => 'bi-arrow-right'] as $sk => $sicon): ?>
+    <div class="m4w-setting-row"><div class="label"><label for="set-<?= $sk ?>"><i class="bi <?= $sicon ?> me-1" aria-hidden="true"></i><?= te('settings.' . $sk) ?></label><small><?= te('settings.swipe_desc') ?></small></div><div><select class="form-select" id="set-<?= $sk ?>" name="<?= $sk ?>" style="max-width:280px">
+      <?php foreach (M4W\Service\Users::SWIPE_ACTIONS as $sa): ?><option value="<?= $sa ?>" <?= ($p[$sk] ?? '') === $sa ? 'selected' : '' ?>><?= te('settings.swipe_' . $sa) ?></option><?php endforeach; ?>
+    </select></div></div>
+    <?php endforeach; ?>
     <div class="m4w-setting-row"><div class="label"><?= te('settings.notifications') ?><small><?= te('settings.notifications_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="notifications" value="1" <?= $p['notifications'] ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('settings.shortcuts') ?><small><?= te('settings.shortcuts_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="shortcuts" value="1" <?= $p['shortcuts'] ? 'checked' : '' ?>></div></div>
   </div>

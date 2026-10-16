@@ -72,6 +72,8 @@ final class SettingsController extends Controller
             'shortcuts' => $r->bool('shortcuts') ? 1 : 0,
             'notifications' => $r->bool('notifications') ? 1 : 0,
             'undo_send' => $r->bool('undo_send') ? 1 : 0,
+            'swipe_left' => in_array($r->str('swipe_left'), Users::SWIPE_ACTIONS, true) ? $r->str('swipe_left') : 'delete',
+            'swipe_right' => in_array($r->str('swipe_right'), Users::SWIPE_ACTIONS, true) ? $r->str('swipe_right') : 'read',
             'compose_font' => in_array($r->str('compose_font'), array_keys(self::fonts()), true) ? $r->str('compose_font') : 'Arial, Helvetica, sans-serif',
             'compose_size' => in_array($r->str('compose_size'), ['12px', '13px', '14px', '16px', '18px'], true) ? $r->str('compose_size') : '14px',
         ]);

@@ -896,6 +896,79 @@
       if (pressedAt && Date.now() - pressedAt < 800) { pressedAt = 0; e.stopPropagation(); e.preventDefault(); }
     }, true);
     $(document).on('click', '[data-sel-close]', function () { clearSelection(); });
+    // Swipe a row on a touch screen (as in the phone apps): the row follows the finger, the action
+    // shows underneath, and past the threshold it is done (Settings: swipe_left / swipe_right).
+    (function () {
+      var sw = null, swallowClick = false;
+      var ACTS = {
+        delete: { icon: 'trash3', cls: 'is-delete', label: function () { return t('delete'); } },
+        archive: { icon: 'archive', cls: 'is-archive', label: function () { return t('archive'); } },
+        read: { icon: 'envelope-open', cls: 'is-read', label: function (it) { return t(it && it.unread ? 'swipe_read' : 'swipe_unread'); } },
+        flag: { icon: 'star-fill', cls: 'is-flag', label: function (it) { return t(it && it.flagged ? 'unstar' : 'star'); } }
+      };
+      function actFor(dx) { var a = S.prefs[dx < 0 ? 'swipe_left' : 'swipe_right'] || (dx < 0 ? 'delete' : 'read'); return ACTS[a] ? a : null; }
+      function reset(animate) {
+        if (!sw) return;
+        var s0 = sw; sw = null;
+        s0.$row.css({ transition: animate ? 'transform .2s ease' : '', transform: '' });
+        setTimeout(function () { s0.$row.removeClass('m4w-swiping').css({ transition: '', background: '', touchAction: '' }); s0.$under.remove(); }, animate ? 210 : 0);
+      }
+      $scroll.on('pointerdown', '.m4w-row', function (e) {
+        // Not in selection mode: there a tap adds or removes a message.
+        if (e.originalEvent.pointerType !== 'touch' || selectedIds().length || $(e.target).closest('.m4w-check, .m4w-star, [data-row-act]').length) return;
+        sw = { $row: $(this), id: +$(this).data('id'), x0: e.clientX, y0: e.clientY, t0: Date.now(), dx: 0, dir: 0, armed: false, $under: $() };
+      });
+      $scroll.on('pointermove', '.m4w-row', function (e) {
+        if (!sw || e.originalEvent.pointerType !== 'touch') return;
+        var dx = e.clientX - sw.x0, dy = e.clientY - sw.y0;
+        if (!sw.dir) {
+          if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { sw = null; return; } // scrolling the list
+          if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+          sw.dir = 1;
+          try { this.setPointerCapture(e.originalEvent.pointerId); } catch (x) {}
+          var $r = sw.$row, bg = getComputedStyle($r[0]).backgroundColor;
+          sw.$under = $('<div class="m4w-swipe-under" aria-hidden="true"><span class="l"></span><span class="r"></span></div>')
+            .css({ top: $r[0].offsetTop, height: $r[0].offsetHeight }).insertBefore($r);
+          $r.addClass('m4w-swiping').css({ background: /rgba\(0, 0, 0, 0\)|transparent/.test(bg) ? 'var(--m4w-surface)' : bg });
+        }
+        e.preventDefault();
+        sw.dx = dx;
+        var a = actFor(dx), it = itemById(sw.id), w = sw.$row.outerWidth();
+        if (!a) { sw.$row.css('transform', 'translateX(' + (dx / 4) + 'px)'); return; } // nothing configured: resists
+        var conf = ACTS[a], armed = Math.abs(dx) > Math.max(80, w * 0.3);
+        sw.$under.attr('class', 'm4w-swipe-under ' + conf.cls + (dx < 0 ? ' to-left' : ' to-right') + (armed ? ' armed' : ''))
+          .find(dx < 0 ? '.r' : '.l').html('<i class="bi bi-' + (a === 'read' && it && !it.unread ? 'envelope' : conf.icon) + '"></i>' + esc(conf.label(it))).end()
+          .find(dx < 0 ? '.l' : '.r').empty();
+        if (armed && !sw.armed && navigator.vibrate) { try { navigator.vibrate(10); } catch (x) {} }
+        sw.armed = armed;
+        sw.$row.css('transform', 'translateX(' + dx + 'px)');
+      });
+      $scroll.on('pointerup pointercancel', '.m4w-row', function (e) {
+        if (!sw) return;
+        if (!sw.dir || e.type === 'pointercancel') { reset(true); return; }
+        swallowClick = true; setTimeout(function () { swallowClick = false; }, 350);
+        var dx = sw.dx, a = actFor(dx), fast = Math.abs(dx) > 50 && Math.abs(dx) / Math.max(1, Date.now() - sw.t0) > 0.6;
+        if (!a || !(sw.armed || fast)) { reset(true); return; }
+        var id = sw.id, it = itemById(id), s0 = sw;
+        if (a === 'delete' || a === 'archive') {
+          // Slides out, then goes as with the buttons (optimistic, with "Undo").
+          s0.$row.css({ transition: 'transform .18s ease-in', transform: 'translateX(' + (dx < 0 ? '-' : '') + '110%)' });
+          setTimeout(function () { sw = s0; reset(false); bulk(a, [id]); }, 180);
+          sw = null;
+          return;
+        }
+        reset(true);
+        if (a === 'read' && it) {
+          var act = it.unread ? 'read' : 'unread';
+          it.unread = act === 'unread'; rowById(id).replaceWith(rowHtml(it));
+          action(act, [id], { thread: S.prefs.conversations && !S.q, noReload: true, silent: true });
+        } else if (a === 'flag') {
+          toggleStar(id);
+        }
+      });
+      // The tap that ends a swipe does not open the message.
+      $scroll[0].addEventListener('click', function (e) { if (swallowClick && $(e.target).closest('.m4w-row').length) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
+    })();
     $scroll.on('contextmenu', '.m4w-row', function (e) {
       e.preventDefault();
       if (isPhone()) return; // long press: handled above, no menu
