@@ -11,6 +11,11 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <meta name="theme-color" content="<?= e(Settings::get('brand.primary', '#2563eb')) ?>">
 <meta name="csrf-token" content="<?= e(M4W\Core\Csrf::token()) ?>">
 <meta name="base-url" content="<?= e(url('/')) ?>">
+<?php if (!empty($currentUser)): ?>
+<meta name="m4w-user" content="<?= (int) $currentUser['id'] ?>">
+<?php // Offline mode: one's own mailbox only (nothing of a delegated or shared mailbox kept on a device). ?>
+<meta name="m4w-offline" content="<?= M4W\Service\Offline::enabled() && empty($delegation) && empty($sharedBox) ? 1 : 0 ?>">
+<?php endif; ?>
 <meta name="m4w-pw-policy" content="<?= max(8, (int) Settings::get('security.password_min', 10)) ?>,<?= (int) Settings::get('security.password_classes', 3) ?>">
 <?php if (!empty($currentUser) && (int) Settings::get('security.session_keepalive', 1) === 1): ?>
 <meta name="m4w-keepalive" content="<?= (int) min(300, max(60, (int) Settings::get('security.session_idle', 30) * 60 / 3)) ?>">

@@ -61,6 +61,8 @@ final class MailController extends Controller
             'folders'    => Folders::listWithCounts((int) $u['id']),
             'signature'  => $sig['html'],
             'vacation'   => Vacation::isActive(Vacation::get((int) $u['id'])),
+            // Offline mode: one's own mailbox only (nothing of someone else's kept on a device).
+            'offline'    => \M4W\Service\Offline::enabled() && empty($u['_actor']) && empty($u['_shared']),
             'settings'   => [
                 'undo_send'      => (int) Settings::get('features.undo_send_seconds', 5),
                 'max_attach_mb'  => (int) Settings::get('security.max_attachment_mb', 25),

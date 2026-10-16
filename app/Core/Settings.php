@@ -87,6 +87,7 @@ final class Settings
         'security.session_absolute'  => 720, // minutes from sign-in, whatever happens
         'security.session_keepalive' => 1,   // an open app (even in the background) is not idle
         'security.session_persist'   => 1,   // the session outlives closing the browser / app
+        'offline.enabled'            => 1,   // recent mail and work kept (encrypted) on the device
         'security.enforce_2fa_admin' => 0,
         'security.allow_external_forward' => 1,
         'security.forward_whitelist' => '',

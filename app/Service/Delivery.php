@@ -193,8 +193,10 @@ final class Delivery
             if ($bimi !== '' && $level === 'ok') {
                 DB::update('messages', ['bimi' => $bimi], 'id = :id', ['id' => $newId]);
             }
-            // Phone / desktop notification, like the in-page one: unread mail landing in the inbox.
-            if (!$actions['read'] && $folderId === (int) Folders::byRole($uid, 'inbox')['id']) {
+            // Phone / desktop notification: unread mail landing in the inbox, or filed by a rule in one
+            // of the person's own folders (not spam, trash…: nothing to wait for there).
+            $landed = Folders::find($uid, $folderId);
+            if (!$actions['read'] && $landed && (($landed['role'] ?? null) === 'inbox' || empty($landed['role']))) {
                 try {
                     WebPush::newMail($user, $newId, $parsed->from(), $parsed->subject(), $folderId);
                 } catch (\Throwable $e) {

@@ -339,6 +339,20 @@ storage/       base SQLite, messages .eml, pièces jointes temporaires, journaux
 ```
 Les messages sont stockés au format `.eml` brut, avec un index en base de données (métadonnées, extrait, texte pour la recherche). Les paramètres modifiables depuis l'administration sont en base ; `config/config.php` ne contient que la connexion à la base, la clé de chiffrement et les chemins.
 
+## Mode hors ligne
+
+L'application installée (ou l'onglet) continue de fonctionner sans connexion, pour sa propre boîte uniquement : rien d'une boîte déléguée ou partagée n'est gardé sur l'appareil. Le mode se coupe dans Administration › Sécurité › Sessions.
+
+- **Ce qui est gardé sur l'appareil, à la connexion :** les 100 derniers messages avec leurs images, les listes des dossiers, l'agenda de −6 à +6 mois et l'interface (service worker). Hors ligne, un message non gardé est grisé, comme ce qui a besoin du serveur : recherche, fichiers, contacts, règles, paramètres.
+- **Travailler hors ligne :** lire, marquer, déplacer, supprimer, écrire et envoyer. Tout est appliqué tout de suite à l'écran et mis en file d'attente. Une icône dans la barre du haut indique le mode hors ligne ; sa bulle compte les actions en attente.
+- **Retour de la connexion :** les messages écrits hors ligne sont présentés pour vérification avant de partir. Le reste est rejoué dans l'ordre, et chaque action affiche son statut (fait, envoyé, ignoré avec la raison, échec à réessayer).
+- **Sécurité :**
+  - les données de l'appareil sont chiffrées (AES-GCM) avec une clé propre à la personne et à l'appareil, dont le serveur garde une copie (`offline_devices`) ;
+  - fin de session (y compris constatée hors ligne) : l'appareil efface sa copie de la clé, tout devient illisible sans rien perdre, et la même personne qui se reconnecte retrouve son travail en attente ;
+  - déconnexion : tout est effacé des deux côtés ;
+  - une action rejouée n'est acceptée que d'un appareil connu de la personne, dans l'ordre et vieille de moins de 7 jours, et n'est exécutée qu'une fois, même renvoyée (`offline_actions`, journal `offline.replay`) ;
+  - une entrée glissée ou modifiée dans le stockage de l'appareil est illisible, donc jamais rejouée.
+
 ## Numéro de version
 
 `majeur.mineur.année.MMJJ.compteur`, par exemple `1.1.2026.1016.3` pour la troisième version publiée le 16 octobre 2026. Il s'affiche en bas du menu d'administration, dans l'aide et dans l'en-tête `X-Mailer`, et il est inscrit dans les sauvegardes.

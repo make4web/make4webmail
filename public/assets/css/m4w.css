@@ -1441,3 +1441,28 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-new-badge.m4w-pulse { animation: m4w-pulse 1.8s ease-out infinite; }
 @keyframes m4w-pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .65); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
 @media (prefers-reduced-motion: reduce) { .m4w-new-badge.m4w-pulse { animation: none; } }
+
+/* Offline mode: the indicator (pending work in its bubble), what is greyed, the review of mail. */
+.m4w-offline-ind .m4w-offline-btn { position: relative; }
+.m4w-offline-ind .m4w-offline-btn.is-offline { color: #f59e0b; }
+.m4w-offline-ind .m4w-offline-count { position: absolute; top: -2px; right: -4px; min-width: 18px; height: 18px; font-size: .66rem; padding: 0 5px; background: #f59e0b; color: #1f2937; box-shadow: 0 0 0 2px var(--m4w-chrome-bg, var(--m4w-bg)); }
+.m4w-offline-menu { width: 360px; max-width: calc(100vw - 24px); padding: 0; overflow: hidden; }
+.m4w-offline-head { padding: .85rem 1rem; border-bottom: 1px solid var(--m4w-border); }
+.m4w-offline-head p { margin: .35rem 0 0; font-size: .82rem; color: var(--m4w-muted); line-height: 1.45; }
+.m4w-offline-list { list-style: none; margin: 0; padding: .25rem 0; max-height: 320px; overflow-y: auto; }
+.m4w-offline-list li { display: flex; align-items: center; gap: .6rem; padding: .4rem 1rem; font-size: .84rem; }
+.m4w-offline-list li > .bi { flex-shrink: 0; color: var(--m4w-muted); }
+.m4w-offline-list li > .min-w-0 { flex: 1; }
+.m4w-offline-list small { display: block; color: var(--m4w-muted); font-size: .74rem; }
+.m4w-offline-list .st-applied > .bi { color: var(--bs-success); }
+.m4w-offline-list .st-failed > .bi { color: #ef4444; }
+.m4w-offline-list .st-review > .bi, .m4w-offline-list .st-pending > .bi { color: #f59e0b; }
+.m4w-offline-list .st-sending > .bi { animation: m4w-spin 1s linear infinite; }
+@keyframes m4w-spin { to { transform: rotate(360deg); } }
+.m4w-offline-foot { padding: .6rem 1rem .8rem; border-top: 1px solid var(--m4w-border); }
+.m4w-row.m4w-unavailable { opacity: .42; filter: grayscale(.8); cursor: not-allowed; }
+.m4w-off-grey { opacity: .42 !important; filter: grayscale(1); cursor: not-allowed !important; }
+.m4w-off-review-list { display: grid; gap: .4rem; }
+.m4w-off-review-item { display: flex; gap: .7rem; align-items: flex-start; padding: .55rem .7rem; border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius); cursor: pointer; }
+.m4w-off-review-item b { display: block; font-weight: 600; }
+.m4w-off-review-item small { color: var(--m4w-muted); }

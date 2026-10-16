@@ -295,6 +295,12 @@ final class WebPush
     }
 
     /** New message in a user's inbox. Called by local delivery. */
+    /** The app's icon (the client's logo when there is one), relative to the service worker scope. */
+    private static function icon(): string
+    {
+        return AppIcon::custom() ? 'app-icon/192.png' : 'assets/img/icon-192.png';
+    }
+
     public static function newMail(array $user, int $messageId, array $from, string $subject, int $folderId): void
     {
         if (!self::enabled()) {
@@ -303,20 +309,25 @@ final class WebPush
         $preview = (int) Settings::get('push.preview', 1) === 1;
         $name = trim((string) ($from['name'] ?? '')) ?: (string) ($from['email'] ?? '');
         $isPersonal = Delegation::isPersonalSubject($subject);
-        $title = $preview ? ($name !== '' ? $name : t('push.new_mail')) : t('push.new_mail');
+        // Said plainly: who it is from, what it is about, where it was filed (when not the inbox).
+        $title = $preview && $name !== '' ? t('push.title_from', ['name' => mb_substr($name, 0, 60)]) : t('push.new_mail');
         $body = $preview ? ($isPersonal ? t('push.personal') : ($subject !== '' ? mb_substr($subject, 0, 140) : t('mail.no_subject'))) : t('push.new_mail_body');
+        $folder = DB::one('SELECT name, role FROM folders WHERE id = :f', ['f' => $folderId]);
+        if ($folder && empty($folder['role'])) {
+            $body .= "\n" . t('push.in_folder', ['folder' => mb_substr((string) $folder['name'], 0, 40)]);
+        }
         // Relative to the service worker scope: deliveries also run from the CLI, where the base path is unknown.
         $hash = '#f/' . $folderId . '/m/' . $messageId;
         // The unread total of all the person's mailboxes: the badge of the installed app, even closed.
         $count = static fn(int $uid) => array_sum(SharedMailboxes::counts($uid));
         if (!empty($user['prefs']['notifications'])) {
-            self::send((int) $user['id'], ['title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail' . $hash, 'count' => $count((int) $user['id'])]);
+            self::send((int) $user['id'], ['title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail' . $hash, 'count' => $count((int) $user['id']), 'icon' => self::icon()]);
         }
         // People who have this mailbox among their other mailboxes are alerted too; tapping opens it.
         foreach (SharedMailboxes::usersOf((int) $user['id']) as $memberId) {
             $member = Users::find($memberId);
             if ($member && !empty($member['prefs']['notifications'])) {
-                self::send($memberId, ['title' => $title, 'body' => '[' . $user['email'] . '] ' . $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash, 'count' => $count($memberId)]);
+                self::send($memberId, ['title' => $title, 'body' => '[' . $user['email'] . '] ' . $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash, 'count' => $count($memberId), 'icon' => self::icon()]);
             }
         }
     }

@@ -150,6 +150,8 @@
     var self = this;
     this.opts = opts;
     this.state = { mode: 'new', ref_id: 0, draft_id: 0, attachments: [], ref_attachments: [], dirty: false, sending: false };
+    // Names this message on the device: offline, only its latest draft is kept in the queue.
+    this.localId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     this.$el = $(template()).appendTo('body');
     var prefs = M4W.state.prefs || {};
     this.editor = new M4W.Editor(this.$el.find('[data-editor-host]'), {
@@ -176,6 +178,7 @@
       this.place();
     }
     this.load(opts);
+    if (M4W.Offline && M4W.Offline.refreshGrey) M4W.Offline.refreshGrey(); // no attachments offline
   }
 
   Compose.prototype.load = function (opts) {
@@ -188,6 +191,7 @@
     this.$el.find('.title').text(t('loading'));
     M4W.get('api/compose', params).done(function (r) {
       var c = r.compose;
+      if (c.offline_note) M4W.toast(c.offline_note, 'info', { duration: 8000 });
       self.state.mode = c.mode; self.state.ref_id = c.ref_id; self.state.draft_id = c.draft_id;
       self.state.attachments = c.attachments || [];
       self.state.ref_attachments = c.ref_attachments || [];
@@ -256,7 +260,7 @@
       to: this.rcpt.to.value(), cc: this.rcpt.cc.value(), bcc: this.rcpt.bcc.value(),
       subject: this.$el.find('[name=subject]').val(), html: this.bodyHtml(), mode: s.mode, ref_id: s.ref_id,
       ref_parts: s.ref_attachments.map(function (a) { return a.part; }), attachments: s.attachments.filter(function (a) { return a.token; }).map(function (a) { return a.token; }),
-      draft_id: s.draft_id, priority: this.$el.find('[data-opt=priority]').is(':checked') ? 1 : 3,
+      draft_id: s.draft_id, local_id: this.localId, priority: this.$el.find('[data-opt=priority]').is(':checked') ? 1 : 3,
       receipt: this.$el.find('[data-opt=receipt]').is(':checked') ? 1 : 0, attach_original: s.attach_original ? 1 : 0,
       scheduled_at: s.scheduled_at || 0
     };
@@ -287,8 +291,9 @@
     this.$el.find('[data-saved]').text(t('saving'));
     this.state.dirty = false;
     return M4W.post('api/compose/draft', this.payload(), { silent: true, quiet: auto }).done(function (r) {
-      self.state.draft_id = r.draft_id;
-      self.$el.find('[data-saved]').text(t('draft_saved_at', { time: new Date().toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' }) }));
+      self.state.draft_id = r.draft_id || self.state.draft_id;
+      var at = new Date().toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' });
+      self.$el.find('[data-saved]').text(r.offline ? t('off_draft_kept', { time: at }) : t('draft_saved_at', { time: at }));
       if (M4W.state.byRole && M4W.state.folder === (M4W.state.byRole.drafts || {}).id) M4W.reloadList();
     }).fail(function () { self.state.dirty = true; self.$el.find('[data-saved]').text(''); });
   };
@@ -567,6 +572,7 @@
         M4W.post('api/compose/send', payload).done(function (r) {
           sending.close();
           self.destroy();
+          if (r.offline) { M4W.toast(t('off_queued_send'), 'info', { duration: 8000 }); return; }
           M4W.toast(t('sent'), 'success', { action: { label: t('view_message'), fn: function () { var s = M4W.state.byRole.sent; if (s) M4W.go(s.id, r.id); } } });
           if (r.warnings && Object.keys(r.warnings).length) M4W.toast(t('partial_failure', { list: Object.keys(r.warnings).join(', ') }), 'warning', { duration: 10000 });
           if (r.deferred) M4W.toast(t('send_deferred', { n: r.deferred.count, time: r.deferred.time }), 'warning', { duration: 12000 });
