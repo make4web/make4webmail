@@ -42,14 +42,33 @@ final class MailAssets
     /** Remote picture URLs of an HTML body (img src/srcset, background attribute). @return string[] */
     public static function remoteUrls(string $html): array
     {
-        if ($html === '' || !preg_match_all('#<(?:img|image|input|td|table|body)\b[^>]*?\b(?:src|background)\s*=\s*(["\']?)(https?:)?//([^"\'\s>]+)\1#i', $html, $m, PREG_SET_ORDER)) {
+        if ($html === '') {
             return [];
         }
         $out = [];
-        foreach ($m as $x) {
-            $url = html_entity_decode(($x[2] ?: 'https:') . '//' . $x[3], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $add = static function (string $scheme, string $rest) use (&$out): void {
+            $url = html_entity_decode(($scheme ?: 'https:') . '//' . $rest, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             if (strlen($url) <= 2048) {
                 $out[$url] = true;
+            }
+        };
+        // <img src>, background="…"
+        if (preg_match_all('#<(?:img|image|input|td|table|body)\b[^>]*?\b(?:src|background)\s*=\s*(["\']?)(https?:)?//([^"\'\s>]+)\1#i', $html, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                $add($x[2], $x[3]);
+            }
+        }
+        // <img srcset> without src: the first picture of the set is the one shown.
+        if (preg_match_all('#<img\b[^>]*?\bsrcset\s*=\s*(["\'])\s*(https?:)?//([^"\'\s,]+)#i', $html, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                $add($x[2], $x[3]);
+            }
+        }
+        // CSS pictures: style="background-image:url(…)" and <style> blocks (quotes may be &quot;).
+        $css = str_ireplace(['&quot;', '&#34;', '&#39;', '&apos;'], ['"', '"', "'", "'"], $html);
+        if (preg_match_all('#url\(\s*(["\']?)\s*(https?:)?//([^"\'\s)]+)\s*\1\s*\)#i', $css, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                $add($x[2], $x[3]);
             }
         }
         return array_slice(array_keys($out), 0, self::MAX_PER_MESSAGE);
@@ -73,6 +92,8 @@ final class MailAssets
         return $n;
     }
 
+    private const MAX_TRIES = 3;
+
     public static function key(string $url): string
     {
         return hash('sha256', $url);
@@ -84,7 +105,9 @@ final class MailAssets
     public static function processPending(int $max = 200, ?int $messageId = null, float $budget = 50.0): int
     {
         $start = microtime(true);
-        $sql = "SELECT * FROM mail_asset_refs WHERE status = 'pending'" . ($messageId ? ' AND message_id = :m' : '') . ' ORDER BY id LIMIT ' . max(1, $max);
+        // A failed download (timeout, server busy…) is tried again, up to three times in all.
+        $sql = "SELECT * FROM mail_asset_refs WHERE (status = 'pending' OR (status = 'failed' AND tries < " . self::MAX_TRIES . '))'
+            . ($messageId ? ' AND message_id = :m' : '') . ' ORDER BY id LIMIT ' . max(1, $max);
         $n = 0;
         $cache = [];
         foreach (DB::all($sql, $messageId ? ['m' => $messageId] : []) as $r) {

@@ -143,6 +143,11 @@ final class HtmlSanitizer
 
     private function cleanAttributes(DOMElement $el, string $tag): void
     {
+        // A picture given only as a set of sizes: its first one becomes the src (srcset itself
+        // never stays, it could load anything).
+        if ($tag === 'img' && !$el->hasAttribute('src') && preg_match('#^\s*(\S+)#', (string) $el->getAttribute('srcset'), $sm)) {
+            $el->setAttribute('src', $sm[1]);
+        }
         foreach (iterator_to_array($el->attributes) as $attr) {
             $name = strtolower($attr->name);
             $value = $attr->value;

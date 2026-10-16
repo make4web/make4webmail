@@ -203,14 +203,14 @@ final class MailController extends Controller
     {
         $parsed = Mailbox::parsed($m);
         $u = $this->user();
-        $blockImages = (int) Settings::get('security.block_remote_images', 1) && !(int) $u['prefs']['show_images'];
+        $blockImages = (int) Settings::get('security.block_remote_images', 1) && !(int) $u['prefs']['show_images'] && !$this->autoImages($m);
         // Count blocked pictures and removed trackers without rendering the full body.
         $blocked = 0;
         $trackers = 0;
         $s = new HtmlSanitizer(true, static fn() => 'about:blank', true, $this->remoteResolver((int) $m['id']));
         $s->sanitize($parsed->html());
         $trackers = $s->trackerCount();
-        if ($blockImages || \M4W\Service\MailAssets::enabled()) {
+        if ($blockImages || (\M4W\Service\MailAssets::enabled() && !$this->autoImages($m))) {
             $blocked = $s->blockedCount();
         }
         $listUnsub = (string) $parsed->header('List-Unsubscribe');
@@ -349,7 +349,7 @@ final class MailController extends Controller
     private function bodyDocument(array $u, array $m): Response
     {
         $parsed = Mailbox::parsed($m);
-        $allowImages = !empty($this->req->query['images']) || (int) $u['prefs']['show_images'] || !(int) Settings::get('security.block_remote_images', 1);
+        $allowImages = !empty($this->req->query['images']) || (int) $u['prefs']['show_images'] || !(int) Settings::get('security.block_remote_images', 1) || $this->autoImages($m);
         $mid = (int) $m['id'];
         $resolver = static fn(string $cid) => url('api/messages/' . $mid . '/part/cid:' . rawurlencode($cid), ['inline' => 1]);
         $proxy = \M4W\Service\MailAssets::enabled();
@@ -429,6 +429,17 @@ final class MailController extends Controller
     }
 
     /** url → local address of the cleaned copy, '' for a tracker, null when not available. */
+    /**
+     * Pictures shown at once: the server fetches and re-encodes them, so the sender learns
+     * nothing and nothing but pixels reaches the browser. Not for junk: fetching them would
+     * tell a spammer that the address is read (there, "Show images" stays).
+     */
+    private function autoImages(array $m): bool
+    {
+        return \M4W\Service\MailAssets::enabled()
+            && \M4W\Core\Database::value('SELECT role FROM folders WHERE id = :f', ['f' => (int) $m['folder_id']]) !== 'spam';
+    }
+
     private function remoteResolver(int $mid): ?\Closure
     {
         if (!\M4W\Service\MailAssets::enabled()) {

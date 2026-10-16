@@ -2562,6 +2562,40 @@ test('pictures: an attachment shown again comes from the cleaned copy, whole', f
     ok((int) $again['size'] > 0);
     Mailbox::delete($uid, [$mid], true);
 });
+test('pictures: CSS backgrounds and srcset found, a failed download tried again (three times in all)', function () use ($png, $bob) {
+    $html = '<a href="https://www.instagram.com/x/"><img src="https://cdn.test/avatar.jpg?a=1&amp;b=2" width="94"></a>'
+        . '<img srcset="https://cdn.test/set-1x.png 1x, https://cdn.test/set-2x.png 2x" width="20">'
+        . '<div style="background-image:url(&quot;https://cdn.test/bg.png&quot;)">x</div><td style="background: url(https://cdn.test/td.png) no-repeat">'
+        . '<style>.h{background:url(\'https://cdn.test/style.png\')}</style><img src="data:image/png;base64,AAAA">';
+    $urls = MailAssets::remoteUrls($html);
+    sort($urls);
+    eq($urls, ['https://cdn.test/avatar.jpg?a=1&b=2', 'https://cdn.test/bg.png', 'https://cdn.test/set-1x.png', 'https://cdn.test/style.png', 'https://cdn.test/td.png'], 'img, srcset, inline styles and <style>');
+    // srcset without src: shown through its first picture.
+    $s = new M4W\Mail\HtmlSanitizer(true, static fn($c) => '', true, static fn(string $u) => $u === 'https://cdn.test/set-1x.png' ? '/local/set' : null);
+    $out = $s->sanitize('<p><img srcset="https://cdn.test/set-1x.png 1x, https://cdn.test/set-2x.png 2x" width="20"></p>');
+    ok(str_contains($out, 'src="/local/set"') && !str_contains($out, 'srcset'), $out);
+    // A server that fails once: fetched at the second try, never more than three tries.
+    $uid = (int) $bob['id'];
+    $mid = Mailbox::store($uid, (int) Folders::byRole($uid, 'inbox')['id'], "From: a@ext.com\nSubject: Retry\nContent-Type: text/html\n\n<img src=\"https://cdn.test/flaky.png\"><img src=\"https://cdn.test/dead.png\">");
+    MailAssets::register($mid, $uid, '<img src="https://cdn.test/flaky.png"><img src="https://cdn.test/dead.png">');
+    $tries = ['flaky' => 0, 'dead' => 0];
+    MailAssets::$http = function (string $url) use (&$tries, $png) {
+        $k = str_contains($url, 'flaky') ? 'flaky' : 'dead';
+        $tries[$k]++;
+        return $k === 'flaky' && $tries[$k] >= 2 ? ['status' => 200, 'type' => 'image/png', 'body' => $png(50, 50), 'location' => ''] : ['status' => 503, 'type' => '', 'body' => '', 'location' => ''];
+    };
+    try {
+        for ($i = 0; $i < 5; $i++) {
+            MailAssets::processPending(50, $mid);
+        }
+    } finally {
+        MailAssets::$http = null;
+    }
+    $st = array_column(DB::all('SELECT url, status FROM mail_asset_refs WHERE message_id = :m', ['m' => $mid]), 'status', 'url');
+    eq([$st['https://cdn.test/flaky.png'], $st['https://cdn.test/dead.png']], ['ok', 'failed'], 'second try worked; the dead one stays failed');
+    eq($tries, ['flaky' => 2, 'dead' => 3], 'three tries at most');
+    Mailbox::delete($uid, [$mid], true);
+});
 test('pictures: fetched once after delivery, served locally, trackers removed, cleaned up with the message', function () use ($png, $bob, $sendTo) {
     $calls = [];
     MailAssets::$http = function (string $url) use (&$calls, $png) {
