@@ -19,7 +19,7 @@ use M4W\Core\Settings;
 final class AppIcon
 {
     /** Bump when the drawing changes, so installed apps get the new one. */
-    private const VERSION = 3;
+    private const VERSION = 4;
 
     /** variant => [size, shape] — "clear": transparent, no background (Android "any", desktop);
      *  "full": square, the system cuts it (iOS); "safe": square, content in the 80 % safe circle (maskable). */
@@ -133,16 +133,16 @@ final class AppIcon
         // Logo: top left, leaving the bottom right corner to the envelope.
         $lw = imagesx($logo);
         $lh = imagesy($logo);
-        // Square-ish logo: most of the area, the envelope overlaps its corner. Wide logo (with its
-        // name): the whole width, a bit above the middle, the envelope below it.
+        // The logo takes the whole area, the envelope goes over its corner. A wide logo (with its
+        // name) sits a bit above the middle, so the envelope hides less of it.
         $wide = $lw / $lh > 1.6;
-        $boxW = $wide ? $w : $w * ($clear ? 0.86 : 0.8);
-        $boxH = $wide ? $w * 0.5 : $boxW;
+        $boxW = $w;
+        $boxH = $wide ? $w * 0.5 : $w;
         $scale = min($boxW / $lw, $boxH / $lh);
         $dw = max(1, (int) round($lw * $scale));
         $dh = max(1, (int) round($lh * $scale));
         $dx = (int) ($x0 + ($boxW - $dw) / 2);
-        $dy = $wide ? (int) ($x0 + $w * 0.30 - $dh / 2) : (int) ($x0 + ($boxH - $dh) / 2);
+        $dy = $wide ? (int) ($x0 + $w * 0.40 - $dh / 2) : (int) ($x0 + ($boxH - $dh) / 2);
         imagecopyresampled($im, $logo, $dx, $dy, 0, 0, $dw, $dh, $lw, $lh);
 
         // Envelope badge, in the bottom right corner, with a ring of the background (or a
