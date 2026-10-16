@@ -2169,4 +2169,6 @@ Approve or decline in Calendar › Rooms and bookings.',
     'admin.session_persist' => 'Keep the session when the browser is closed',
     'admin.session_persist_desc' => 'Reopening the browser or app before the idle time is over needs no new sign-in. Off: closing it signs out.',
     'admin.admin_access' => 'Administrator access',
+    'js.pw_rule_len' => 'At least :n characters',
+    'js.pw_rule_classes' => 'At least :n kinds among lower case, upper case, digits, symbols',
 ];

@@ -176,11 +176,14 @@
 
     // ----------------------------------------------------- user form
     $('[data-gen-password]').on('click', function () {
-      var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', sym = '!@#$%&*?-+', pw = '';
-      var rnd = new Uint32Array(16); window.crypto.getRandomValues(rnd);
-      for (var i = 0; i < 14; i++) pw += chars[rnd[i] % chars.length];
-      pw += sym[rnd[14] % sym.length] + (rnd[15] % 10);
-      $('[data-pw]').val(pw).trigger('input');
+      // One of each kind (whatever the policy asks), the rest mixed, at the policy's length or more.
+      var sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*?-+'], all = sets.join('');
+      var min = +(($('meta[name="m4w-pw-policy"]').attr('content') || '10').split(',')[0]) || 10, len = Math.max(16, min);
+      var rnd = new Uint32Array(len * 2); window.crypto.getRandomValues(rnd);
+      var chars = sets.map(function (set, i) { return set[rnd[i] % set.length]; });
+      for (var i = chars.length; i < len; i++) chars.push(all[rnd[i] % all.length]);
+      for (var j = chars.length - 1; j > 0; j--) { var k = rnd[len + j] % (j + 1), tmp = chars[j]; chars[j] = chars[k]; chars[k] = tmp; }
+      $('[data-pw]').val(chars.join('')).trigger('input');
     });
     var $local = $('[data-local-part]');
     if ($local.length) {

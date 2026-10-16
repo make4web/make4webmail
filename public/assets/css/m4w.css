@@ -1418,3 +1418,8 @@ body.m4w-editor-open { overflow: hidden; }
 .chrome-on-dark .m4w-drawer-brand .m4w-logo-light.has-dark { display: none; }
 .chrome-on-dark .m4w-drawer-brand .m4w-logo-dark { display: inline-block; }
 .chrome-on-dark .m4w-drawer-brand .m4w-logo-light:not(.has-dark) { background: rgba(255, 255, 255, .94); padding: 3px 8px; border-radius: var(--m4w-radius-sm); }
+
+/* Password policy, checked as one types. */
+.m4w-pw-rules { list-style: none; padding: 0; margin: .35rem 0 0; font-size: .8rem; color: var(--m4w-muted); }
+.m4w-pw-rules li { display: flex; align-items: center; gap: .35rem; }
+.m4w-pw-rules li.ok { color: var(--bs-success); }

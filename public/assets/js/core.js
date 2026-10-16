@@ -413,6 +413,59 @@
       document.addEventListener('visibilitychange', function () { if (!document.hidden && Date.now() - lastPing > 60000) ping(); });
     }
 
+    // Password policy of the administrator, checked as one types: the rules show under the field,
+    // and the form cannot be sent with a password the server would refuse.
+    var pol = ($('meta[name="m4w-pw-policy"]').attr('content') || '10,3').split(',').map(Number);
+    function pwCheck(input) {
+      var v = input.value, $in = $(input), min = pol[0], need = pol[1];
+      var classes = (/[a-z]/.test(v) ? 1 : 0) + (/[A-Z]/.test(v) ? 1 : 0) + (/\d/.test(v) ? 1 : 0) + (/[^a-zA-Z\d]/.test(v) ? 1 : 0);
+      var okLen = v.length >= min, okCls = classes >= need, empty = v === '';
+      var $rules = $in.data('pwRules');
+      if (!$rules) {
+        $rules = $('<ul class="m4w-pw-rules" aria-live="polite"><li data-r="len"></li><li data-r="cls"></li></ul>');
+        var $after = $in.closest('.input-group').length ? $in.closest('.input-group') : $in;
+        var $bar = $after.nextAll('.progress').first();
+        $rules.insertAfter($bar.length ? $bar : $after);
+        $in.data('pwRules', $rules);
+      }
+      var mark = function (ok) { return '<i class="bi bi-' + (ok ? 'check-circle-fill' : 'circle') + '" aria-hidden="true"></i>'; };
+      $rules.toggleClass('d-none', empty && !input.required).find('[data-r=len]').toggleClass('ok', okLen).html(mark(okLen) + M4W.esc(M4W.t('pw_rule_len', { n: min }) + ' (' + v.length + ')'));
+      $rules.find('[data-r=cls]').toggleClass('ok', okCls).html(mark(okCls) + M4W.esc(M4W.t('pw_rule_classes', { n: need }) + ' (' + Math.min(classes, 4) + '/' + need + ')'));
+      var msg = empty ? '' : (!okLen ? M4W.t('pw_rule_len', { n: min }) : (!okCls ? M4W.t('pw_rule_classes', { n: need }) : ''));
+      input.setCustomValidity(msg);
+      $in.toggleClass('is-invalid', !empty && !!msg && $in.data('pwTouched') === true).toggleClass('is-valid', !empty && !msg);
+    }
+    $('input[data-strength]').each(function () { pwCheck(this); });
+    $(document).on('input change', 'input[data-strength]', function () { pwCheck(this); });
+    $(document).on('blur', 'input[data-strength]', function () { $(this).data('pwTouched', true); pwCheck(this); });
+    $(document).on('invalid', 'input[data-strength]', function () { $(this).data('pwTouched', true).addClass('is-invalid'); });
+
+    // A form refused by the server comes back as it was typed (passwords aside): nothing to retype.
+    var keepKey = function (f) { return 'm4w-form:' + ($(f).attr('action') || location.pathname) + ':' + ($(f).find('[name=id]').val() || ''); };
+    var keepSkip = function (el) { return !el.name || el.type === 'password' || el.type === 'file' || el.type === 'hidden' || /password|_csrf|csrf/i.test(el.name) || el.disabled; };
+    $(document).on('submit', 'form[data-keep-input]', function () {
+      var vals = [];
+      $.each(this.elements, function (_, el) {
+        if (keepSkip(el) || el.tagName === 'BUTTON') return;
+        vals.push(el.type === 'checkbox' || el.type === 'radio' ? { n: el.name, v: el.value, c: el.checked } : { n: el.name, v: $(el).val() });
+      });
+      try { sessionStorage.setItem(keepKey(this), JSON.stringify({ t: Date.now(), vals: vals })); } catch (e) { /* private mode */ }
+    });
+    $('form[data-keep-input]').each(function () {
+      var form = this, key = keepKey(form), saved = null;
+      try { saved = JSON.parse(sessionStorage.getItem(key) || 'null'); sessionStorage.removeItem(key); } catch (e) { saved = null; }
+      // Only after a refusal (an error shown), and only just after sending.
+      if (!saved || Date.now() - saved.t > 10 * 60000 || !$('.m4w-flash .alert-danger, .m4w-flash .alert-warning').length) return;
+      saved.vals.forEach(function (s) {
+        $(form.elements).filter(function () { return this.name === s.n && !keepSkip(this); }).each(function () {
+          if (this.type === 'checkbox' || this.type === 'radio') { if (this.value === s.v) this.checked = s.c; }
+          else { $(this).val(s.v); }
+        });
+      });
+      $(form.elements).trigger('change');
+      $(form).find('[data-strength]').first().trigger('focus');
+    });
+
     // Password strength meters
     $(document).on('input', 'input[data-strength]', function () {
       var v = this.value, s = 0;

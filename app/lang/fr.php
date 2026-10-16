@@ -2242,4 +2242,6 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'admin.session_persist' => 'Garder la session à la fermeture du navigateur',
     'admin.session_persist_desc' => 'Rouvrir le navigateur ou l\'application avant la fin du délai d\'inactivité ne demande pas de se reconnecter. Désactivé : toute fermeture déconnecte.',
     'admin.admin_access' => 'Accès administrateur',
+    'js.pw_rule_len' => 'Au moins :n caractères',
+    'js.pw_rule_classes' => 'Au moins :n types parmi minuscules, majuscules, chiffres, symboles',
 ];
