@@ -3871,10 +3871,11 @@ test('app icon: the logo with an envelope of the primary colour, background afte
         ok($png !== null && getimagesizefromstring($png)[0] === $size, "$v: $size px");
     }
     $png = $A::png('512');
-    eq(array_slice($px($png, 2, 2), 3), [127], 'rounded: transparent corner');
+    eq(array_slice($px($png, 2, 2), 3), [127], 'Android / desktop: transparent around the logo');
+    eq(array_slice($px($png, 289, 420), 3), [127], 'transparent cut around the envelope');
     eq(array_slice($px($A::png('apple'), 1, 1), 0, 3), [255, 255, 255], 'iOS: full square, light background for a dark primary');
-    eq(array_slice($px($png, 100, 100), 0, 3), [220, 30, 30], 'logo top left, margins cut off (fills its area)');
-    [$r, $g, $b] = $px($png, 455, 380);
+    eq(array_slice($px($png, 30, 30), 0, 3), [220, 30, 30], 'logo top left, margins cut off (fills its area)');
+    [$r, $g, $b] = $px($png, 400, 318);
     ok(abs($r - 0x1d) < 8 && abs($g - 0x4e) < 8 && abs($b - 0xd8) < 8, 'envelope badge in the primary colour, bottom right');
     [$r, $g, $b] = $px($png, 380, 380); // overlaps the logo's corner
     ok(!($r > 200 && $g < 60), 'the badge is over the logo');
