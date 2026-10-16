@@ -63,8 +63,21 @@ final class Health
         $failed = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'failed' AND created_at > :t", ['t' => $now - 86400]);
         $held = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'held'");
         $qAge = $oldest ? $now - $oldest : 0;
-        $add('queue', $qAge > 7200 ? 'fail' : ($qAge > 1800 || $failed > 10 ? 'warn' : 'ok'),
-            t('health.queue', ['n' => $pending, 'failed' => $failed, 'held' => $held]) . ($qAge > 1800 ? ' — ' . t('health.queue_oldest', ['ago' => self::ago($qAge)]) : ''), 'admin/logs');
+        $parkedMail = (int) DB::value("SELECT COUNT(*) FROM mail_queue WHERE status = 'parked'");
+        $add('queue', $qAge > 7200 ? 'fail' : ($qAge > 1800 || $failed > 10 || $parkedMail ? 'warn' : 'ok'),
+            t('health.queue', ['n' => $pending, 'failed' => $failed, 'held' => $held]) . ($qAge > 1800 ? ' — ' . t('health.queue_oldest', ['ago' => self::ago($qAge)]) : '')
+            . ($parkedMail ? ' — ' . t('health.queue_parked', ['n' => $parkedMail]) : ''), 'admin/logs');
+
+        // Tasks of the scheduled run: set aside after stopping it, or failing.
+        $parkedJobs = \M4W\Service\Jobs::parked($now);
+        $failing = array_diff_key(\M4W\Service\Jobs::failing($now), $parkedJobs);
+        if ($parkedJobs) {
+            $add('jobs', 'fail', t('health.jobs_parked', ['tasks' => implode(', ', array_keys($parkedJobs))]), 'help#a-ops');
+        } elseif ($failing) {
+            $add('jobs', 'warn', t('health.jobs_failing', ['tasks' => implode(', ', array_map(static fn($k, $e) => $k . ' (' . $e['last_error'] . ')', array_keys($failing), $failing))]), 'help#a-ops');
+        } else {
+            $add('jobs', 'ok', t('health.jobs_ok'));
+        }
 
         // Disk.
         $path = Config::storagePath('');
@@ -244,7 +257,7 @@ final class Health
             $prev = $before[$key] ?? ['state' => 'ok', 'since' => $now, 'told' => 0];
             $since = $prev['state'] === $c['state'] ? (int) $prev['since'] : $now;
             $told = $prev['state'] === $c['state'] ? (int) $prev['told'] : 0;
-            if ($c['state'] === 'fail' || ($c['state'] === 'warn' && in_array(explode(':', $key)[0], ['cert', 'backup', 'disk', 'queue', 'cron', 'files'], true))) {
+            if ($c['state'] === 'fail' || ($c['state'] === 'warn' && in_array(explode(':', $key)[0], ['cert', 'backup', 'disk', 'queue', 'cron', 'files', 'jobs'], true))) {
                 // New problem, or still there a day later.
                 if ($told === 0 || $now - $told >= 86400) {
                     $bad[] = $c;

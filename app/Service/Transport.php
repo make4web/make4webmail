@@ -224,67 +224,117 @@ final class Transport
         ]);
     }
 
-    /** Process due queue entries. Returns number processed. */
-    public static function processQueue(int $max = 50): int
+    /** A message taken for this long without an outcome: its worker died while sending it. */
+    public const STALE_SECONDS = 300;
+    /** Times a message may stop the worker before it is set aside ("parked"). */
+    public const MAX_CRASHES = 2;
+
+    /**
+     * Send what is due, oldest first. What the sending itself adds to the queue (a rule passing a
+     * message on, an automatic answer) is taken in the same run, until the queue is empty or
+     * $seconds have gone: a chain of rules does not wait one scheduled run per step.
+     * Returns the number of messages processed.
+     */
+    public static function processQueue(int $max = 50, int $seconds = 10): int
     {
-        $rows = DB::all(
-            "SELECT * FROM mail_queue WHERE status = 'pending' AND next_attempt_at <= :n ORDER BY id LIMIT $max",
-            ['n' => time()]
-        );
+        self::recoverStale();
+        $until = microtime(true) + max(1, $seconds);
         $n = 0;
-        foreach ($rows as $row) {
-            // Claim the row to avoid double sending from concurrent workers.
-            $claimed = DB::run("UPDATE mail_queue SET status = 'sending' WHERE id = :id AND status = 'pending'", ['id' => $row['id']])->rowCount();
-            if (!$claimed) {
-                continue;
+        $seen = [];
+        while ($n < $max && microtime(true) < $until) {
+            $rows = DB::all(
+                "SELECT * FROM mail_queue WHERE status = 'pending' AND next_attempt_at <= :n ORDER BY id LIMIT " . (int) min(50, $max - $n),
+                ['n' => time()]
+            );
+            $rows = array_values(array_filter($rows, static fn($r) => !isset($seen[(int) $r['id']])));
+            if (!$rows) {
+                break;
             }
-            $n++;
-            $path = storage_path($row['raw_path']);
-            $raw = is_file($path) ? (string) file_get_contents($path) : '';
-            if ($raw === '') {
-                DB::update('mail_queue', ['status' => 'failed', 'last_error' => 'message file missing'], 'id = :id', ['id' => $row['id']]);
-                continue;
-            }
-            $rcpts = json_decode((string) $row['recipients'], true) ?: [];
-            try {
-                // Relayed mail keeps its author's From: and their own signature; ours would vouch for it.
-                $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null, $row['kind'] !== 'forward', true, (string) $row['kind']);
-            } catch (\Throwable $e) {
-                DB::update('mail_queue', [
-                    'status' => 'pending', 'attempts' => (int) $row['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500),
-                    'next_attempt_at' => time() + 300,
-                ], 'id = :id', ['id' => $row['id']]);
-                continue;
-            }
-            if ($res['deferred']) {
-                // Hourly limit of the provider: wait for the window, it is not a failed attempt.
-                DB::update('mail_queue', [
-                    'status' => 'pending', 'last_error' => $res['note'] ?? Collector::HELD, 'attempts' => (int) $row['attempts'] + ($res['failed'] ? 1 : 0),
-                    'recipients' => json_encode(array_values(array_merge($res['deferred'], array_keys($res['failed'])))), 'next_attempt_at' => max(time() + 30, $res['retry_at']),
-                ], 'id = :id', ['id' => $row['id']]);
-                continue;
-            }
-            $attempts = (int) $row['attempts'] + 1;
-            if (!$res['failed']) {
-                DB::update('mail_queue', ['status' => 'sent', 'attempts' => $attempts, 'sent_at' => time(), 'last_error' => ''], 'id = :id', ['id' => $row['id']]);
-                @unlink($path);
-                continue;
-            }
-            $remaining = array_keys($res['failed']);
-            $error = mb_substr(implode('; ', $res['failed']), 0, 500);
-            $permanent = (bool) preg_match('/SMTP 5\d\d/', $error);
-            if ($permanent || $attempts >= 8) {
-                DB::update('mail_queue', ['status' => 'failed', 'attempts' => $attempts, 'last_error' => $error], 'id = :id', ['id' => $row['id']]);
-                self::bounce($row, $raw, $remaining, $error);
-            } else {
-                $delay = min(6 * 3600, 60 * (2 ** $attempts));
-                DB::update('mail_queue', [
-                    'status' => 'pending', 'attempts' => $attempts, 'last_error' => $error,
-                    'recipients' => json_encode($remaining), 'next_attempt_at' => time() + $delay,
-                ], 'id = :id', ['id' => $row['id']]);
+            foreach ($rows as $row) {
+                $seen[(int) $row['id']] = true;
+                if (self::processOne($row)) {
+                    $n++;
+                }
             }
         }
         return $n;
+    }
+
+    /**
+     * Messages left "sending" by a worker that died (fatal error, memory, killed): back in the
+     * queue, or set aside after MAX_CRASHES — logged, shown in Supervision — so that one message
+     * never blocks the others.
+     */
+    public static function recoverStale(): int
+    {
+        $rows = DB::all("SELECT id, crashes, recipients, kind FROM mail_queue WHERE status = 'sending' AND claimed_at < :t", ['t' => time() - self::STALE_SECONDS]);
+        foreach ($rows as $r) {
+            $crashes = (int) $r['crashes'] + 1;
+            if ($crashes >= self::MAX_CRASHES) {
+                $why = 'parked: sending it stopped the worker ' . $crashes . ' times';
+                DB::update('mail_queue', ['status' => 'parked', 'crashes' => $crashes, 'last_error' => $why], 'id = :id', ['id' => $r['id']]);
+                error_log('[m4w] queue: message ' . $r['id'] . ' ' . $why);
+                \M4W\Core\Audit::log('queue.parked', '#' . $r['id'] . ' ' . mb_substr((string) $r['recipients'], 0, 200), ['kind' => $r['kind'], 'crashes' => $crashes]);
+            } else {
+                DB::update('mail_queue', ['status' => 'pending', 'crashes' => $crashes, 'next_attempt_at' => time() + 60, 'last_error' => 'worker stopped while sending, retried'], 'id = :id', ['id' => $r['id']]);
+            }
+        }
+        return count($rows);
+    }
+
+    /** Send one queue entry (claimed first: several workers may run). Whether it was processed. */
+    private static function processOne(array $row): bool
+    {
+        // Claim the row to avoid double sending from concurrent workers.
+        $claimed = DB::run("UPDATE mail_queue SET status = 'sending', claimed_at = :t WHERE id = :id AND status = 'pending'", ['id' => $row['id'], 't' => time()])->rowCount();
+        if (!$claimed) {
+            return false;
+        }
+        $path = storage_path($row['raw_path']);
+        $raw = is_file($path) ? (string) file_get_contents($path) : '';
+        if ($raw === '') {
+            DB::update('mail_queue', ['status' => 'failed', 'last_error' => 'message file missing'], 'id = :id', ['id' => $row['id']]);
+            return true;
+        }
+        $rcpts = json_decode((string) $row['recipients'], true) ?: [];
+        try {
+            // Relayed mail keeps its author's From: and their own signature; ours would vouch for it.
+            $res = self::send($raw, $row['envelope_from'], $rcpts, $row['user_id'] !== null ? (int) $row['user_id'] : null, $row['kind'] !== 'forward', true, (string) $row['kind']);
+        } catch (\Throwable $e) {
+            DB::update('mail_queue', [
+                'status' => 'pending', 'attempts' => (int) $row['attempts'] + 1, 'last_error' => mb_substr($e->getMessage(), 0, 500),
+                'next_attempt_at' => time() + 300,
+            ], 'id = :id', ['id' => $row['id']]);
+            return true;
+        }
+        if ($res['deferred']) {
+            // Hourly limit of the provider: wait for the window, it is not a failed attempt.
+            DB::update('mail_queue', [
+                'status' => 'pending', 'last_error' => $res['note'] ?? Collector::HELD, 'attempts' => (int) $row['attempts'] + ($res['failed'] ? 1 : 0),
+                'recipients' => json_encode(array_values(array_merge($res['deferred'], array_keys($res['failed'])))), 'next_attempt_at' => max(time() + 30, $res['retry_at']),
+            ], 'id = :id', ['id' => $row['id']]);
+            return true;
+        }
+        $attempts = (int) $row['attempts'] + 1;
+        if (!$res['failed']) {
+            DB::update('mail_queue', ['status' => 'sent', 'attempts' => $attempts, 'sent_at' => time(), 'last_error' => ''], 'id = :id', ['id' => $row['id']]);
+            @unlink($path);
+            return true;
+        }
+        $remaining = array_keys($res['failed']);
+        $error = mb_substr(implode('; ', $res['failed']), 0, 500);
+        $permanent = (bool) preg_match('/SMTP 5\d\d/', $error);
+        if ($permanent || $attempts >= 8) {
+            DB::update('mail_queue', ['status' => 'failed', 'attempts' => $attempts, 'last_error' => $error], 'id = :id', ['id' => $row['id']]);
+            self::bounce($row, $raw, $remaining, $error);
+        } else {
+            $delay = min(6 * 3600, 60 * (2 ** $attempts));
+            DB::update('mail_queue', [
+                'status' => 'pending', 'attempts' => $attempts, 'last_error' => $error,
+                'recipients' => json_encode($remaining), 'next_attempt_at' => time() + $delay,
+            ], 'id = :id', ['id' => $row['id']]);
+        }
+        return true;
     }
 
     /** Notify a local sender that a queued message could not be delivered. */

@@ -167,6 +167,14 @@
     this.bind();
     this.bindDrag();
     if (window.matchMedia('(max-width: 991.98px)').matches) this.$el.addClass('mobile');
+    // Desktop: opens in the middle of the screen (a second window a little lower and to the right),
+    // then stays where it is moved.
+    if (window.innerWidth >= 768) {
+      var el = this.$el[0], others = $('.m4w-compose').not(this.$el).length;
+      this.pos = { x: Math.round((window.innerWidth - el.offsetWidth) / 2) + others * 28, y: Math.round((window.innerHeight - el.offsetHeight) / 2) + others * 28 };
+      this.$el.addClass('floating');
+      this.place();
+    }
     this.load(opts);
   }
 

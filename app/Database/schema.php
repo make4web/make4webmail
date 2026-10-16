@@ -919,4 +919,10 @@ static function (): void {
 "CREATE INDEX fs_files_blob ON fs_files(blob_id)",
 "CREATE INDEX fs_versions_blob ON fs_versions(blob_id)",
 ],
+33 => [
+// Outgoing queue: when a message was taken, and how many times its sending stopped the worker
+// (a message that keeps doing it is set aside, "parked", instead of blocking the queue).
+"ALTER TABLE mail_queue ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE mail_queue ADD COLUMN crashes INTEGER NOT NULL DEFAULT 0",
+],
 ];

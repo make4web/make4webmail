@@ -23,7 +23,7 @@
   <table class="table table-hover small"><thead><tr><th>#</th><th><?= te('admin.q_kind') ?></th><th><?= te('mail.to') ?></th><th><?= te('admin.status') ?></th><th><?= te('admin.q_attempts') ?></th><th><?= te('admin.q_error') ?></th><th></th></tr></thead><tbody>
   <?php foreach ($queue as $q2): ?>
     <tr><td><?= (int) $q2['id'] ?></td><td><span class="badge badge-soft-secondary"><?= e($q2['kind']) ?></span></td><td class="text-truncate" style="max-width:240px"><?= e(implode(', ', json_decode((string) $q2['recipients'], true) ?: [])) ?></td>
-    <td><span class="badge <?= ['sent' => 'badge-soft-success', 'failed' => 'badge-soft-danger'][$q2['status']] ?? 'badge-soft-warning' ?>"><?= e($q2['status']) ?></span></td><td><?= (int) $q2['attempts'] ?></td>
+    <td><span class="badge <?= ['sent' => 'badge-soft-success', 'failed' => 'badge-soft-danger', 'parked' => 'badge-soft-danger'][$q2['status']] ?? 'badge-soft-warning' ?>"><?= e($q2['status']) ?></span></td><td><?= (int) $q2['attempts'] ?></td>
     <td class="text-truncate text-danger" style="max-width:300px" title="<?= e($q2['last_error']) ?>"><?= e($q2['last_error']) ?></td>
     <td class="text-end text-nowrap"><?php if ($q2['status'] !== 'sent'): ?><form method="post" action="<?= e(url('admin/queue/retry')) ?>" class="d-inline"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $q2['id'] ?>"><button class="btn btn-ghost btn-sm"><i class="bi bi-arrow-repeat"></i></button></form><?php endif; ?>
       <form method="post" action="<?= e(url('admin/queue/delete')) ?>" class="d-inline"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $q2['id'] ?>"><button class="btn btn-ghost btn-sm text-danger"><i class="bi bi-trash3"></i></button></form></td></tr>

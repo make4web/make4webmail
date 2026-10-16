@@ -140,6 +140,7 @@ final class MailController extends Controller
             'threads' => !empty($q['threads']),
             'in_folder' => !empty($q['in_folder']),
         ]);
+        $res['stamp'] = self::folderStamp((int) $u['id'], (int) ($q['folder'] ?? 0));
         return $this->ok($res);
     }
 
@@ -759,6 +760,17 @@ final class MailController extends Controller
         return $this->ok([]);
     }
 
+    /** Changes with any message of the folder coming, going, read, starred or pinned ('' if none). */
+    private static function folderStamp(int $uid, int $fid): string
+    {
+        if (!$fid || !Folders::find($uid, $fid)) {
+            return '';
+        }
+        $s = DB::one('SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS ids, COALESCE(SUM(is_read), 0) AS r, COALESCE(SUM(is_flagged), 0) AS f, COALESCE(SUM(is_pinned), 0) AS p
+            FROM messages WHERE user_id = :u AND folder_id = :f' . Mailbox::privacySql($uid), ['u' => $uid, 'f' => $fid]);
+        return substr(md5(implode('|', array_map('strval', (array) $s))), 0, 16);
+    }
+
     public function poll(): Response
     {
         $u = $this->user();
@@ -776,7 +788,11 @@ final class MailController extends Controller
             ['u' => $u['id'], 'f' => $inbox['id'], 's' => $since]
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
+        // Fingerprint of the folder on screen: read, starred, moved or deleted elsewhere (another
+        // device, the provider's mailbox, a rule) and the list is refreshed.
+        $stamp = self::folderStamp((int) $u['id'], (int) ($this->req->query['folder'] ?? 0));
         return $this->ok([
+            'stamp'   => $stamp,
             'remote'  => ($rmAcc = \M4W\Service\RemoteMailbox::active() ? \M4W\Service\RemoteMailbox::find((int) $u['id']) : \M4W\Service\RemoteMailbox::personal((int) $u['id'])) !== null || \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status($rmAcc)] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
