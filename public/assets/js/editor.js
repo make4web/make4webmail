@@ -57,6 +57,9 @@
         font: { list: { 'Arial,Helvetica,sans-serif': 'Arial', 'Calibri,Carlito,sans-serif': 'Calibri', 'Georgia,serif': 'Georgia', 'Tahoma,Geneva,sans-serif': 'Tahoma', '"Times New Roman",Times,serif': 'Times New Roman', 'Verdana,Geneva,sans-serif': 'Verdana', '"Courier New",Courier,monospace': 'Courier New' } },
         fontsize: { list: ['10', '12', '13', '14', '16', '18', '24', '32'] }
       },
+      // Enter starts a new line, not a paragraph with a blank line around it (as in Gmail, Outlook,
+      // Roundcube); Shift+Enter is a plain line break.
+      enter: 'div',
       cleanHTML: { denyTags: 'script,iframe,object,embed,form,input,button,style,link,meta' },
       uploader: o.onImage ? {
         // All uploads go through the webmail API (CSRF-protected); the server turns them into CID parts.
@@ -106,7 +109,7 @@
       $c.find('[data-m4w-sig-preview]').remove();
       html = $c.html();
     }
-    return html === '<p><br></p>' ? '' : html;
+    return html === '<p><br></p>' || html === '<div><br></div>' ? '' : html;
   };
   Editor.prototype.setHTML = function (html) {
     this.ed.value = html || '';

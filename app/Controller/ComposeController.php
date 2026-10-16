@@ -122,7 +122,7 @@ final class ComposeController extends Controller
             $out['subject'] = ($fr ? 'RE: ' : 'Re: ') . $clean;
             $who = e(Address::format($from['email'], $from['name']));
             $intro = $fr ? "Le $dateStr, $who a écrit :" : "On $dateStr, $who wrote:";
-            $out['html'] = '<p><br></p><div data-m4w-quote="1"><div style="color:#64748b;margin:12px 0 6px">' . $intro . '</div>'
+            $out['html'] = '<div><br></div><div data-m4w-quote="1"><div style="color:#64748b;margin:12px 0 6px">' . $intro . '</div>'
                 . '<blockquote style="margin:0 0 0 .8ex;border-left:2px solid #cbd5e1;padding-left:1ex">' . $quotedBody . '</blockquote></div>';
             // Pick the identity the original was addressed to.
             foreach (array_merge($parsed->to(), $parsed->cc()) as $a) {
@@ -140,7 +140,7 @@ final class ComposeController extends Controller
                 . '<b>' . ($fr ? 'Objet' : 'Subject') . ' :</b> ' . e($subject) . '<br>'
                 . '<b>' . ($fr ? 'À' : 'To') . ' :</b> ' . $fmt($parsed->to())
                 . ($parsed->cc() ? '<br><b>Cc :</b> ' . $fmt($parsed->cc()) : '') . '</div>';
-            $out['html'] = '<p><br></p><div data-m4w-quote="1">' . $hdr . $quotedBody . '</div>';
+            $out['html'] = '<div><br></div><div data-m4w-quote="1">' . $hdr . $quotedBody . '</div>';
             $out['ref_attachments'] = array_values(array_filter(json_decode((string) $m['attachments'], true) ?: [], static fn($a) => !$a['inline']));
         }
         return $this->ok(['compose' => $out, 'signature' => Signatures::render($u, 'preview', true)['html']]);

@@ -120,6 +120,8 @@
     else if (S.folder && !S.q) $('.m4w-nav-item[data-folder="' + S.folder + '"]').addClass('active');
     var f = S.byId[S.folder];
     $('#m4w-folder-title').text(S.q ? (S.q === 'is:starred' ? t('starred') : t('search_results', { q: S.q })) : (f ? f.name : ''));
+    var ficon = S.q ? (S.q === 'is:starred' ? 'star' : 'search') : (!f || f.role === 'inbox' ? 'envelope' : (f.icon || 'folder2-open'));
+    $('#m4w-folder-icon').attr('title', $('#m4w-folder-title').text()).html('<i class="bi bi-' + esc(ficon) + '"></i>');
     $('[data-action=empty-folder]').toggleClass('d-none', !(f && !S.q && (f.role === 'trash' || f.role === 'spam')));
   }
 
@@ -262,8 +264,11 @@
   function itemById(id) { for (var i = 0; i < S.items.length; i++) if (S.items[i].id === +id) return S.items[i]; return null; }
 
   // ------------------------------------------------------------ selection
+  // Phones: a long press selects, then a tap adds or removes a message (no Ctrl / Shift there).
+  var phoneMq = window.matchMedia ? window.matchMedia('(max-width: 767.98px)') : null;
+  function isPhone() { return !!(phoneMq && phoneMq.matches); }
   function selectedIds() { return Object.keys(S.selected).map(Number); }
-  function clearSelection() { S.selected = {}; syncSelectionUi(); }
+  function clearSelection() { S.selected = {}; $scroll.find('.m4w-row.checked').removeClass('checked').find('.m4w-check').prop('checked', false); syncSelectionUi(); }
   function toggleSelect(id, on) {
     if (on === undefined) on = !S.selected[id];
     if (on) S.selected[id] = true; else delete S.selected[id];
@@ -273,7 +278,7 @@
   function syncSelectionUi() {
     var n = selectedIds().length;
     $list.toggleClass('has-selection', n > 0);
-    $('#m4w-sel-count').text(n ? t('selected_count', { n: n }) : '');
+    $('#m4w-sel-count, [data-sel-count]').text(n ? t('selected_count', { n: n }) : '');
     var all = S.items.length && n === S.items.length;
     $('#m4w-select-all').prop('checked', !!all).prop('indeterminate', n > 0 && !all);
   }
@@ -845,6 +850,7 @@
         return;
       }
       if (e.ctrlKey || e.metaKey) { toggleSelect(id); S.lastClicked = id; return; }
+      if (isPhone() && selectedIds().length) { toggleSelect(id); S.lastClicked = id; return; }
       S.lastClicked = id;
       if (S.folder) go(S.folder, id); else openSearchResult(id);
     });
@@ -867,8 +873,32 @@
         action(act, [id], { thread: S.prefs.conversations && !S.q, noReload: true, silent: true });
       } else { bulk(act, [id]); }
     });
+    var press = null, pressedAt = 0;
+    $scroll.on('pointerdown', '.m4w-row', function (e) {
+      if (!isPhone() || e.originalEvent.pointerType === 'mouse') return;
+      if ($(e.target).closest('.m4w-check, .m4w-star, .m4w-row-hover').length) return;
+      var row = this, oe = e.originalEvent;
+      clearTimeout(press && press.timer);
+      press = { x: oe.clientX, y: oe.clientY, timer: setTimeout(function () {
+        press = null; pressedAt = Date.now();
+        toggleSelect(+$(row).data('id'), true);
+        if (navigator.vibrate) { try { navigator.vibrate(20); } catch (err) { /* not allowed */ } }
+      }, 500) };
+    });
+    $scroll.on('pointermove', '.m4w-row', function (e) {
+      if (!press) return;
+      var oe = e.originalEvent;
+      if (Math.abs(oe.clientX - press.x) > 10 || Math.abs(oe.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; }
+    });
+    $scroll.on('pointerup pointercancel', '.m4w-row', function () { if (press) { clearTimeout(press.timer); press = null; } });
+    // The click that ends a long press must not unselect or open the message.
+    $scroll[0].addEventListener('click', function (e) {
+      if (pressedAt && Date.now() - pressedAt < 800) { pressedAt = 0; e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    $(document).on('click', '[data-sel-close]', function () { clearSelection(); });
     $scroll.on('contextmenu', '.m4w-row', function (e) {
       e.preventDefault();
+      if (isPhone()) return; // long press: handled above, no menu
       var id = +$(this).data('id');
       if (!S.selected[id]) { clearSelection(); toggleSelect(id, true); }
       contextMenu(e.clientX, e.clientY);

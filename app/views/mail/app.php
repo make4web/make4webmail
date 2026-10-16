@@ -28,8 +28,9 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
   <div class="m4w-main pane-<?= e($pane) ?>" id="m4w-main">
     <section class="m4w-panel m4w-list" id="m4w-list" aria-label="<?= te('mail.list') ?>">
       <div class="m4w-list-toolbar">
+        <span class="m4w-folder-icon" id="m4w-folder-icon" aria-hidden="true"><i class="bi bi-envelope"></i></span>
         <input class="form-check-input m-0 me-1" type="checkbox" id="m4w-select-all" aria-label="<?= te('mail.select_all') ?>">
-        <div class="dropdown">
+        <div class="dropdown m4w-sel-menu">
           <button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown" aria-label="<?= te('mail.select') ?>"><i class="bi bi-chevron-down" style="font-size:.7rem"></i></button>
           <div class="dropdown-menu">
             <button class="dropdown-item" data-select="all"><?= te('mail.sel_all') ?></button>
@@ -83,6 +84,26 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
         <button type="button" class="btn-close btn-sm" data-invite-close aria-label="<?= te('common.close') ?>"></button>
       </div>
       <?php endif; ?>
+      <?php /* Phones: in selection mode (long press), the commands take the place of the filters. */ ?>
+      <div class="m4w-sel-bar" id="m4w-sel-bar" role="toolbar" aria-label="<?= te('mail.selection') ?>">
+        <button class="btn btn-ghost btn-icon" data-sel-close title="<?= te('mail.sel_close') ?>" aria-label="<?= te('mail.sel_close') ?>"><i class="bi bi-x-lg"></i></button>
+        <span class="m4w-sel-bar-count" data-sel-count></span>
+        <span class="ms-auto"></span>
+        <button class="btn btn-ghost btn-icon" data-bulk="archive" title="<?= te('mail.archive') ?>" aria-label="<?= te('mail.archive') ?>"><i class="bi bi-archive"></i></button>
+        <button class="btn btn-ghost btn-icon" data-bulk="delete" title="<?= te('mail.delete') ?>" aria-label="<?= te('mail.delete') ?>"><i class="bi bi-trash3"></i></button>
+        <button class="btn btn-ghost btn-icon" data-bulk="read" title="<?= te('mail.mark_read') ?>" aria-label="<?= te('mail.mark_read') ?>"><i class="bi bi-envelope-open"></i></button>
+        <button class="btn btn-ghost btn-icon" data-bulk="unread" title="<?= te('mail.mark_unread') ?>" aria-label="<?= te('mail.mark_unread') ?>"><i class="bi bi-envelope"></i></button>
+        <div class="dropdown">
+          <button class="btn btn-ghost btn-icon" data-bs-toggle="dropdown" title="<?= te('mail.more') ?>" aria-label="<?= te('mail.more') ?>"><i class="bi bi-three-dots-vertical"></i></button>
+          <div class="dropdown-menu dropdown-menu-end">
+            <button class="dropdown-item" data-bulk="flag"><i class="bi bi-star"></i><?= te('mail.flag') ?></button>
+            <button class="dropdown-item" data-bulk="spam"><i class="bi bi-exclamation-octagon"></i><?= te('mail.spam') ?></button>
+            <button class="dropdown-item" data-select="all"><i class="bi bi-check2-all"></i><?= te('mail.sel_all') ?></button>
+            <div class="dropdown-divider"></div>
+            <div data-move-menu></div>
+          </div>
+        </div>
+      </div>
       <div class="m4w-filter-row" id="m4w-filters" role="toolbar" aria-label="<?= te('mail.filters') ?>">
         <button class="m4w-chip active" data-filter=""><?= te('mail.f_all') ?></button>
         <button class="m4w-chip" data-filter="unread"><i class="bi bi-envelope"></i><?= te('mail.f_unread') ?></button>

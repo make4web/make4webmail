@@ -7,6 +7,51 @@
   var ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   var reg = null, ready = $.Deferred();
 
+  // ------------------------------------------------------- install invitation (phones and tablets)
+  // In a mobile browser, the app is offered for the home screen: Android hands its install
+  // prompt (beforeinstallprompt), iOS has none, so its two taps are explained. "Later" waits 30 days.
+  var mobile = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) && Math.min(screen.width, screen.height) < 1024;
+  var inApp = /FBAN|FBAV|Instagram|Line\/|LinkedInApp|Twitter|MicroMessenger/i.test(navigator.userAgent); // in-app browsers cannot install
+  var LATER_KEY = 'm4w.install.later', LATER_MS = 30 * 86400000, deferredPrompt = null;
+  function later() { try { return Date.now() - (+window.localStorage.getItem(LATER_KEY) || 0) < LATER_MS; } catch (e) { return false; } }
+  var installOffered = mobile && !standalone && !inApp && !later();
+  function hideInstall() { $('#m4w-install').remove(); }
+  function showInstall(kind) {
+    if (!installOffered || $('#m4w-install').length) return;
+    var name = $('meta[name=apple-mobile-web-app-title]').attr('content') || document.title;
+    var icon = $('link[rel=apple-touch-icon]').attr('href') || '';
+    var text = kind === 'ios'
+      ? t('install_ios_html', { share: '<i class="bi bi-box-arrow-up" aria-label="' + M4W.esc(t('install_share')) + '"></i>' })
+      : M4W.esc(t('install_text'));
+    var $c = $('<div class="m4w-install" id="m4w-install" role="dialog" aria-live="polite"></div>').attr('aria-label', t('install_title', { name: name }))
+      .append($('<img alt="" width="44" height="44">').attr('src', icon))
+      .append($('<div class="m4w-install-text"></div>').append($('<strong></strong>').text(t('install_title', { name: name }))).append($('<span></span>').html(text)))
+      .append($('<div class="m4w-install-actions"></div>')
+        .append($('<button type="button" class="btn btn-light btn-sm" data-install-later></button>').text(t(kind === 'ios' ? 'install_ok' : 'install_later')))
+        .append(kind === 'ios' ? '' : $('<button type="button" class="btn btn-primary btn-sm" data-install-go></button>').text(t('install_go'))));
+    $('body').append($c);
+  }
+  $(document).on('click', '[data-install-later]', function () {
+    try { window.localStorage.setItem(LATER_KEY, String(Date.now())); } catch (e) {}
+    installOffered = false; hideInstall();
+  });
+  $(document).on('click', '[data-install-go]', function () {
+    if (!deferredPrompt) { hideInstall(); return; }
+    var p = deferredPrompt; deferredPrompt = null;
+    p.prompt();
+    p.userChoice.then(function (c) { hideInstall(); if (c && c.outcome !== 'accepted') { try { window.localStorage.setItem(LATER_KEY, String(Date.now())); } catch (e) {} } }, hideInstall);
+  });
+  window.addEventListener('beforeinstallprompt', function (e) {
+    if (!installOffered) return; // the browser keeps its own menu entry
+    e.preventDefault();
+    deferredPrompt = e;
+    setTimeout(function () { showInstall('prompt'); }, 1500);
+  });
+  window.addEventListener('appinstalled', function () { installOffered = false; hideInstall(); });
+  if (installOffered && ios) {
+    $(function () { setTimeout(function () { showInstall('ios'); }, 2500); });
+  }
+
   function b64uToBytes(s) {
     var raw = window.atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
     var out = new Uint8Array(raw.length);
@@ -87,7 +132,7 @@
     });
   }
 
-  M4W.Push = { supported: supported, standalone: standalone, ios: ios, state: state, enable: enable, disable: disable, currentHash: currentHash };
+  M4W.Push = { supported: supported, standalone: standalone, ios: ios, state: state, enable: enable, disable: disable, currentHash: currentHash, showInstall: showInstall };
 
   // ---------------------------------------------------------------- settings block
   $(function () {
@@ -131,6 +176,7 @@
     try { if (window.localStorage.getItem(key)) return; } catch (e) {}
     state().done(function (s) {
       if (s !== 'off' && s !== 'ios-install') return;
+      if (s === 'ios-install' && installOffered) return; // the install card says it already
       $inv.find('[data-invite]').addClass('d-none').filter('[data-invite="' + (s === 'off' ? 'enable' : 'ios') + '"]').removeClass('d-none');
       $inv.removeClass('d-none');
     });
