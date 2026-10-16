@@ -1363,6 +1363,20 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-meet-dl { margin-top: .35rem; }
 .m4w-meet-box { padding: .5rem .75rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-2); }
 
+/* Swiping a message row on a touch screen: the action shows underneath. */
+@media (pointer: coarse) { .m4w-row { touch-action: pan-y; } }
+.m4w-row.m4w-swiping { z-index: 2; will-change: transform; }
+.m4w-swipe-under { position: absolute; left: 0; right: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 1.25rem;
+  color: #fff; font-weight: 600; font-size: .85rem; background: var(--m4w-muted); }
+.m4w-swipe-under span { display: inline-flex; align-items: center; gap: .5rem; }
+.m4w-swipe-under .bi { font-size: 1.25rem; transition: transform .15s ease; }
+.m4w-swipe-under.armed .bi { transform: scale(1.3); }
+.m4w-swipe-under.is-delete { background: #dc2626; }
+.m4w-swipe-under.is-archive { background: #16a34a; }
+.m4w-swipe-under.is-read { background: #2563eb; }
+.m4w-swipe-under.is-flag { background: #d97706; }
+.m4w-swipe-under:not(.armed) { filter: saturate(.55) brightness(1.05); }
+
 /* "Install the app" card, phones and tablets in a browser. */
 .m4w-install { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 1080; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
   padding: .85rem 1rem; background: var(--m4w-surface); color: var(--m4w-text); border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius-lg); box-shadow: 0 10px 30px rgba(15, 23, 42, .25);
