@@ -2172,5 +2172,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.pw_rule_len' => 'At least :n characters',
     'js.pw_rule_classes' => 'At least :n kinds among lower case, upper case, digits, symbols',
     'js.ra_divert' => 'Redirect to',
-    'js.divert_hint' => 'The message goes on as it is to this address and is not kept in this mailbox. If it is judged spam, or the address is no longer allowed, it is kept here.',
+    'js.divert_hint' => 'The message goes on as it is to this address and does not stay in the inbox (with “Copy to” or “Move to” in the same rule, it is kept in that folder only). If it is judged spam, or the address is no longer allowed, it is kept here.',
 ];

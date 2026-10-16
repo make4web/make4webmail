@@ -162,10 +162,18 @@ final class Delivery
                 }
             }
             if ($diverted && !$actions['discard']) {
-                Retention::keepIncoming($user, $userRaw);
-                $results[$rcpt] = 'ok';
-                Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', 'redirected by rule to ' . implode(', ', $diverted));
-                continue;
+                // Redirected, but also filed by a rule ("Copy to", "Move to"): kept in those folders
+                // only, never in the inbox.
+                $moved = $actions['folder'] && $folderId === (int) $actions['folder'] ? $folderId : 0;
+                $filed = array_values(array_unique(array_filter(array_merge([$moved], $actions['copies']))));
+                if (!$filed) {
+                    Retention::keepIncoming($user, $userRaw);
+                    $results[$rcpt] = 'ok';
+                    Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', 'redirected by rule to ' . implode(', ', $diverted));
+                    continue;
+                }
+                $folderId = (int) array_shift($filed);
+                $actions['copies'] = $filed;
             }
             if ($actions['discard']) {
                 Retention::keepIncoming($user, $userRaw);

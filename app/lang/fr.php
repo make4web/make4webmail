@@ -2245,5 +2245,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.pw_rule_len' => 'Au moins :n caractères',
     'js.pw_rule_classes' => 'Au moins :n types parmi minuscules, majuscules, chiffres, symboles',
     'js.ra_divert' => 'Rediriger vers',
-    'js.divert_hint' => 'Le message part tel quel à cette adresse et n\'est pas rangé dans cette boîte. S\'il est jugé indésirable, ou si l\'adresse n\'est plus autorisée, il est gardé ici.',
+    'js.divert_hint' => 'Le message part tel quel à cette adresse et ne reste pas dans la boîte de réception (avec « Copier dans » ou « Déplacer vers » dans la même règle, il est gardé dans ce dossier seulement). S\'il est jugé indésirable, ou si l\'adresse n\'est plus autorisée, il est gardé ici.',
 ];

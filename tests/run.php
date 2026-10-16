@@ -402,8 +402,17 @@ test('rule: redirect (sent on, not kept) vs forward a copy (kept)', function () 
     eq($count(), $n + 1, 'spam kept');
     eq((int) DB::value('SELECT COUNT(*) FROM mail_queue'), 0, 'spam not redirected');
 
+    // Redirected and copied to a folder by the same rule: kept in that folder only, not the inbox.
+    $b1 = Folders::create($uid, 'b1');
+    $r3 = DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'b1', 'enabled' => 1, 'stop_processing' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'boite1']],
+        'actions' => [['type' => 'copy', 'folder' => $b1], ['type' => 'divert', 'to' => 'carole@ext.com']]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    DB::run('DELETE FROM mail_queue');
+    Delivery::deliver($sendTo('bob@test.local', 'Test boite1'), 'client@ext.com', ['bob@test.local']);
+    eq(array_column(DB::all("SELECT folder_id FROM messages WHERE user_id = :u AND subject = 'Test boite1'", ['u' => $uid]), 'folder_id'), [$b1], 'copied to b1 only');
+    eq(json_decode($lastFwd()['recipients'], true), ['carole@ext.com'], 'and redirected');
+
     ok(in_array('divert', RuleEngine::ACTIONS, true));
-    DB::run('DELETE FROM rules WHERE id IN (:a, :b)', ['a' => $r1, 'b' => $r2]);
+    DB::run('DELETE FROM rules WHERE id IN (:a, :b, :c)', ['a' => $r1, 'b' => $r2, 'c' => $r3]);
     DB::run('DELETE FROM mail_queue');
 });
 test('rule chain: A → B redirects to C → C forwards a copy to D → D files it', function () use ($sendTo) {
