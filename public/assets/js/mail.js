@@ -503,9 +503,10 @@
       + '<button class="dropdown-item text-danger" data-msg-act="delete"><i class="bi bi-trash3 text-danger"></i>' + esc(t('delete_this')) + '</button>'
       + '</span></span></span></div></div>'
       + banner
+      // Attachments at the top, under the sender (after the warnings): no scrolling down a long message.
+      + attachmentsHtml(msg)
       + invitationHtml(msg)
       + '<div class="m4w-msg-body">' + (expanded ? iframeHtml(msg.id) : '') + '</div>'
-      + attachmentsHtml(msg)
       + '</article>';
   }
 
