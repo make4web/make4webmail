@@ -2562,6 +2562,13 @@ test('pictures: an attachment shown again comes from the cleaned copy, whole', f
     ok((int) $again['size'] > 0);
     Mailbox::delete($uid, [$mid], true);
 });
+test('text version: one line per line, a blank line between paragraphs, quotes and <pre> kept', function () {
+    $html = "<div>Ma réponse ligne 1</div><div>ligne 2<br>ligne 3</div><p>Paragraphe A</p><p>Paragraphe B</p>"
+        . "<div class=\"m4w-signature\" data-m4w-signature=\"1\"><table>\n  <tr>\n    <td>\n      <div>Camille Martin</div>\n      <div>Administrateur</div>\n    </td>\n  </tr>\n</table></div>"
+        . "<blockquote><div class=\"m4w-plain\" style=\"white-space:pre-wrap\">Bonjour,\n\nLigne 1.\nLigne 2.\n</div></blockquote><pre>code\n  indenté</pre>";
+    eq(M4W\Mail\HtmlToText::convert($html), "Ma réponse ligne 1\nligne 2\nligne 3\nParagraphe A\n\nParagraphe B\n\nCamille Martin\nAdministrateur\n\nBonjour,\n\nLigne 1.\nLigne 2.\n\ncode\nindenté");
+    eq(M4W\Mail\HtmlToText::convert("<p>Un\n  texte\n  sur plusieurs lignes de source</p>"), 'Un texte sur plusieurs lignes de source', 'source line breaks are spaces');
+});
 test('pictures: CSS backgrounds and srcset found, a failed download tried again (three times in all)', function () use ($png, $bob) {
     $html = '<a href="https://www.instagram.com/x/"><img src="https://cdn.test/avatar.jpg?a=1&amp;b=2" width="94"></a>'
         . '<img srcset="https://cdn.test/set-1x.png 1x, https://cdn.test/set-2x.png 2x" width="20">'

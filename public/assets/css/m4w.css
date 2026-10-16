@@ -553,7 +553,7 @@ body.m4w-resizing iframe { pointer-events: none; }
 .m4w-setting-row:last-child { border-bottom: 0; }
 .m4w-setting-row .label { font-weight: 550; font-size: .875rem; }
 .m4w-setting-row .label small { display: block; color: var(--m4w-muted); font-weight: 400; margin-top: .2rem; font-size: .78rem; }
-.m4w-sticky-actions { position: sticky; bottom: -2.5rem; margin: 1.5rem -2rem -2.5rem; padding: 1rem 2rem; background: color-mix(in srgb, var(--m4w-surface) 88%, transparent); backdrop-filter: blur(8px); border-top: 1px solid var(--m4w-border); display: flex; gap: .5rem; justify-content: flex-end; border-radius: 0 0 var(--m4w-radius-lg) var(--m4w-radius-lg); z-index: 5; }
+.m4w-sticky-actions { position: sticky; bottom: -2rem; margin: 1.5rem -2rem -2.5rem; padding: 1rem 2rem; background: color-mix(in srgb, var(--m4w-surface) 88%, transparent); backdrop-filter: blur(8px); border-top: 1px solid var(--m4w-border); display: flex; gap: .5rem; justify-content: flex-end; border-radius: 0 0 var(--m4w-radius-lg) var(--m4w-radius-lg); z-index: 5; }
 .m4w-stat { padding: 1.1rem 1.2rem; border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius-lg); background: var(--m4w-surface); height: 100%; display: flex; gap: .9rem; align-items: center; transition: box-shadow .15s, transform .15s; }
 .m4w-stat:hover { box-shadow: var(--m4w-shadow); }
 .m4w-stat .icon { width: 46px; height: 46px; border-radius: var(--m4w-radius); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--m4w-primary-soft); color: var(--m4w-primary); flex-shrink: 0; }
@@ -675,6 +675,8 @@ textarea.m4w-code.m4w-code-short { min-height: 0; }
   .m4w-main.reading .m4w-reader { display: flex; flex: 1; }
   .m4w-page-content { padding: 0 .5rem 1rem; }
   .m4w-page-inner { padding: 1.25rem 1.1rem 2rem; }
+  /* The save bar spans the card on phones too (its padding is smaller there). */
+  .m4w-sticky-actions { bottom: -1rem; margin: 1.25rem -1.1rem -2rem; padding: .75rem 1.1rem calc(.75rem + env(safe-area-inset-bottom, 0px)); }
   .m4w-sticky-actions { margin: 1.5rem -1.1rem -2rem; padding: .8rem 1.1rem; }
   .m4w-setting-row { grid-template-columns: 1fr; gap: .6rem; }
   .m4w-auth { grid-template-columns: 1fr; }
