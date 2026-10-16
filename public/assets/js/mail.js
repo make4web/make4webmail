@@ -74,21 +74,113 @@
   M4W.go = go;
 
   // --------------------------------------------------------------- folders
-  function setFolders(list) {
+  /** @param {boolean} [arrived] figures from the server's check: an increase is mail that arrived. */
+  function setFolders(list, arrived) {
+    var before = {};
+    (S.folders || []).forEach(function (f) { before[f.id] = f.unread; });
     S.folders = list; S.byId = {}; S.byRole = {};
     list.forEach(function (f) { S.byId[f.id] = f; if (f.role) S.byRole[f.role] = f; });
     renderFolders();
     updateTitle();
+    // A count that went up catches the eye for a moment (not on the first display).
+    if (S.foldersShown) {
+      list.forEach(function (f) { if (f.unread > (before[f.id] || 0)) bump($('.m4w-nav-item[data-folder="' + f.id + '"] .m4w-count')); });
+    }
+    S.foldersShown = true;
+    // The mailbox on screen counts with its live figures (read here a second ago, not 30 s ago).
+    var cur = String($('.m4w-topbar').data('current-box'));
+    if (S.boxes && cur !== '-1') { S.boxes[cur] = liveUnread(); refreshTotal(!!arrived); }
+  }
+  /** Unread mail waiting in the mailbox on screen: inbox and own folders. */
+  function liveUnread() {
+    return (S.folders || []).reduce(function (s, f) { return s + (f.role === 'inbox' || !f.role ? (+f.unread || 0) : 0); }, 0);
+  }
+  function bump($el) { $el.removeClass('m4w-bump'); void ($el[0] && $el[0].offsetWidth); $el.addClass('m4w-bump'); }
+
+  // Unread mail of all the mailboxes (account menu: each one), kept up to date by the checks.
+  function setBoxes(counts, arrived) {
+    S.boxes = {};
+    Object.keys(counts).forEach(function (id) {
+      var n = +counts[id] || 0;
+      S.boxes[id] = n;
+      $('[data-box-unread="' + id + '"]').each(function () {
+        var was = +$(this).text() || 0;
+        $(this).text(n).toggleClass('d-none', !n);
+        if (n > was) bump($(this));
+      });
+    });
+    var cur = String($('.m4w-topbar').data('current-box'));
+    if (cur !== '-1' && S.folders) S.boxes[cur] = liveUnread();
+    refreshTotal(!!arrived);
+  }
+
+  // The total of all the mailboxes, everywhere it can be seen without opening anything: the
+  // avatar, the tab (title and a bubble on its icon), the icon of the installed app.
+  /** @param {boolean} [arrived] an increase comes from mail that arrived (not from "mark unread" here). */
+  function refreshTotal(arrived) {
+    var total = 0;
+    Object.keys(S.boxes || {}).forEach(function (id) { total += S.boxes[id]; });
+    var $t = $('[data-boxes-elsewhere]'), was = +$t.text() || 0;
+    $t.text(total).toggleClass('d-none', !total);
+    // New mail since the last look: the bubble pulses (a halo, not a blink) until the person
+    // does something on the page. Not on the first display.
+    if (total > was && S.totalShown && arrived) { bump($t); $t.addClass('m4w-pulse'); S.pulseSince = Date.now(); }
+    if (!total) $t.removeClass('m4w-pulse');
+    S.totalShown = true;
+    S.total = total;
+    updateTitle();
+    tabBadge(total);
+    try {
+      if (navigator.setAppBadge) { total ? navigator.setAppBadge(total) : navigator.clearAppBadge(); }
+    } catch (e) { /* not supported here */ }
+  }
+
+  $(document).on('pointerdown keydown', function () {
+    // Seen: a second after it started at the earliest (not the click that was already under way).
+    if (S.pulseSince && Date.now() - S.pulseSince > 1000) { $('[data-boxes-elsewhere]').removeClass('m4w-pulse'); S.pulseSince = 0; }
+  });
+
+  var favicon = null;
+  function tabBadge(n) {
+    var $link = $('link[rel="icon"]').first();
+    if (!$link.length) return;
+    if (!favicon) {
+      favicon = { href: $link.attr('href'), img: null, ready: false, last: -1 };
+      var img = new Image();
+      img.onload = function () { favicon.img = img; favicon.ready = true; var w = favicon.last; favicon.last = -1; tabBadge(w); };
+      img.src = favicon.href;
+    }
+    if (favicon.last === n) return;
+    favicon.last = n;
+    if (!n) { $link.attr('href', favicon.href); return; }
+    if (!favicon.ready) return;
+    var c = document.createElement('canvas'), s = 64;
+    c.width = c.height = s;
+    var x = c.getContext('2d');
+    x.drawImage(favicon.img, 0, 0, s, s);
+    var label = n > 99 ? '99+' : String(n), r = 18;
+    x.font = 'bold ' + (label.length > 2 ? 22 : 30) + 'px system-ui, sans-serif';
+    var w = Math.max(r * 2, x.measureText(label).width + 14), cx = s - w / 2, cy = r;
+    x.fillStyle = '#ef4444';
+    x.beginPath();
+    x.moveTo(cx - w / 2 + r, cy - r); x.arcTo(cx + w / 2, cy - r, cx + w / 2, cy + r, r); x.arcTo(cx + w / 2, cy + r, cx - w / 2, cy + r, r);
+    x.arcTo(cx - w / 2, cy + r, cx - w / 2, cy - r, r); x.arcTo(cx - w / 2, cy - r, cx + w / 2, cy - r, r);
+    x.fill();
+    x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(label, cx, cy + 2);
+    try { $link.attr('href', c.toDataURL('image/png')); } catch (e) { /* picture from elsewhere */ }
   }
   M4W.setFolders = setFolders;
 
   function folderItem(f, depth) {
     var count = f.role === 'drafts' ? f.total : f.unread;
     var showCount = count > 0 && f.role !== 'sent' && f.role !== 'trash' && (f.role !== 'archive');
+    // New mail (inbox, own folders) as a coloured pill; drafts and spam stay discreet.
+    var isNew = showCount && (f.role === 'inbox' || !f.role);
     var icon = f.color ? '<span class="m4w-dot" style="background:' + esc(f.color) + '"></span>' : '<i class="bi bi-' + esc(f.icon) + (f.role === 'inbox' && f.unread ? '-fill' : '') + '"></i>';
     var html = '<li class="m4w-nav-li"><a class="m4w-nav-item' + (f.unread && f.role !== 'drafts' ? ' has-unread' : '') + '" href="#f/' + f.id + '" data-folder="' + f.id + '" style="' + (depth ? 'padding-left:' + (1.1 + depth * 1.1) + 'rem' : '') + '">'
       + icon + '<span class="m4w-nav-label">' + esc(f.name) + '</span>'
-      + (showCount ? '<span class="m4w-count">' + count + '</span>' : '') + '</a>'
+      + (showCount ? '<span class="m4w-count' + (isNew ? ' m4w-new-badge' : '') + '">' + count + '</span>' : '') + '</a>'
       + '<div class="dropdown m4w-folder-dd" data-folder-id="' + f.id + '"><button class="btn btn-ghost btn-icon btn-sm m4w-folder-menu" data-bs-toggle="dropdown" aria-label="' + esc(t('folder_actions')) + '"><i class="bi bi-three-dots-vertical"></i></button>'
       + '<div class="dropdown-menu dropdown-menu-end">'
       + '<button class="dropdown-item" data-folder-act="read-all"><i class="bi bi-check2-all"></i>' + esc(t('mark_all_read')) + '</button>'
@@ -159,11 +251,11 @@
   }
 
   function updateTitle() {
-    var inbox = S.byRole.inbox;
-    var n = inbox ? inbox.unread : 0;
-    var brand = document.title.split(' · ').pop();
+    // Unread mail waiting in all the mailboxes (this one live), as on the avatar.
+    var n = S.total !== undefined ? S.total : liveUnread();
+    if (S.brand === undefined) S.brand = document.title.split(' · ').pop().replace(/^\(\d+\)\s*/, '');
     var f = S.byId[S.folder];
-    document.title = (n ? '(' + n + ') ' : '') + (f ? f.name + ' · ' : '') + brand;
+    document.title = (n ? '(' + n + ') ' : '') + (f ? f.name + ' · ' : '') + S.brand;
   }
 
   // ---------------------------------------------------------------- list
@@ -768,7 +860,8 @@
     if (onFolder) q.folder = onFolder;
     return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
       if (r.remote) renderRemote(r.remote);
-      setFolders(r.folders);
+      setFolders(r.folders, !first);
+      if (r.boxes) setBoxes(r.boxes, !first);
       if (r.csrf) M4W.csrf(r.csrf);
       if (!first && r.new && r.new.length) {
         var n = r.new[0];

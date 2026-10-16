@@ -307,14 +307,16 @@ final class WebPush
         $body = $preview ? ($isPersonal ? t('push.personal') : ($subject !== '' ? mb_substr($subject, 0, 140) : t('mail.no_subject'))) : t('push.new_mail_body');
         // Relative to the service worker scope: deliveries also run from the CLI, where the base path is unknown.
         $hash = '#f/' . $folderId . '/m/' . $messageId;
+        // The unread total of all the person's mailboxes: the badge of the installed app, even closed.
+        $count = static fn(int $uid) => array_sum(SharedMailboxes::counts($uid));
         if (!empty($user['prefs']['notifications'])) {
-            self::send((int) $user['id'], ['title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail' . $hash]);
+            self::send((int) $user['id'], ['title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail' . $hash, 'count' => $count((int) $user['id'])]);
         }
         // People who have this mailbox among their other mailboxes are alerted too; tapping opens it.
         foreach (SharedMailboxes::usersOf((int) $user['id']) as $memberId) {
             $member = Users::find($memberId);
             if ($member && !empty($member['prefs']['notifications'])) {
-                self::send($memberId, ['title' => $title, 'body' => '[' . $user['email'] . '] ' . $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash]);
+                self::send($memberId, ['title' => $title, 'body' => '[' . $user['email'] . '] ' . $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash, 'count' => $count($memberId)]);
             }
         }
     }

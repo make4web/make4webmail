@@ -2178,4 +2178,6 @@ Approve or decline in Calendar › Rooms and bookings.',
     'health.jobs_parked' => 'Set aside for an hour after stopping the scheduled run several times: :tasks. See the PHP error log.',
     'health.jobs_failing' => 'Failing within the last hour: :tasks.',
     'health.queue_parked' => ':n message(s) set aside (sending them stopped the worker)',
+    'shared.unread_title' => 'Unread messages in your mailbox',
+    'shared.unread_all' => 'Unread messages in all your mailboxes',
 ];

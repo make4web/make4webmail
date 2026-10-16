@@ -2251,4 +2251,6 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'health.jobs_parked' => 'Mise(s) de côté pour une heure après avoir arrêté plusieurs fois la tâche planifiée : :tasks. Voir le journal d\'erreurs PHP.',
     'health.jobs_failing' => 'En erreur depuis moins d\'une heure : :tasks.',
     'health.queue_parked' => ':n message(s) mis de côté (leur envoi arrêtait le traitement)',
+    'shared.unread_title' => 'Messages non lus dans votre boîte',
+    'shared.unread_all' => 'Messages non lus dans toutes vos boîtes',
 ];

@@ -4065,6 +4065,29 @@ test('app icon: the logo with an envelope of the primary colour, background afte
     Settings::setMany(array_combine($keys, $keep));
 });
 
+test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {
+    $u = Users::find(Users::create(['email' => 'count.me@test.local', 'password' => 'Secret!Pass123']));
+    $uid = (int) $u['id'];
+    $own = Folders::create($uid, 'Projets');
+    $put = static function (int $folder, int $read = 0, int $draft = 0) use ($uid) {
+        static $n = 0;
+        $n++;
+        $id = Mailbox::store($uid, $folder, "From: a@ext.com\r\nTo: count.me@test.local\r\nSubject: c$n\r\nMessage-ID: <count-$n@ext.com>\r\n\r\nx", ['read' => (bool) $read]);
+        if ($draft) {
+            DB::update('messages', ['is_draft' => 1], 'id = :id', ['id' => $id]);
+        }
+    };
+    $put((int) Folders::byRole($uid, 'inbox')['id']);
+    $put((int) Folders::byRole($uid, 'inbox')['id'], 1);
+    $put($own);
+    $put($own);
+    $put((int) Folders::byRole($uid, 'spam')['id']);
+    $put((int) Folders::byRole($uid, 'trash')['id']);
+    $put((int) Folders::byRole($uid, 'drafts')['id'], 0, 1);
+    eq(M4W\Service\SharedMailboxes::unread($uid), 3, '1 in the inbox + 2 filed in a folder by a rule');
+    eq(M4W\Service\SharedMailboxes::counts($uid)[0], 3, 'own mailbox under 0');
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);
