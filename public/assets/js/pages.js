@@ -176,11 +176,14 @@
 
     // ----------------------------------------------------- user form
     $('[data-gen-password]').on('click', function () {
-      var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', sym = '!@#$%&*?-+', pw = '';
-      var rnd = new Uint32Array(16); window.crypto.getRandomValues(rnd);
-      for (var i = 0; i < 14; i++) pw += chars[rnd[i] % chars.length];
-      pw += sym[rnd[14] % sym.length] + (rnd[15] % 10);
-      $('[data-pw]').val(pw).trigger('input');
+      // One of each kind (whatever the policy asks), the rest mixed, at the policy's length or more.
+      var sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*?-+'], all = sets.join('');
+      var min = +(($('meta[name="m4w-pw-policy"]').attr('content') || '10').split(',')[0]) || 10, len = Math.max(16, min);
+      var rnd = new Uint32Array(len * 2); window.crypto.getRandomValues(rnd);
+      var chars = sets.map(function (set, i) { return set[rnd[i] % set.length]; });
+      for (var i = chars.length; i < len; i++) chars.push(all[rnd[i] % all.length]);
+      for (var j = chars.length - 1; j > 0; j--) { var k = rnd[len + j] % (j + 1), tmp = chars[j]; chars[j] = chars[k]; chars[k] = tmp; }
+      $('[data-pw]').val(chars.join('')).trigger('input');
     });
     var $local = $('[data-local-part]');
     if ($local.length) {
@@ -255,7 +258,7 @@
     var rules = $root.data('rules') || [], folders = $root.data('folders') || [], prefill = $root.data('prefill') || {};
     var FIELDS = ['from', 'to', 'cc', 'recipients', 'subject', 'body', 'header', 'size', 'has_attachment', 'priority'];
     var TEXT_OPS = ['contains', 'not_contains', 'equals', 'not_equals', 'starts_with', 'ends_with'];
-    var ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'redirect', 'reply', 'discard', 'stop'];
+    var ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'redirect', 'divert', 'reply', 'discard', 'stop'];
     var $modal = $('#rule-modal'), $form = $('#rule-form');
 
     function folderOptions(sel) {
@@ -272,7 +275,7 @@
       }).join(r.match_type === 'any' ? ' ' + esc(t('or')) + ' ' : ' ' + esc(t('and')) + ' ');
       var a = (r.actions || []).map(function (x) {
         if (x.type === 'move' || x.type === 'copy') return esc(t('ra_' + x.type)) + ' <b>' + esc(folderName(x.folder)) + '</b>';
-        if (x.type === 'redirect') return esc(t('ra_redirect')) + ' <b>' + esc(x.to) + '</b>';
+        if (x.type === 'redirect' || x.type === 'divert') return esc(t('ra_' + x.type)) + ' <b>' + esc(x.to) + '</b>';
         return esc(t('ra_' + x.type));
       }).join(', ');
       return (c ? esc(t('if')) + ' ' + c : esc(t('all_messages'))) + ' → ' + a;
@@ -331,7 +334,7 @@
       var sync = function () {
         var ty = $r.find('[data-k=type]').val();
         if (ty === 'move' || ty === 'copy') $p.html('<select class="form-select form-select-sm" data-k="folder">' + folderOptions(a.folder) + '</select>');
-        else if (ty === 'redirect') $p.html('<input type="email" class="form-control form-control-sm" data-k="to" placeholder="adresse@exemple.com">').find('input').val(a.to || '');
+        else if (ty === 'redirect' || ty === 'divert') $p.html('<input type="email" class="form-control form-control-sm" data-k="to" placeholder="adresse@exemple.com">' + (ty === 'divert' ? '<div class="small text-muted pt-1"><i class="bi bi-info-circle"></i> ' + esc(t('divert_hint')) + '</div>' : '')).find('input').val(a.to || '');
         else if (ty === 'reply') $p.html('<input class="form-control form-control-sm mb-1" data-k="subject" placeholder="' + esc(t('subject')) + '"><textarea class="form-control form-control-sm" rows="3" data-k="body" placeholder="' + esc(t('reply_text')) + '"></textarea>').find('[data-k=subject]').val(a.subject || '').end().find('[data-k=body]').val(a.body || '');
         else if (ty === 'discard') $p.html('<div class="small text-danger pt-1"><i class="bi bi-exclamation-triangle"></i> ' + esc(t('discard_warning')) + '</div>');
         else $p.html('');

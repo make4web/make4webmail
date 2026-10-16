@@ -122,12 +122,12 @@ final class SettingsController extends Controller
             return $this->fail($e->getMessage());
         }
         // A delegate cannot send the owner's mail elsewhere (personal mail included).
-        if (Mailbox::$privacy && str_contains((string) $data['actions'], '"redirect"')) {
+        if (Mailbox::$privacy && (str_contains((string) $data['actions'], '"redirect"') || str_contains((string) $data['actions'], '"divert"'))) {
             return $this->fail(t('deleg.no_redirect'));
         }
         $id = (int) ($in['id'] ?? 0);
         $data['updated_at'] = time();
-        $redirects = static fn(string $json) => array_column(array_filter((array) json_decode($json, true), static fn($a) => ($a['type'] ?? '') === 'redirect'), 'to');
+        $redirects = static fn(string $json) => array_column(array_filter((array) json_decode($json, true), static fn($a) => in_array($a['type'] ?? '', ['redirect', 'divert'], true)), 'to');
         $before = $id ? $redirects((string) DB::value('SELECT actions FROM rules WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $uid])) : [];
         $targets = array_diff($redirects((string) $data['actions']), $before);
         if ($targets) {

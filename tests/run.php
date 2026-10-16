@@ -361,6 +361,51 @@ test('admin policy blocks external forwarding', function () use ($bob) {
     Settings::set('security.allow_external_forward', 1);
     ok($thrown, 'external forward allowed');
 });
+test('rule: redirect (sent on, not kept) vs forward a copy (kept)', function () use ($bob, $sendTo) {
+    $uid = (int) $bob['id'];
+    $mk = static function (string $name, string $type, string $to, string $word) use ($uid) {
+        return DB::insert('rules', RuleEngine::normalize($uid, ['name' => $name, 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => $word]],
+            'actions' => [['type' => $type, 'to' => $to]]]) + ['user_id' => $uid, 'sort' => 5, 'created_at' => time(), 'updated_at' => time()]);
+    };
+    $r1 = $mk('vers Carole', 'divert', 'carole@ext.com', 'pour carole');
+    $r2 = $mk('copie Denis', 'redirect', 'denis@ext.com', 'pour denis');
+    $count = static fn() => (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $uid]);
+    $lastFwd = static fn() => DB::one("SELECT * FROM mail_queue WHERE kind = 'forward' ORDER BY id DESC LIMIT 1");
+    $kept = static fn() => (int) DB::value("SELECT COUNT(*) FROM deleted_messages WHERE user_id = :u AND reason = 'rule'", ['u' => $uid]);
+    DB::run('DELETE FROM mail_queue');
+
+    $n = $count(); $k = $kept();
+    eq(Delivery::deliver($sendTo('bob@test.local', 'Dossier pour Carole'), 'client@ext.com', ['bob@test.local'])['bob@test.local'], 'ok');
+    eq($count(), $n, 'redirected: not in the mailbox');
+    eq(json_decode($lastFwd()['recipients'], true), ['carole@ext.com'], 'sent on');
+    $sent = file_get_contents(storage_path($lastFwd()['raw_path']));
+    ok(str_contains($sent, 'Dossier pour Carole') && str_contains($sent, 'Resent-To: carole@ext.com'), 'as it came');
+    eq($kept(), $k + 1, 'a copy in the administrators\' retention');
+
+    $n = $count();
+    Delivery::deliver($sendTo('bob@test.local', 'Note pour Denis'), 'client@ext.com', ['bob@test.local']);
+    eq($count(), $n + 1, 'forwarded copy: still in the mailbox');
+    eq(json_decode($lastFwd()['recipients'], true), ['denis@ext.com']);
+
+    // Not allowed any more (admin policy changed after the rule was made): kept, nothing lost.
+    Settings::set('security.allow_external_forward', 0);
+    DB::run('DELETE FROM mail_queue');
+    $n = $count();
+    Delivery::deliver($sendTo('bob@test.local', 'Encore pour Carole'), 'client@ext.com', ['bob@test.local']);
+    Settings::set('security.allow_external_forward', 1);
+    eq($count(), $n + 1, 'address refused: the message stays');
+    eq((int) DB::value('SELECT COUNT(*) FROM mail_queue'), 0, 'and is not sent');
+
+    // Spam is never passed on: it stays here, in the spam folder.
+    $n = $count();
+    Delivery::deliver($sendTo('bob@test.local', 'WIN pour Carole', 'spam@ext.com', ['X-Spam-Flag' => 'YES']), 'spam@ext.com', ['bob@test.local']);
+    eq($count(), $n + 1, 'spam kept');
+    eq((int) DB::value('SELECT COUNT(*) FROM mail_queue'), 0, 'spam not redirected');
+
+    ok(in_array('divert', RuleEngine::ACTIONS, true));
+    DB::run('DELETE FROM rules WHERE id IN (:a, :b)', ['a' => $r1, 'b' => $r2]);
+    DB::run('DELETE FROM mail_queue');
+});
 test('forward loop protection', function () use ($alice, $bob, $sendTo) {
     Forwarding::save((int) $alice['id'], true, ['bob@test.local'], true);
     Forwarding::save((int) $bob['id'], true, ['admin@test.local'], true);

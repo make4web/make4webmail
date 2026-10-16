@@ -9,7 +9,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
     <div><h1><?= $isNew ? te('admin.new_user') : e($u['name']) ?></h1><p class="mb-0"><?= $isNew ? te('admin.new_user_desc') : e($u['email']) . ' · ' . te('admin.created_on', ['date' => format_datetime((int) $u['created_at'], false)]) ?></p></div>
   </div>
 </div>
-<form method="post" action="<?= e(url('admin/users/save')) ?>" autocomplete="off">
+<form method="post" action="<?= e(url('admin/users/save')) ?>" autocomplete="off" data-keep-input>
   <?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $u['id'] ?>">
   <div class="row g-4">
     <div class="col-xl-8">
