@@ -331,3 +331,16 @@ bin/           smtpd, deliver, cron, install, user
 storage/       base SQLite, messages .eml, pièces jointes temporaires, journaux (hors racine web)
 ```
 Les messages sont stockés au format `.eml` brut, avec un index en base de données (métadonnées, extrait, texte pour la recherche). Les paramètres modifiables depuis l'administration sont en base ; `config/config.php` ne contient que la connexion à la base, la clé de chiffrement et les chemins.
+
+## Numéro de version
+
+`majeur.mineur.année.MMJJ.compteur`, par exemple `1.1.2026.1016.3` pour la troisième version publiée le 16 octobre 2026. Il s'affiche en bas du menu d'administration, dans l'aide et dans l'en-tête `X-Mailer`, et il est inscrit dans les sauvegardes.
+
+Chaque publication (push) passe à la version suivante :
+
+```sh
+php bin/version.php bump    # même jour : compteur + 1 ; nouveau jour : compteur à 1
+php bin/version.php minor   # version mineure suivante
+php bin/version.php major   # version majeure suivante (mineure à 0)
+php bin/version.php         # version actuelle
+```

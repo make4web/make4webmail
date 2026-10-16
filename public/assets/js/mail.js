@@ -171,6 +171,7 @@
     S.loadingList = req;
     return req.done(function (r) {
       S.items = r.items; S.total = r.total;
+      if (r.stamp && params.folder && !params.q) S.stamp = { folder: params.folder, value: r.stamp };
       renderList();
     });
   }
@@ -752,16 +753,15 @@
 
   // ------------------------------------------------------------- polling
   function poll(first, force) {
-    var q = { since: S.maxId };
+    var q = { since: S.maxId }, onFolder = S.folder && !S.q ? S.folder : 0;
     if (force) q.force = 1;
+    if (onFolder) q.folder = onFolder;
     return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
       if (r.remote) renderRemote(r.remote);
-      var prevInbox = S.byRole.inbox ? S.byRole.inbox.unread : 0;
       setFolders(r.folders);
       if (r.csrf) M4W.csrf(r.csrf);
       if (!first && r.new && r.new.length) {
         var n = r.new[0];
-        if (S.byRole.inbox && S.folder === S.byRole.inbox.id && !S.q && S.offset === 0) loadList(true);
         M4W.toast(t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || t('no_subject')), 'info', {
           action: { label: t('open'), fn: function () { go(S.byRole.inbox.id, +n.id); } }
         });
@@ -771,10 +771,20 @@
             notif.onclick = function () { window.focus(); go(S.byRole.inbox.id, +n.id); notif.close(); };
           } catch (e) {}
         }
-      } else if (!first && S.byRole.inbox && S.byRole.inbox.unread !== prevInbox && S.folder === S.byRole.inbox.id && !S.q) {
-        loadList(true);
       }
       S.maxId = r.max_id;
+      // Changed elsewhere (another device, the provider's mailbox, a rule): quietly refreshed,
+      // the selection kept. Not while dragging or with a menu open.
+      if (onFolder && r.stamp && onFolder === S.folder && !S.q) {
+        var was = S.stamp && S.stamp.folder === onFolder ? S.stamp.value : null;
+        S.stamp = { folder: onFolder, value: r.stamp };
+        if (was !== null && was !== r.stamp && !$('.dropdown-menu.show, .m4w-ctx').length && !$('.m4w-row.m4w-swiping, .m4w-row.dragging').length) {
+          loadList(true).done(function () {
+            Object.keys(S.selected).forEach(function (id) { if (!itemById(id)) delete S.selected[id]; });
+            syncSelectionUi();
+          });
+        }
+      }
     });
   }
 
