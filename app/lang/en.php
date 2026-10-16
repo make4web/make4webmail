@@ -2148,4 +2148,6 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.install_go' => 'Install',
     'js.install_later' => 'Later',
     'js.install_ok' => 'Got it',
+    'mail.selection' => 'Selected messages',
+    'mail.sel_close' => 'Leave selection',
 ];

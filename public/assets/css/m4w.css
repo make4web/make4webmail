@@ -693,8 +693,6 @@ textarea.m4w-code.m4w-code-short { min-height: 0; }
 @media (max-width: 575.98px) {
   .m4w-top-actions .m4w-hide-xs { display: none !important; }
   .m4w-row { grid-template-columns: 0 22px 36px minmax(0, 1fr) auto; column-gap: .45rem; padding-left: .6rem; }
-  .m4w-row .m4w-check { visibility: hidden; width: 0; }
-  .m4w-list.has-selection .m4w-row .m4w-check { visibility: visible; width: auto; }
   .m4w-subject { font-size: 1.15rem; }
   .m4w-msg-head { padding: .75rem .75rem .4rem; gap: .6rem; }
   .m4w-msg-body { padding: .25rem .75rem .75rem; }
@@ -1376,3 +1374,22 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-install-actions { display: flex; gap: .5rem; margin-left: auto; }
 @keyframes m4w-install-in { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .m4w-install { animation: none; } }
+
+/* Phones: the folder as an icon in the list header; long press selects (checkboxes 24px in place of
+   the star, the commands instead of the filters, a cross to leave). */
+.m4w-folder-icon, .m4w-sel-bar { display: none; }
+@media (max-width: 767.98px) {
+  .m4w-list-toolbar .m4w-folder-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; font-size: 1.25rem; color: var(--m4w-primary); flex-shrink: 0; }
+  .m4w-list-toolbar #m4w-select-all, .m4w-list-toolbar .m4w-sel-menu, .m4w-list-toolbar .m4w-folder-title, .m4w-list-toolbar .m4w-sel-actions { display: none !important; }
+  .m4w-list-toolbar .m4w-folder-box { margin-left: .25rem; }
+  .m4w-list.has-selection .m4w-list-toolbar .m4w-folder-icon { display: none; }
+  .m4w-list.has-selection .m4w-list-toolbar #m4w-select-all { display: inline-block !important; width: 24px; height: 24px; margin: 4px !important; }
+  .m4w-list.has-selection #m4w-filters { display: none; }
+  .m4w-list.has-selection .m4w-sel-bar { display: flex; align-items: center; gap: .15rem; padding: .3rem .5rem; border-bottom: 1px solid var(--m4w-border); background: var(--m4w-primary-softer); }
+  .m4w-sel-bar-count { font-weight: 600; font-size: .9rem; margin-left: .25rem; white-space: nowrap; }
+  .m4w-row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .m4w-row .m4w-check { visibility: hidden; width: 0; height: 24px; }
+  .m4w-list.has-selection .m4w-row { grid-template-columns: 24px 0 36px minmax(0, 1fr) auto; }
+  .m4w-list.has-selection .m4w-row .m4w-check { visibility: visible; width: 24px; height: 24px; margin: 0; }
+  .m4w-list.has-selection .m4w-row .m4w-star { visibility: hidden; width: 0; padding: 0; overflow: hidden; }
+}

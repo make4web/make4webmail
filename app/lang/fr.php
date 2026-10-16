@@ -2221,4 +2221,6 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.install_go' => 'Installer',
     'js.install_later' => 'Plus tard',
     'js.install_ok' => 'Compris',
+    'mail.selection' => 'Messages sélectionnés',
+    'mail.sel_close' => 'Quitter la sélection',
 ];
