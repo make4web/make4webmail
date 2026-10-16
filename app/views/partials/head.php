@@ -11,6 +11,9 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <meta name="theme-color" content="<?= e(Settings::get('brand.primary', '#2563eb')) ?>">
 <meta name="csrf-token" content="<?= e(M4W\Core\Csrf::token()) ?>">
 <meta name="base-url" content="<?= e(url('/')) ?>">
+<?php if (!empty($currentUser) && (int) Settings::get('security.session_keepalive', 1) === 1): ?>
+<meta name="m4w-keepalive" content="<?= (int) min(300, max(60, (int) Settings::get('security.session_idle', 30) * 60 / 3)) ?>">
+<?php endif; ?>
 <title><?= e(isset($title) && $title !== '' ? $title . ' · ' . $brandName : $brandName) ?></title>
 <link rel="icon" href="<?= $favicon !== '' ? e(url('brand/' . $favicon)) : e(asset('img/icon.svg')) ?>">
 <link rel="manifest" href="<?= e(url('manifest.webmanifest')) ?>">

@@ -33,8 +33,11 @@ final class Session
             session_save_path($dir);
         }
         session_name('m4w_sid');
+        // Kept when the browser or the app is closed (phones close them on their own): the server
+        // still ends the session after the idle time and the maximum length (see Auth).
+        $persist = Config::installed() && (int) Settings::get('security.session_persist', 1) === 1;
         session_set_cookie_params([
-            'lifetime' => 0,
+            'lifetime' => $persist ? max(30, (int) Settings::get('security.session_absolute', 720)) * 60 : 0,
             'path'     => (Request::basePath() ?: '') . '/',
             'secure'   => $req->isSecure(),
             'httponly' => true,
