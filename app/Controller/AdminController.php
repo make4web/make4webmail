@@ -1116,7 +1116,8 @@ final class AdminController extends Controller
 
     public function retryQueue(): Response
     {
-        DB::run("UPDATE mail_queue SET status = 'pending', next_attempt_at = 0 WHERE id = :id AND status IN ('failed','pending')", ['id' => $this->req->int('id')]);
+        // A message set aside (it stopped the worker) is given its chances again.
+        DB::run("UPDATE mail_queue SET status = 'pending', next_attempt_at = 0, crashes = 0 WHERE id = :id AND status IN ('failed','pending','parked')", ['id' => $this->req->int('id')]);
         Transport::processQueue(10);
         return $this->back('/admin/logs?tab=queue', 'success', t('admin.queue_retried'));
     }

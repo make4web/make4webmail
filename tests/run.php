@@ -438,9 +438,7 @@ test('rule chain: A → B redirects to C → C forwards a copy to D → D files 
     $b->text = 'Bonjour';
     $b->messageId = MimeBuilder::newMessageId('test.local');
     Delivery::deliver($b->build(), 'chain.a@test.local', ['chain.b@test.local'], 'local');
-    for ($i = 0; $i < 4; $i++) {
-        Transport::processQueue(50);
-    }
+    Transport::processQueue(50); // one pass: each hop adds to the queue, taken in the same run
     eq($in($B), [], 'B: redirected, nothing kept');
     eq(array_column($in($C), 'role'), ['inbox'], 'C: forwarded a copy and kept it');
     $d = $in($D);
@@ -473,6 +471,57 @@ test('rule chain: A → B redirects to C → C forwards a copy to D → D files 
     ok(preg_match('/^From: A <chain\.a@test\.local>/mi', (string) file_get_contents(storage_path($q[0]['raw_path']))) === 1, 'inside: from A');
     ok(preg_match('/^From: .*via.*<chain\.c@test\.local>/mi', (string) file_get_contents(storage_path($q[1]['raw_path']))) === 1, 'outside: via C');
     DB::run('DELETE FROM mail_queue');
+});
+test('queue: a message whose sending stops the worker is retried, then set aside and logged', function () {
+    DB::run('DELETE FROM mail_queue');
+    $id = Transport::enqueue("From: a@test.local\r\nTo: x@ext.com\r\nSubject: poison\r\n\r\nx", 'a@test.local', ['x@ext.com']);
+    $other = Transport::enqueue("From: a@test.local\r\nTo: chain.d@test.local\r\nSubject: fine\r\n\r\nx", 'a@test.local', ['chain.d@test.local']);
+    // The worker died while sending it: left "sending", taken long ago.
+    DB::update('mail_queue', ['status' => 'sending', 'claimed_at' => time() - Transport::STALE_SECONDS - 5], 'id = :id', ['id' => $id]);
+    eq(Transport::recoverStale(), 1);
+    $r = DB::one('SELECT * FROM mail_queue WHERE id = :id', ['id' => $id]);
+    eq([$r['status'], (int) $r['crashes']], ['pending', 1], 'back in the queue, one crash counted');
+    // A message just taken by another worker is left alone.
+    DB::update('mail_queue', ['status' => 'sending', 'claimed_at' => time()], 'id = :id', ['id' => $id]);
+    eq(Transport::recoverStale(), 0, 'still being sent elsewhere');
+    DB::update('mail_queue', ['claimed_at' => time() - Transport::STALE_SECONDS - 5], 'id = :id', ['id' => $id]);
+    Transport::recoverStale();
+    $r = DB::one('SELECT * FROM mail_queue WHERE id = :id', ['id' => $id]);
+    eq($r['status'], 'parked', 'set aside after ' . Transport::MAX_CRASHES . ' crashes');
+    ok(str_contains($r['last_error'], 'parked'), 'reason kept');
+    ok((bool) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'queue.parked'"), 'logged');
+    // The rest of the queue goes on.
+    Transport::processQueue(10);
+    eq(DB::value('SELECT status FROM mail_queue WHERE id = :id', ['id' => $other]), 'sent', 'the other message is sent');
+    eq(DB::value('SELECT status FROM mail_queue WHERE id = :id', ['id' => $id]), 'parked', 'the parked one is not retried on its own');
+    ok(str_contains(json_encode(M4W\Service\Health::checks(false)['queue']), 'parked') || M4W\Service\Health::checks(false)['queue']['state'] === 'warn', 'shown in Supervision');
+    DB::run('DELETE FROM mail_queue');
+});
+test('scheduled tasks: an error does not stop the others; a task that stops the run is set aside', function () {
+    $J = M4W\Service\Jobs::class;
+    Settings::setMany(['system.jobs' => '', 'system.job_running' => '']);
+    $ran = [];
+    eq($J::run('broken', static function () { throw new \RuntimeException('boom'); }), null, 'an error');
+    eq($J::run('next', static function () use (&$ran) { $ran[] = 'next'; return 3; }), 3, 'the next task runs');
+    eq($ran, ['next']);
+    eq($J::state()['broken']['last_error'], 'boom', 'error kept');
+    ok(isset($J::failing()['broken']) && !isset($J::failing()['next']), 'failing tasks listed');
+    // "heavy" stops the whole process three runs in a row (simulated: left marked as running).
+    for ($i = 1; $i <= $J::MAX_CRASHES; $i++) {
+        Settings::set('system.job_running', 'heavy');
+        eq($J::recover(), 'heavy', "run $i: noticed");
+    }
+    ok(isset($J::parked()['heavy']), 'set aside');
+    $called = false;
+    eq($J::run('heavy', static function () use (&$called) { $called = true; return 1; }), null);
+    ok(!$called, 'not run while set aside');
+    eq(M4W\Service\Health::checks(false)['jobs']['state'], 'fail', 'shown in Supervision');
+    ok((bool) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'cron.parked'"), 'logged');
+    // An hour later it runs again, and a good run clears the counters.
+    eq($J::run('heavy', static function () use (&$called) { $called = true; return 1; }, time() + $J::PARK_SECONDS + 1), 1);
+    ok($called && !$J::parked(time() + $J::PARK_SECONDS + 1), 'back');
+    eq($J::recover(), '', 'a run that ended normally leaves nothing to recover');
+    Settings::setMany(['system.jobs' => '', 'system.job_running' => '']);
 });
 test('forward loop protection', function () use ($alice, $bob, $sendTo) {
     Forwarding::save((int) $alice['id'], true, ['bob@test.local'], true);

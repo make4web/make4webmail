@@ -255,6 +255,13 @@ La tâche planifiée gère la file d'envoi, les envois programmés, les comptes 
 ```
 Avec PHP-FPM, la file est aussi traitée après chaque requête. Un cron reste recommandé.
 
+Comment la tâche planifiée travaille :
+
+- **La file d'envoi** (`mail_queue`) est vidée dans l'ordre d'arrivée. Ce que l'envoi y ajoute (une règle qui transfère ou redirige, une réponse automatique) part dans le même passage : une chaîne de règles A → B → C → D n'attend pas une minute par étape.
+- **Chaque tâche est isolée** : une erreur est journalisée (journal d'erreurs PHP) et les tâches suivantes s'exécutent quand même.
+- **Une tâche qui fait tomber le processus** (erreur fatale, mémoire) est repérée au passage suivant, une minute plus tard. Au bout de 3 fois de suite, elle est mise de côté une heure, journalisée (journal d'audit `cron.parked`) et signalée dans Supervision.
+- **Un message dont l'envoi fait tomber le processus** est remis dans la file, puis mis de côté (`parked`) à la 2ᵉ fois. Il est journalisé (`queue.parked`), visible dans Administration › Journaux › File d'envoi, d'où on peut le relancer, et les autres messages continuent de partir.
+
 > **Pas dans la crontab de root.** Mettez la ligne dans `/etc/cron.d/make4webmail`, avec l'utilisateur du serveur web (`www-data`) en 6e colonne, et non dans `crontab -e` en root : un fichier créé par root (messages reçus, envoyés) n'est pas lisible par le serveur web, et le message s'affiche vide. Les commandes lancées en root prennent d'elles-mêmes le compte des fichiers de l'application, la page Supervision signale une tâche lancée en root ou des fichiers illisibles, et `deploy/install-debian.sh` retire une ancienne ligne d'une crontab personnelle. Pour lancer une commande à la main : `sudo -u www-data php bin/cron.php -v`. Pour réparer : `chown -R www-data:www-data storage config`.
 
 ### 5. Réception du courrier
