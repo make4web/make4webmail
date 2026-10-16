@@ -1364,3 +1364,15 @@ body.m4w-editor-open { overflow: hidden; }
 .m4w-meet-block dd, .m4w-meet-dl dd { margin: 0; word-break: break-all; }
 .m4w-meet-dl { margin-top: .35rem; }
 .m4w-meet-box { padding: .5rem .75rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-2); }
+
+/* "Install the app" card, phones and tablets in a browser. */
+.m4w-install { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 1080; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+  padding: .85rem 1rem; background: var(--m4w-surface); color: var(--m4w-text); border: 1px solid var(--m4w-border); border-radius: var(--m4w-radius-lg); box-shadow: 0 10px 30px rgba(15, 23, 42, .25);
+  animation: m4w-install-in .25s ease-out; max-width: 560px; margin: 0 auto; }
+.m4w-install img { border-radius: 10px; flex: 0 0 auto; }
+.m4w-install-text { flex: 1 1 12rem; min-width: 0; display: flex; flex-direction: column; gap: .15rem; font-size: .85rem; color: var(--m4w-text-2); }
+.m4w-install-text strong { color: var(--m4w-text); font-size: .95rem; }
+.m4w-install-text .bi { color: var(--m4w-primary); font-size: 1rem; }
+.m4w-install-actions { display: flex; gap: .5rem; margin-left: auto; }
+@keyframes m4w-install-in { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .m4w-install { animation: none; } }
