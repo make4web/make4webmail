@@ -258,7 +258,7 @@
     var rules = $root.data('rules') || [], folders = $root.data('folders') || [], prefill = $root.data('prefill') || {};
     var FIELDS = ['from', 'to', 'cc', 'recipients', 'subject', 'body', 'header', 'size', 'has_attachment', 'priority'];
     var TEXT_OPS = ['contains', 'not_contains', 'equals', 'not_equals', 'starts_with', 'ends_with'];
-    var ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'redirect', 'reply', 'discard', 'stop'];
+    var ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'redirect', 'divert', 'reply', 'discard', 'stop'];
     var $modal = $('#rule-modal'), $form = $('#rule-form');
 
     function folderOptions(sel) {
@@ -275,7 +275,7 @@
       }).join(r.match_type === 'any' ? ' ' + esc(t('or')) + ' ' : ' ' + esc(t('and')) + ' ');
       var a = (r.actions || []).map(function (x) {
         if (x.type === 'move' || x.type === 'copy') return esc(t('ra_' + x.type)) + ' <b>' + esc(folderName(x.folder)) + '</b>';
-        if (x.type === 'redirect') return esc(t('ra_redirect')) + ' <b>' + esc(x.to) + '</b>';
+        if (x.type === 'redirect' || x.type === 'divert') return esc(t('ra_' + x.type)) + ' <b>' + esc(x.to) + '</b>';
         return esc(t('ra_' + x.type));
       }).join(', ');
       return (c ? esc(t('if')) + ' ' + c : esc(t('all_messages'))) + ' → ' + a;
@@ -334,7 +334,7 @@
       var sync = function () {
         var ty = $r.find('[data-k=type]').val();
         if (ty === 'move' || ty === 'copy') $p.html('<select class="form-select form-select-sm" data-k="folder">' + folderOptions(a.folder) + '</select>');
-        else if (ty === 'redirect') $p.html('<input type="email" class="form-control form-control-sm" data-k="to" placeholder="adresse@exemple.com">').find('input').val(a.to || '');
+        else if (ty === 'redirect' || ty === 'divert') $p.html('<input type="email" class="form-control form-control-sm" data-k="to" placeholder="adresse@exemple.com">' + (ty === 'divert' ? '<div class="small text-muted pt-1"><i class="bi bi-info-circle"></i> ' + esc(t('divert_hint')) + '</div>' : '')).find('input').val(a.to || '');
         else if (ty === 'reply') $p.html('<input class="form-control form-control-sm mb-1" data-k="subject" placeholder="' + esc(t('subject')) + '"><textarea class="form-control form-control-sm" rows="3" data-k="body" placeholder="' + esc(t('reply_text')) + '"></textarea>').find('[data-k=subject]').val(a.subject || '').end().find('[data-k=body]').val(a.body || '');
         else if (ty === 'discard') $p.html('<div class="small text-danger pt-1"><i class="bi bi-exclamation-triangle"></i> ' + esc(t('discard_warning')) + '</div>');
         else $p.html('');

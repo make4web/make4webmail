@@ -14,7 +14,8 @@ final class RuleEngine
 {
     public const FIELDS = ['from', 'to', 'cc', 'recipients', 'subject', 'body', 'header', 'size', 'has_attachment', 'priority'];
     public const OPS = ['contains', 'not_contains', 'equals', 'not_equals', 'starts_with', 'ends_with', 'gt', 'lt', 'is_true', 'is_false'];
-    public const ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'discard', 'redirect', 'reply', 'stop'];
+    /** redirect: a copy is sent on, the message stays; divert: sent on, not kept here. */
+    public const ACTIONS = ['move', 'copy', 'mark_read', 'flag', 'trash', 'discard', 'redirect', 'divert', 'reply', 'stop'];
 
     public static function forUser(int $userId, bool $enabledOnly = false): array
     {
@@ -59,7 +60,7 @@ final class RuleEngine
                     throw new \InvalidArgumentException(t('rules.invalid_folder'));
                 }
                 $act['folder'] = $fid;
-            } elseif ($type === 'redirect') {
+            } elseif ($type === 'redirect' || $type === 'divert') {
                 $to = mb_strtolower(trim((string) ($a['to'] ?? '')));
                 if (!is_valid_email($to)) {
                     throw new \InvalidArgumentException(t('rules.invalid_email'));
@@ -168,11 +169,11 @@ final class RuleEngine
 
     /**
      * Compute the actions to perform for a message.
-     * @return array{folder:?int,copies:int[],read:bool,flag:bool,discard:bool,redirects:string[],replies:array,matched:int[]}
+     * @return array{folder:?int,copies:int[],read:bool,flag:bool,discard:bool,redirects:string[],diverts:string[],replies:array,matched:int[]}
      */
     public static function evaluate(int $userId, ParsedMessage $msg): array
     {
-        $result = ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
+        $result = ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'diverts' => [], 'replies' => [], 'matched' => []];
         foreach (self::forUser($userId, true) as $rule) {
             if (!self::matches($rule, $msg)) {
                 continue;
@@ -201,6 +202,9 @@ final class RuleEngine
                         break;
                     case 'redirect':
                         $result['redirects'][] = $a['to'];
+                        break;
+                    case 'divert':
+                        $result['diverts'][] = $a['to'];
                         break;
                     case 'reply':
                         $result['replies'][] = $a;

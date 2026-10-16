@@ -126,17 +126,29 @@ final class Delivery
             $folderId = (int) $folder['id'];
 
             // 3. User rules.
-            $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'replies' => [], 'matched' => []];
+            $actions = $applyRules ? RuleEngine::evaluate($uid, $parsed) : ['folder' => null, 'copies' => [], 'read' => false, 'flag' => false, 'discard' => false, 'redirects' => [], 'diverts' => [], 'replies' => [], 'matched' => []];
             if ($actions['folder'] && Folders::find($uid, (int) $actions['folder']) && $level === 'ok') {
                 $folderId = (int) $actions['folder'];
             }
             if ($suspicious || $level !== 'ok') {
                 $actions['redirects'] = [];
+                $actions['diverts'] = []; // kept here (spam folder) rather than passed on
                 $actions['replies'] = [];
             }
             $actions['copies'] = array_values(array_filter($actions['copies'], static fn($c) => (bool) Folders::find($uid, (int) $c)));
+            $diverted = [];
             if (!$isLoop) {
-                foreach (array_unique($actions['redirects']) as $to) {
+                // Redirected: sent on as it came, not kept in this mailbox. Should no address be
+                // allowed (any more), the message is kept: nothing is lost.
+                foreach (array_unique($actions['diverts']) as $to) {
+                    try {
+                        Forwarding::assertAllowed($to);
+                        Forwarding::redirect($user, $raw, [$to]);
+                        $diverted[] = $to;
+                    } catch (\InvalidArgumentException) {
+                    }
+                }
+                foreach (array_diff(array_unique($actions['redirects']), $diverted) as $to) {
                     try {
                         Forwarding::assertAllowed($to);
                         Forwarding::redirect($user, $raw, [$to]);
@@ -148,6 +160,12 @@ final class Delivery
                         self::ruleReply($user, $parsed, $reply, $envelopeFrom);
                     }
                 }
+            }
+            if ($diverted && !$actions['discard']) {
+                Retention::keepIncoming($user, $userRaw);
+                $results[$rcpt] = 'ok';
+                Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', 'redirected by rule to ' . implode(', ', $diverted));
+                continue;
             }
             if ($actions['discard']) {
                 Retention::keepIncoming($user, $userRaw);
