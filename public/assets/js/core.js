@@ -403,6 +403,16 @@
       if (e.key === 'Enter' && !e.originalEvent.isComposing) { e.preventDefault(); $('[data-action=adv-search]').trigger('click'); }
     });
 
+    // While the app is open (even in a background tab), the session is not idle: it ends only
+    // after the idle time with the app closed, or at its maximum length (Admin › Security).
+    var keep = +($('meta[name="m4w-keepalive"]').attr('content') || 0);
+    if (keep > 0) {
+      var lastPing = Date.now(), ping = function () { lastPing = Date.now(); M4W.get('api/ping', null, { silent: true, quiet: true }); };
+      setInterval(ping, keep * 1000);
+      // Back on an app that slept (phone): signed out meanwhile → straight to the sign-in page.
+      document.addEventListener('visibilitychange', function () { if (!document.hidden && Date.now() - lastPing > 60000) ping(); });
+    }
+
     // Password strength meters
     $(document).on('input', 'input[data-strength]', function () {
       var v = this.value, s = 0;

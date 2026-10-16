@@ -83,8 +83,10 @@ final class Settings
         'security.password_classes'  => 3,
         'security.max_attempts'      => 5,
         'security.lockout_minutes'   => 15,
-        'security.session_idle'      => 60,
-        'security.session_absolute'  => 720,
+        'security.session_idle'      => 30,  // minutes without the app open (see keepalive)
+        'security.session_absolute'  => 720, // minutes from sign-in, whatever happens
+        'security.session_keepalive' => 1,   // an open app (even in the background) is not idle
+        'security.session_persist'   => 1,   // the session outlives closing the browser / app
         'security.enforce_2fa_admin' => 0,
         'security.allow_external_forward' => 1,
         'security.forward_whitelist' => '',

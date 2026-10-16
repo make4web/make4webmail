@@ -751,6 +751,14 @@ final class MailController extends Controller
         return array_map('intval', array_column($rows, 'id'));
     }
 
+    /** "The app is open": keeps the session from going idle (see security.session_keepalive). */
+    public function ping(): Response
+    {
+        $this->user(); // seen now
+        Session::close();
+        return $this->ok([]);
+    }
+
     public function poll(): Response
     {
         $u = $this->user();
