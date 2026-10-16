@@ -13,6 +13,7 @@ $area = str_starts_with($path, '/admin') ? 'admin' : (str_starts_with($path, '/c
 <?php $topbarMode = 'page'; include __DIR__ . '/../partials/topbar.php'; ?>
 <div class="m4w-page">
   <nav class="m4w-page-nav m4w-sidebar" aria-label="<?= te('nav.section') ?>">
+    <div class="m4w-drawer-brand"><?php include __DIR__ . '/../partials/brand.php'; ?></div>
     <?php if ($area !== 'files'): ?><a href="<?= e(url('mail')) ?>" class="m4w-compose-btn text-decoration-none"><i class="bi bi-arrow-left"></i><?= te('nav.back_mail') ?></a><?php endif; ?>
     <?php include __DIR__ . '/../partials/nav_' . $area . '.php'; ?>
   </nav>

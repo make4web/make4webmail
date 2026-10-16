@@ -5,6 +5,7 @@ namespace M4W\Controller;
 
 use M4W\Core\Response;
 use M4W\Core\Settings;
+use M4W\Service\AppIcon;
 use M4W\Service\Branding;
 
 final class AssetController extends Controller
@@ -42,7 +43,6 @@ final class AssetController extends Controller
     public function manifest(): Response
     {
         $name = (string) Settings::get('brand.name', 'Make4WebMail');
-        $icon = Branding::logoUrl() ?: url('assets/img/icon.svg');
         return new Response(json_encode([
             'name' => $name,
             'short_name' => mb_substr($name, 0, 12),
@@ -52,13 +52,27 @@ final class AssetController extends Controller
             'display' => 'standalone',
             'background_color' => '#ffffff',
             'theme_color' => (string) Settings::get('brand.primary', '#2563eb'),
-            // PNG icons are required to install on Android and iOS; the brand logo comes on top.
-            'icons' => array_values(array_filter([
-                ['src' => asset('img/icon-192.png'), 'sizes' => '192x192', 'type' => 'image/png'],
-                ['src' => asset('img/icon-512.png'), 'sizes' => '512x512', 'type' => 'image/png'],
-                ['src' => asset('img/icon-maskable-512.png'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
-                Branding::logoUrl() ? ['src' => $icon, 'sizes' => 'any'] : null,
-            ])),
+            // PNG icons are required to install on Android and iOS: made from the logo when there is one.
+            'icons' => [
+                ['src' => AppIcon::url('192'), 'sizes' => '192x192', 'type' => 'image/png'],
+                ['src' => AppIcon::url('512'), 'sizes' => '512x512', 'type' => 'image/png'],
+                ['src' => AppIcon::url('maskable'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
+            ],
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 200, ['Content-Type' => 'application/manifest+json']);
+    }
+
+    /** Icon of the installed app, made from the logo (see AppIcon); the default one otherwise. */
+    public function appIcon(string $variant): Response
+    {
+        $variant = preg_replace('/\.png$/', '', $variant);
+        $png = isset(AppIcon::VARIANTS[$variant]) ? AppIcon::png($variant) : null;
+        if ($png === null) {
+            return new Response('', 302, ['Location' => AppIcon::defaultUrl($variant), 'Cache-Control' => 'no-cache']);
+        }
+        return new Response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'public, max-age=604800, immutable',
+            'Cross-Origin-Resource-Policy' => 'cross-origin',
+        ]);
     }
 }

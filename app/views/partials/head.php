@@ -14,7 +14,7 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <title><?= e(isset($title) && $title !== '' ? $title . ' · ' . $brandName : $brandName) ?></title>
 <link rel="icon" href="<?= $favicon !== '' ? e(url('brand/' . $favicon)) : e(asset('img/icon.svg')) ?>">
 <link rel="manifest" href="<?= e(url('manifest.webmanifest')) ?>">
-<link rel="apple-touch-icon" href="<?= e(asset('img/apple-touch-icon.png')) ?>">
+<link rel="apple-touch-icon" href="<?= e(M4W\Service\AppIcon::url('apple')) ?>">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="<?= e(mb_substr($brandName, 0, 12)) ?>">

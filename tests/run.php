@@ -3839,6 +3839,69 @@ test('meetings: Jitsi link at once; Zoom, Teams, Google Meet created by their AP
     eq($M::fromUrl('zoom', 'https://zoom.us/j/1234567890?pwd=a'), ['code' => '123 456 7890', 'phone_code' => '1234567890#']);
 });
 
+test('app icon: the logo with an envelope of the primary colour, background after the colour', function () {
+    $keys = ['brand.logo', 'brand.logo_dark', 'brand.primary'];
+    $keep = array_map(static fn($k) => Settings::get($k), $keys);
+    $dir = storage_path('uploads/brand');
+    @mkdir($dir, 0750, true);
+    // A square red logo on a transparent background, with empty margins to cut off.
+    $mk = static function (string $name, array $rgb) use ($dir) {
+        $im = imagecreatetruecolor(300, 300);
+        imagealphablending($im, false); imagesavealpha($im, true);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagefilledrectangle($im, 50, 50, 249, 249, imagecolorallocate($im, ...$rgb));
+        imagepng($im, "$dir/$name");
+    };
+    $mk('logo-aaaaaaaaaaaa.png', [220, 30, 30]);
+    $mk('logo-bbbbbbbbbbbb.png', [30, 200, 30]);
+    $px = static function (string $png, int $x, int $y): array {
+        $im = imagecreatefromstring($png); $c = imagecolorat($im, $x, $y);
+        return [($c >> 16) & 255, ($c >> 8) & 255, $c & 255, ($c >> 24) & 127];
+    };
+    $A = M4W\Service\AppIcon::class;
+
+    Settings::setMany(['brand.logo' => '', 'brand.logo_dark' => '']);
+    ok(!$A::custom() && str_contains($A::url('512'), 'assets/img/icon-512.png'), 'no logo: default icon');
+    eq($A::png('512'), null);
+
+    Settings::setMany(['brand.logo' => 'logo-aaaaaaaaaaaa.png', 'brand.primary' => '#1d4ed8']);
+    ok(str_contains($A::url('192'), 'app-icon/192.png?v='), 'logo: generated icon');
+    foreach ($A::VARIANTS as $v => [$size]) {
+        $png = $A::png((string) $v);
+        ok($png !== null && getimagesizefromstring($png)[0] === $size, "$v: $size px");
+    }
+    $png = $A::png('512');
+    eq(array_slice($px($png, 2, 2), 3), [127], 'rounded: transparent corner');
+    eq(array_slice($px($A::png('apple'), 1, 1), 0, 3), [255, 255, 255], 'iOS: full square, light background for a dark primary');
+    eq(array_slice($px($png, 100, 100), 0, 3), [220, 30, 30], 'logo top left, margins cut off (fills its area)');
+    [$r, $g, $b] = $px($png, 455, 380);
+    ok(abs($r - 0x1d) < 8 && abs($g - 0x4e) < 8 && abs($b - 0xd8) < 8, 'envelope badge in the primary colour, bottom right');
+    [$r, $g, $b] = $px($png, 380, 380); // overlaps the logo's corner
+    ok(!($r > 200 && $g < 60), 'the badge is over the logo');
+    $u1 = $A::url('512');
+
+    // Light primary: dark background with the logo made for it.
+    Settings::setMany(['brand.primary' => '#fbbf24']);
+    eq(array_slice($px($A::png('apple'), 1, 1), 0, 3), [255, 255, 255], 'light primary without a dark logo: light background');
+    Settings::setMany(['brand.logo_dark' => 'logo-bbbbbbbbbbbb.png']);
+    $png = $A::png('apple');
+    eq(array_slice($px($png, 1, 1), 0, 3), [15, 23, 42], 'light primary + dark logo: dark background');
+    eq(array_slice($px($png, 40, 40), 0, 3), [30, 200, 30], 'with the dark logo');
+    ok($A::url('512') !== $u1, 'new colour or logo: new address (installed apps refresh it)');
+    eq(count(glob("$dir/appicon/*-apple.png")), 1, 'old icons removed');
+
+    // A broken or hostile file: no icon, the default one is served.
+    file_put_contents("$dir/logo-cccccccccccc.png", 'not an image');
+    Settings::setMany(['brand.logo' => 'logo-cccccccccccc.png', 'brand.logo_dark' => '', 'brand.primary' => '#1d4ed8']);
+    eq($A::png('512'), null, 'not an image');
+    Settings::setMany(['brand.logo' => '../../config.php']);
+    eq($A::png('512'), null, 'no path out of the brand folder');
+    eq($A::png('nope'), null, 'unknown variant');
+
+    @unlink("$dir/logo-aaaaaaaaaaaa.png"); @unlink("$dir/logo-bbbbbbbbbbbb.png"); @unlink("$dir/logo-cccccccccccc.png");
+    Settings::setMany(array_combine($keys, $keep));
+});
+
 echo "\n" . ($fail ? "\033[31m" : "\033[32m") . "$pass passed, $fail failed\033[0m\n\n";
 exec('rm -rf ' . escapeshellarg($tmp));
 exit($fail ? 1 : 0);

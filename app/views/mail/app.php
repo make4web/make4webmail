@@ -5,6 +5,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
 ?>
 <div class="m4w-app" id="m4w-app">
   <aside class="m4w-sidebar" id="m4w-sidebar" aria-label="<?= te('nav.folders') ?>">
+    <div class="m4w-drawer-brand"><?php include __DIR__ . '/../partials/brand.php'; ?></div>
     <button class="m4w-compose-btn" type="button" data-action="compose" title="<?= te('mail.compose') ?> (C)">
       <i class="bi bi-pencil-square"></i><span><?= te('mail.compose') ?></span>
     </button>
