@@ -206,6 +206,7 @@ final class App
         $r->get('/theme.css', [Controller\AssetController::class, 'theme'], $pub);
         $r->get('/brand/{file}', [Controller\AssetController::class, 'brand'], $pub);
         $r->get('/manifest.webmanifest', [Controller\AssetController::class, 'manifest'], $pub);
+        $r->get('/app-icon/{variant}', [Controller\AssetController::class, 'appIcon'], $pub);
 
         $r->get('/', [Controller\AuthController::class, 'home'], $pub);
         $r->get('/login', [Controller\AuthController::class, 'loginForm'], $pub);
