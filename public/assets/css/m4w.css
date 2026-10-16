@@ -506,7 +506,8 @@ body.m4w-resizing iframe { pointer-events: none; }
 .m4w-editor-toolbar select:hover { background: var(--m4w-hover); }
 .m4w-colors { display: grid; grid-template-columns: repeat(8, 22px); gap: 4px; padding: .5rem; }
 .m4w-colors button { width: 22px; height: 22px; border-radius: var(--m4w-radius-sm); border: 1px solid rgba(0, 0, 0, .1); }
-.m4w-compose-atts { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 1rem .6rem; }
+.m4w-compose-atts { display: flex; flex-wrap: wrap; gap: .4rem; padding: .5rem .9rem; border-bottom: 1px solid var(--m4w-border); flex-shrink: 0; max-height: 30%; overflow-y: auto; }
+.m4w-compose-atts:empty { display: none; }
 .m4w-compose-att { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .4rem .3rem .6rem; border-radius: var(--m4w-radius-sm); background: var(--m4w-surface-3); font-size: .78rem; max-width: 260px; position: relative; overflow: hidden; }
 .m4w-compose-att .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .m4w-compose-att .size { color: var(--m4w-muted); }
