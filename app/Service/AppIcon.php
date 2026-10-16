@@ -6,24 +6,27 @@ namespace M4W\Service;
 use M4W\Core\Settings;
 
 /**
- * Icon of the installed app (home screen of a phone): the client's logo, with an envelope in the
+ * Icon of the installed app (home screen, desktop): the client's logo, with an envelope in the
  * primary colour over its bottom right corner.
- *  - Dark primary colour: light background and the normal logo. Light primary colour: dark
- *    background and the logo for dark backgrounds (when there is one, otherwise light background).
+ *  - Android / desktop icons: transparent, the logo as big as it goes, the envelope in the corner
+ *    with a transparent cut around it.
+ *  - iOS and Android "maskable" ones must be opaque: dark primary colour, light background and the
+ *    normal logo; light primary colour, dark background and the logo for dark backgrounds (when
+ *    there is one, otherwise light background).
  *  - Made with GD at four times the size then reduced, for smooth edges; kept in storage until
  *    the logo or the colour changes. Without a logo (or GD), the default icons stay.
  */
 final class AppIcon
 {
     /** Bump when the drawing changes, so installed apps get the new one. */
-    private const VERSION = 1;
+    private const VERSION = 3;
 
-    /** variant => [size, shape] — "round": rounded corners, transparent around (Android "any");
+    /** variant => [size, shape] — "clear": transparent, no background (Android "any", desktop);
      *  "full": square, the system cuts it (iOS); "safe": square, content in the 80 % safe circle (maskable). */
     public const VARIANTS = [
         'apple' => [180, 'full'],
-        '192' => [192, 'round'],
-        '512' => [512, 'round'],
+        '192' => [192, 'clear'],
+        '512' => [512, 'clear'],
         'maskable' => [512, 'safe'],
     ];
 
@@ -103,7 +106,8 @@ final class AppIcon
         $darkFile = (string) Settings::get('brand.logo_dark', '');
         // White envelope on a dark primary: light background. Dark envelope on a light primary:
         // dark background, if a logo is made for it (a normal logo may vanish on dark).
-        $darkBg = Branding::contrast($primary) !== '#ffffff' && $darkFile !== '';
+        $clear = $shape === 'clear';
+        $darkBg = !$clear && Branding::contrast($primary) !== '#ffffff' && $darkFile !== '';
         $logo = self::load($darkBg ? $darkFile : $logoFile);
         if (!$logo) {
             return null;
@@ -117,25 +121,23 @@ final class AppIcon
         imagealphablending($im, true);
         [$br, $bg, $bb] = self::rgb($darkBg ? self::DARK_BG : '#ffffff');
         $bgCol = imagecolorallocate($im, $br, $bg, $bb);
-        if ($shape === 'round') {
-            self::roundRect($im, 0, 0, $S, $S, (int) ($S * 0.22), $bgCol);
-        } else {
+        if (!$clear) {
             imagefilledrectangle($im, 0, 0, $S - 1, $S - 1, $bgCol);
         }
 
         // Content area: the whole icon less a margin; the maskable one keeps to the safe circle.
-        $inset = $shape === 'safe' ? 0.16 : 0.08;
+        $inset = ['clear' => 0.01, 'full' => 0.07, 'safe' => 0.16][$shape];
         $x0 = (int) ($S * $inset);
         $w = $S - 2 * $x0;
 
         // Logo: top left, leaving the bottom right corner to the envelope.
         $lw = imagesx($logo);
         $lh = imagesy($logo);
-        // Square-ish logo: 78 % of the area, the envelope overlaps its corner. Wide logo (with its
+        // Square-ish logo: most of the area, the envelope overlaps its corner. Wide logo (with its
         // name): the whole width, a bit above the middle, the envelope below it.
         $wide = $lw / $lh > 1.6;
-        $boxW = $wide ? $w : $w * 0.78;
-        $boxH = $wide ? $w * 0.5 : $w * 0.78;
+        $boxW = $wide ? $w : $w * ($clear ? 0.86 : 0.8);
+        $boxH = $wide ? $w * 0.5 : $boxW;
         $scale = min($boxW / $lw, $boxH / $lh);
         $dw = max(1, (int) round($lw * $scale));
         $dh = max(1, (int) round($lh * $scale));
@@ -143,12 +145,19 @@ final class AppIcon
         $dy = $wide ? (int) ($x0 + $w * 0.30 - $dh / 2) : (int) ($x0 + ($boxH - $dh) / 2);
         imagecopyresampled($im, $logo, $dx, $dy, 0, 0, $dw, $dh, $lw, $lh);
 
-        // Envelope badge, bottom right, with a ring of the background around it.
-        $b = (int) ($w * 0.46);
+        // Envelope badge, in the bottom right corner, with a ring of the background (or a
+        // transparent cut) around it.
+        $b = (int) ($w * ($clear ? 0.42 : 0.44));
         $bx = $x0 + $w - $b;
         $by = $x0 + $w - $b;
         $ring = (int) ($b * 0.07);
-        self::roundRect($im, $bx - $ring, $by - $ring, $b + 2 * $ring, $b + 2 * $ring, (int) ($b * 0.30) + $ring, $bgCol);
+        if ($clear) {
+            imagealphablending($im, false);
+            self::roundRect($im, $bx - $ring, $by - $ring, $b + 2 * $ring, $b + 2 * $ring, (int) ($b * 0.30) + $ring, imagecolorallocatealpha($im, 0, 0, 0, 127));
+            imagealphablending($im, true);
+        } else {
+            self::roundRect($im, $bx - $ring, $by - $ring, $b + 2 * $ring, $b + 2 * $ring, (int) ($b * 0.30) + $ring, $bgCol);
+        }
         [$pr, $pg, $pb] = self::rgb($primary);
         self::roundRect($im, $bx, $by, $b, $b, (int) ($b * 0.30), imagecolorallocate($im, $pr, $pg, $pb));
         [$fr, $fg, $fb] = self::rgb(Branding::contrast($primary));
@@ -184,12 +193,55 @@ final class AppIcon
         }
         imagealphablending($im, false);
         imagesavealpha($im, true);
-        foreach ([IMG_CROP_TRANSPARENT, IMG_CROP_WHITE] as $mode) {
-            $c = @imagecropauto($im, $mode);
-            if ($c instanceof \GdImage && imagesx($c) > 4 && imagesy($c) > 4) {
-                $im = $c;
-                break;
+        return self::trim($im);
+    }
+
+    /**
+     * Cut off the empty margins (transparent or near white) — imagecropauto() leaves transparent
+     * ones. Measured on a copy of at most 256 px, so a big logo costs little.
+     */
+    private static function trim(\GdImage $im): \GdImage
+    {
+        $w = imagesx($im);
+        $h = imagesy($im);
+        $k = max(1, max($w, $h) / 256);
+        $sw = max(1, (int) round($w / $k));
+        $sh = max(1, (int) round($h / $k));
+        $small = imagecreatetruecolor($sw, $sh);
+        imagealphablending($small, false);
+        imagesavealpha($small, true);
+        imagecopyresampled($small, $im, 0, 0, 0, 0, $sw, $sh, $w, $h);
+        $x1 = $sw;
+        $y1 = $sh;
+        $x2 = -1;
+        $y2 = -1;
+        for ($y = 0; $y < $sh; $y++) {
+            for ($x = 0; $x < $sw; $x++) {
+                $c = imagecolorat($small, $x, $y);
+                $empty = (($c >> 24) & 127) > 110 || ((($c >> 16) & 255) > 245 && (($c >> 8) & 255) > 245 && ($c & 255) > 245);
+                if (!$empty) {
+                    $x1 = min($x1, $x);
+                    $x2 = max($x2, $x);
+                    $y1 = min($y1, $y);
+                    $y2 = max($y2, $y);
+                }
             }
+        }
+        if ($x2 < 0) {
+            return $im; // nothing visible: keep it as it is
+        }
+        $cx = max(0, (int) floor(($x1 - 1) * $k));
+        $cy = max(0, (int) floor(($y1 - 1) * $k));
+        $cw = min($w, (int) ceil(($x2 + 2) * $k)) - $cx;
+        $ch = min($h, (int) ceil(($y2 + 2) * $k)) - $cy;
+        if ($cw < 4 || $ch < 4 || ($cw >= $w && $ch >= $h)) {
+            return $im;
+        }
+        $c = imagecrop($im, ['x' => $cx, 'y' => $cy, 'width' => $cw, 'height' => $ch]);
+        if ($c instanceof \GdImage) {
+            imagealphablending($c, false);
+            imagesavealpha($c, true);
+            return $c;
         }
         return $im;
     }
