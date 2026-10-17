@@ -1029,6 +1029,8 @@ final class RemoteMailbox
         // their read / flagged state still follows.
         $ownFolders = array_flip(array_map('intval', array_column(DB::all('SELECT id FROM folders WHERE user_id = :u AND role IS NULL', ['u' => $uid]), 'id')));
         $save = static function () use (&$report, $acc): void {
+            // Counted once the pass is done: what it found gone is no longer followed.
+            $report['followed'] = min($report['provider'], (int) DB::value('SELECT COUNT(*) FROM remote_uids WHERE account_id = :a', ['a' => $acc['id']]));
             Settings::set('webmail.twoway.' . (int) $acc['id'], json_encode($report));
         };
         // Where each followed place is: here (folder id) and at the provider (path). One's own
