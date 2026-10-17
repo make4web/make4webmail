@@ -20,6 +20,7 @@ use M4W\Service\Mailbox;
 use M4W\Service\Forwarding;
 use M4W\Service\RuleEngine;
 use M4W\Service\Signatures;
+use M4W\Service\Notify;
 use M4W\Service\Users;
 use M4W\Service\Vacation;
 
@@ -78,6 +79,54 @@ final class SettingsController extends Controller
             'compose_size' => in_array($r->str('compose_size'), ['12px', '13px', '14px', '16px', '18px'], true) ? $r->str('compose_size') : '14px',
         ]);
         return $this->back('/settings', 'success', t('settings.saved'));
+    }
+
+    /** Notifications: what, when (always or weekly hours), sounds, vibration. */
+    public function saveNotifications(): Response
+    {
+        $u = $this->user();
+        $r = $this->req;
+        $hours = [];
+        for ($d = 1; $d <= 7; $d++) {
+            $hours[$d] = $r->bool('open_' . $d) ? [$r->str('from_' . $d), $r->str('to_' . $d)] : null;
+        }
+        $choice = static fn(string $v, array $list, string $def) => in_array($v, $list, true) ? $v : $def;
+        Users::savePrefs((int) $u['id'], [
+            'notify_new' => $r->bool('notify_new') ? 1 : 0,
+            'notify_reminder' => $r->bool('notify_reminder') ? 1 : 0,
+            'reminder_minutes' => in_array($r->int('reminder_minutes'), Notify::REMINDER_MINUTES, true) ? $r->int('reminder_minutes') : 30,
+            'notify_period' => $r->str('notify_period') === 'custom' ? 'custom' : 'always',
+            'notify_hours' => Notify::formatHours(Notify::parseHours(Notify::formatHours($hours))),
+            'sound_new' => $choice($r->str('sound_new'), Notify::SOUNDS, 'ding'),
+            'sound_reminder' => $choice($r->str('sound_reminder'), Notify::SOUNDS, 'chime'),
+            'sound_volume' => max(0, min(100, $r->int('sound_volume', 70))),
+            'vibrate' => $choice($r->str('vibrate'), array_keys(Notify::VIBRATIONS), 'short'),
+        ]);
+        return $this->back('/settings#notifications', 'success', t('settings.saved'));
+    }
+
+    /** One's own sound for new mail or reminders (MP3, OGG, WAV). */
+    public function uploadSound(): Response
+    {
+        $u = $this->user();
+        $kind = $this->req->str('kind');
+        try {
+            Notify::storeSound((int) $u['id'], $kind, $this->req->files['file'] ?? []);
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        return $this->ok(['url' => url('settings/sound/' . $kind) . '?v=' . time()]);
+    }
+
+    public function sound(string $kind): Response
+    {
+        $f = Notify::soundFile($this->user(), $kind);
+        if (!$f) {
+            return Response::json(['ok' => false], 404);
+        }
+        $r = Response::file($f['path'], $f['mime'], $kind . '.' . pathinfo($f['name'], PATHINFO_EXTENSION), true);
+        $r->header('Cache-Control', 'private, max-age=86400');
+        return $r;
     }
 
     public static function fonts(): array

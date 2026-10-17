@@ -160,6 +160,24 @@ En mode boîte collectrice :
 - Seuls les services push des navigateurs sont contactés (Google, Mozilla, Apple, Microsoft) : liste blanche contre la SSRF, abonnements expirés oubliés automatiquement.
 - HTTPS est obligatoire (exigence des navigateurs).
 
+### Réglages des notifications
+Dans Paramètres → Profil & préférences → Notifications, chacun choisit :
+- **à chaque nouveau message** : « Nouveau message de … », avec l'adresse de l'expéditeur, l'objet et le dossier où une règle l'a rangé ;
+- **une relance** tant que des messages restent non lus : « 3 nouveaux messages », envoyée à nouveau toutes les 5 min à 2 h, avec depuis quand et de qui ;
+- **la période** : tout le temps (par défaut) ou des horaires par jour, comme pour les salles. En dehors de ces horaires, aucune alerte, mais les messages arrivent quand même ;
+- **les sons** : quelques sons classiques (ding, carillon, cloche, pop, marimba, bip) ou un son à soi (MP3, OGG, WAV, 1 Mo au plus, vérifié par son contenu). Un son différent est possible pour l'arrivée et pour la relance, ainsi que « Aucun son », et un volume ;
+- **la vibration** sur téléphone (courte, longue, trois impulsions).
+
+Limites des navigateurs :
+- les sons choisis sont joués quand l'application est ouverte, même en arrière-plan ;
+- application fermée, l'appareil utilise son propre son de notification. Avec « Aucun son », la notification est silencieuse ;
+- un service worker ne peut pas interroger le serveur à intervalle régulier quand l'application est fermée. C'est le serveur qui prévient l'appareil, par Web Push.
+
+**Fréquence des relèves** :
+- les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont relevées par la tâche planifiée toutes les 1 à 15 minutes ;
+- le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;
+- chaque utilisateur peut choisir le rythme de ses propres comptes externes.
+
 ### Administration
 - **Supervision** : tâche planifiée, file d'envoi, disque, sauvegarde, antivirus, certificat HTTPS, DNS (MX, SPF, DKIM, DMARC) vérifiés chaque heure ; alertes aux administrateurs (et à une adresse extérieure) avec rappel quotidien ; lecture automatique des **rapports DMARC** agrégés (taux d'authentification, serveurs non autorisés).
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.

@@ -129,14 +129,25 @@ self.addEventListener('push', function (event) {
   if (typeof data.count === 'number' && self.navigator && self.navigator.setAppBadge) {
     try { data.count ? self.navigator.setAppBadge(data.count) : self.navigator.clearAppBadge(); } catch (e) {}
   }
-  event.waitUntil(self.registration.showNotification(data.title || 'Make4WebMail', {
+  var vibrate = Array.isArray(data.vibrate) ? data.vibrate.filter(function (n) { return typeof n === 'number' && n >= 0 && n <= 2000; }).slice(0, 10) : [];
+  var opts = {
     body: data.body || '',
     tag: data.tag || 'm4w',
     icon: base + (data.icon && /^[a-z0-9\/._-]+$/i.test(data.icon) ? data.icon : 'assets/img/icon-192.png'),
     badge: base + 'assets/img/icon-192.png',
     data: { url: target(data.url) },
-    renotify: false
-  }));
+    // A reminder replaces the previous one but alerts again (sound, vibration of the system).
+    renotify: !!data.renotify,
+    silent: !!data.silent
+  };
+  if (vibrate.length) opts.vibrate = vibrate;
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(data.title || 'Make4WebMail', opts),
+    // An open app plays the sound the person chose (a closed one gets the system's own).
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+      list.forEach(function (c) { if (c.url.indexOf(base) === 0) c.postMessage({ type: 'm4w-alert', kind: data.kind === 'reminder' ? 'reminder' : 'new', id: data.id || 0 }); });
+    })
+  ]));
 });
 
 // Tapping the notification opens (or focuses) the webmail on that message.

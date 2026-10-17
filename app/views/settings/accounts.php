@@ -11,7 +11,7 @@
       <?php if ($a['last_error']): ?><div class="small text-danger"><i class="bi bi-exclamation-triangle"></i> <?= e($a['last_error']) ?></div><?php endif; ?>
     </div>
     <form method="post" action="<?= e(url('settings/accounts/run')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $a['id'] ?>"><button class="btn btn-light btn-sm"><i class="bi bi-arrow-repeat me-1"></i><?= te('fetch.run') ?></button></form>
-    <button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="modal" data-bs-target="#acc-modal" data-account="<?= e(json_encode(array_intersect_key($a, array_flip(['id', 'label', 'host', 'port', 'security', 'username', 'remote_folder', 'delete_remote', 'apply_rules', 'enabled'])))) ?>"><i class="bi bi-pencil"></i></button>
+    <button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="modal" data-bs-target="#acc-modal" data-account="<?= e(json_encode(array_intersect_key($a, array_flip(['id', 'label', 'host', 'port', 'security', 'username', 'remote_folder', 'delete_remote', 'apply_rules', 'enabled', 'interval_min'])))) ?>"><i class="bi bi-pencil"></i></button>
     <form method="post" action="<?= e(url('settings/accounts/delete')) ?>" data-confirm="<?= te('fetch.confirm_delete') ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $a['id'] ?>"><button class="btn btn-ghost btn-icon btn-sm text-danger"><i class="bi bi-trash3"></i></button></form>
   </div>
   <?php endforeach; ?>
@@ -28,6 +28,9 @@
         <div class="col-6"><label class="form-label"><?= te('fetch.security') ?></label><select class="form-select" name="security"><option value="ssl">SSL/TLS</option><option value="tls">STARTTLS</option><option value="none"><?= te('common.none') ?></option></select></div>
         <div class="col-6"><label class="form-label"><?= te('fetch.folder') ?></label><input class="form-control" name="remote_folder" value="INBOX"></div>
         <div class="col-12"><label class="form-label"><?= te('fetch.username') ?></label><input class="form-control" name="username" required autocomplete="off"></div>
+        <div class="col-12"><label class="form-label" for="a-every"><?= te('fetch.interval') ?></label><select class="form-select" id="a-every" name="interval_min">
+          <?php foreach (M4W\Service\Fetcher::INTERVALS as $iv): ?><option value="<?= $iv ?>"><?= $iv === 1 ? te('fetch.every_minute') : ($iv ? te('fetch.every', ['n' => $iv]) : te('fetch.every_default', ['n' => M4W\Service\RemoteMailbox::interval()])) ?></option><?php endforeach; ?>
+        </select></div>
         <div class="col-12"><label class="form-label"><?= te('auth.password') ?></label><input class="form-control" type="password" name="password" autocomplete="new-password" placeholder="<?= te('fetch.password_keep') ?>"></div>
         <div class="col-12">
           <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="a-en" checked><label class="form-check-label" for="a-en"><?= te('fetch.enabled') ?></label></div>

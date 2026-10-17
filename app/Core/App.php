@@ -385,6 +385,9 @@ final class App
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);
         $r->post('/settings', [Controller\SettingsController::class, 'saveGeneral']);
+        $r->post('/settings/notifications', [Controller\SettingsController::class, 'saveNotifications']);
+        $r->post('/settings/sound', [Controller\SettingsController::class, 'uploadSound']);
+        $r->get('/settings/sound/{kind}', [Controller\SettingsController::class, 'sound']);
         $r->get('/settings/rules', [Controller\SettingsController::class, 'rules']);
         $r->post('/settings/rules/save', [Controller\SettingsController::class, 'saveRule']);
         $r->post('/settings/rules/delete', [Controller\SettingsController::class, 'deleteRule']);

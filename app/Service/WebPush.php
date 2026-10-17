@@ -294,13 +294,20 @@ final class WebPush
         return $status;
     }
 
-    /** New message in a user's inbox. Called by local delivery. */
     /** The app's icon (the client's logo when there is one), relative to the service worker scope. */
-    private static function icon(): string
+    public static function iconPath(): string
     {
         return AppIcon::custom() ? 'app-icon/192.png' : 'assets/img/icon-192.png';
     }
 
+    /** Whether this person wants to hear about a new message now (switches and hours, see Notify). */
+    private static function wants(array $user): bool
+    {
+        $p = $user['prefs'] ?? [];
+        return !empty($p['notifications']) && (int) ($p['notify_new'] ?? 1) === 1 && Notify::inPeriod($p);
+    }
+
+    /** New message in a user's inbox. Called by local delivery. */
     public static function newMail(array $user, int $messageId, array $from, string $subject, int $folderId): void
     {
         if (!self::enabled()) {
@@ -308,10 +315,14 @@ final class WebPush
         }
         $preview = (int) Settings::get('push.preview', 1) === 1;
         $name = trim((string) ($from['name'] ?? '')) ?: (string) ($from['email'] ?? '');
+        $email = (string) ($from['email'] ?? '');
         $isPersonal = Delegation::isPersonalSubject($subject);
-        // Said plainly: who it is from, what it is about, where it was filed (when not the inbox).
+        // Said plainly: who it is from (name and address), what it is about, where it was filed.
         $title = $preview && $name !== '' ? t('push.title_from', ['name' => mb_substr($name, 0, 60)]) : t('push.new_mail');
         $body = $preview ? ($isPersonal ? t('push.personal') : ($subject !== '' ? mb_substr($subject, 0, 140) : t('mail.no_subject'))) : t('push.new_mail_body');
+        if ($preview && $email !== '' && mb_strtolower($email) !== mb_strtolower($name)) {
+            $body = $email . "\n" . $body;
+        }
         $folder = DB::one('SELECT name, role FROM folders WHERE id = :f', ['f' => $folderId]);
         if ($folder && empty($folder['role'])) {
             $body .= "\n" . t('push.in_folder', ['folder' => mb_substr((string) $folder['name'], 0, 40)]);
@@ -319,15 +330,19 @@ final class WebPush
         // Relative to the service worker scope: deliveries also run from the CLI, where the base path is unknown.
         $hash = '#f/' . $folderId . '/m/' . $messageId;
         // The unread total of all the person's mailboxes: the badge of the installed app, even closed.
-        $count = static fn(int $uid) => array_sum(SharedMailboxes::counts($uid));
-        if (!empty($user['prefs']['notifications'])) {
-            self::send((int) $user['id'], ['title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail' . $hash, 'count' => $count((int) $user['id']), 'icon' => self::icon()]);
+        $msg = static fn(array $to, array $extra) => $extra + [
+            'title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'kind' => 'new', 'id' => $messageId,
+            'count' => array_sum(SharedMailboxes::counts((int) $to['id'])), 'icon' => self::iconPath(), 'vibrate' => Notify::vibration($to['prefs'] ?? []),
+            'silent' => Notify::silent($to['prefs'] ?? [], 'new'),
+        ];
+        if (self::wants($user)) {
+            self::send((int) $user['id'], $msg($user, ['url' => 'mail' . $hash]));
         }
         // People who have this mailbox among their other mailboxes are alerted too; tapping opens it.
         foreach (SharedMailboxes::usersOf((int) $user['id']) as $memberId) {
             $member = Users::find($memberId);
-            if ($member && !empty($member['prefs']['notifications'])) {
-                self::send($memberId, ['title' => $title, 'body' => '[' . $user['email'] . '] ' . $body, 'tag' => 'm4w-' . $messageId, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash, 'count' => $count($memberId), 'icon' => self::icon()]);
+            if ($member && self::wants($member)) {
+                self::send($memberId, $msg($member, ['body' => '[' . $user['email'] . '] ' . $body, 'url' => 'mail?mbx=' . (int) $user['id'] . $hash]));
             }
         }
     }

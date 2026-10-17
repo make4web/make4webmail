@@ -136,6 +136,7 @@
     if (!total) $t.removeClass('m4w-pulse');
     S.totalShown = true;
     S.total = total;
+    if (M4W.Notify) M4W.Notify.setUnread(total);
     updateTitle();
     tabBadge(total);
     try {
@@ -887,9 +888,12 @@
         M4W.toast(t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || t('no_subject')), 'info', {
           action: { label: t('open'), fn: function () { go(S.byRole.inbox.id, +n.id); } }
         });
-        if (S.prefs.notifications && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        // Its sound (and vibration), as chosen in the settings: once, push or not.
+        var N = M4W.Notify, wanted = !N || (N.cfg.notify_new && N.inPeriod());
+        if (N) N.alert('new', +n.id);
+        if (S.prefs.notifications && wanted && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
-            var notif = new Notification(t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, icon: $('link[rel=apple-touch-icon]').attr('href') });
+            var notif = new Notification(t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, silent: !!N, icon: $('link[rel=apple-touch-icon]').attr('href') });
             notif.onclick = function () { window.focus(); go(S.byRole.inbox.id, +n.id); notif.close(); };
           } catch (e) {}
         }

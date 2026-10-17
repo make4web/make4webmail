@@ -44,6 +44,7 @@ $job('mail pictures', static fn() => M4W\Service\MailAssets::processPending(200)
 $job('spreadsheets saved', static fn() => M4W\Service\Sheet::housekeeping());
 $job('documents saved', static fn() => M4W\Service\DocEdit::housekeeping());
 $job('calendar reminders', static fn() => M4W\Service\Calendar::processAlarms());
+$job('unread reminders', static fn() => M4W\Service\Notify::reminders());
 $job('scheduled', static fn() => M4W\Service\Composer::processScheduled(100));
 if ((int) Settings::get('features.fetch_accounts', 1)) {
     $job('fetched', static fn() => M4W\Service\Fetcher::runAll());

@@ -74,6 +74,57 @@
   <div class="m4w-sticky-actions"><a href="<?= e(url('mail')) ?>" class="btn btn-light"><?= te('common.cancel') ?></a><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button></div>
 </form>
 
+<?php $days = [1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat', 7 => 'sun']; $hours = M4W\Service\Notify::parseHours((string) $p['notify_hours']); ?>
+<form method="post" action="<?= e(url('settings/notifications')) ?>" id="m4w-notify-form" class="m4w-section mt-4">
+  <?= csrf_field() ?>
+  <div class="m4w-section-title" id="notifications"><?= te('notify.title') ?></div>
+  <p class="text-muted small mb-3"><?= te('notify.desc') ?></p>
+  <?php if (!(int) $p['notifications']): ?><div class="alert alert-warning small"><?= te('push.pref_off') ?></div><?php endif; ?>
+
+  <div class="m4w-setting-row"><div class="label"><label for="nt-new"><?= te('notify.new') ?></label><small><?= te('notify.new_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="nt-new" name="notify_new" value="1" <?= (int) $p['notify_new'] ? 'checked' : '' ?>></div></div>
+  <div class="m4w-setting-row"><div class="label"><label for="nt-rem"><?= te('notify.reminder') ?></label><small><?= te('notify.reminder_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="nt-rem" name="notify_reminder" value="1" <?= (int) $p['notify_reminder'] ? 'checked' : '' ?>></div></div>
+  <div class="m4w-setting-row" data-reminder-opts><div class="label"><label for="nt-every"><?= te('notify.reminder_every') ?></label></div><div><select class="form-select" id="nt-every" name="reminder_minutes" style="max-width:220px">
+    <?php foreach (M4W\Service\Notify::REMINDER_MINUTES as $m): ?><option value="<?= $m ?>" <?= (int) $p['reminder_minutes'] === $m ? 'selected' : '' ?>><?= $m >= 60 ? te('notify.every_h', ['n' => intdiv($m, 60)]) : te('notify.every_min', ['n' => $m]) ?></option><?php endforeach; ?>
+  </select></div></div>
+
+  <div class="m4w-setting-row"><div class="label"><?= te('notify.period') ?><small><?= te('notify.period_desc') ?></small></div><div class="btn-group flex-wrap" role="group">
+    <?php foreach (['always', 'custom'] as $k): ?>
+    <input type="radio" class="btn-check" name="notify_period" id="np-<?= $k ?>" value="<?= $k ?>" <?= $p['notify_period'] === $k ? 'checked' : '' ?>><label class="btn btn-light" for="np-<?= $k ?>"><?= te('notify.period_' . $k) ?></label>
+    <?php endforeach; ?></div></div>
+  <div data-notify-hours class="mb-3" style="max-width:520px">
+    <table class="table table-sm align-middle mb-0 m4w-room-hours m4w-notify-hours"><tbody>
+      <?php foreach ($days as $n => $k): $h = $hours[$n]; ?>
+      <tr><td><div class="form-check m-0"><input class="form-check-input" type="checkbox" name="open_<?= $n ?>" value="1" id="nh-<?= $n ?>" <?= $h ? 'checked' : '' ?>><label class="form-check-label" for="nh-<?= $n ?>"><?= te('rooms.day_' . $k) ?></label></div></td>
+        <td><input class="form-control form-control-sm" type="time" name="from_<?= $n ?>" value="<?= e($h[0] ?? '08:00') ?>" aria-label="<?= te('rooms.from', ['day' => t('rooms.day_' . $k)]) ?>"></td>
+        <td><input class="form-control form-control-sm" type="time" name="to_<?= $n ?>" value="<?= e($h[1] ?? '19:00') ?>" aria-label="<?= te('rooms.to', ['day' => t('rooms.day_' . $k)]) ?>"></td></tr>
+      <?php endforeach; ?>
+    </tbody></table>
+    <div class="form-text"><?= te('notify.hours_desc') ?></div>
+  </div>
+
+  <?php foreach (M4W\Service\Notify::KINDS as $kind): $own = M4W\Service\Notify::soundFile($u, $kind); ?>
+  <div class="m4w-setting-row"><div class="label"><label for="ns-<?= $kind ?>"><?= te('notify.sound_' . $kind) ?></label></div><div>
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      <select class="form-select" id="ns-<?= $kind ?>" name="sound_<?= $kind ?>" style="max-width:220px">
+        <?php foreach (M4W\Service\Notify::SOUNDS as $s): ?><option value="<?= $s ?>" <?= $p['sound_' . $kind] === $s ? 'selected' : '' ?>><?= te('notify.s_' . $s) ?></option><?php endforeach; ?>
+      </select>
+      <button type="button" class="btn btn-light" data-listen="<?= $kind ?>"><i class="bi bi-play-fill me-1"></i><?= te('notify.listen') ?></button>
+    </div>
+    <div class="d-flex gap-2 flex-wrap align-items-center mt-2" data-custom-<?= $kind ?>>
+      <label class="btn btn-light btn-sm mb-0"><i class="bi bi-upload me-1"></i><?= te('notify.upload') ?><input type="file" class="d-none" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav,.mp3,.ogg,.wav" data-sound-file="<?= $kind ?>"></label>
+      <span class="small text-muted" data-sound-name="<?= $kind ?>"><?= $own ? te('notify.own_sound') : te('notify.no_own_sound') ?></span>
+    </div>
+  </div></div>
+  <?php endforeach; ?>
+  <div class="m4w-setting-row"><div class="label"><label for="nt-vol"><?= te('notify.volume') ?></label></div><div><input type="range" class="form-range" id="nt-vol" name="sound_volume" min="0" max="100" step="5" value="<?= (int) $p['sound_volume'] ?>" style="max-width:220px"></div></div>
+  <div class="m4w-setting-row"><div class="label"><label for="nt-vib"><?= te('notify.vibrate') ?></label><small><?= te('notify.vibrate_desc') ?></small></div><div class="d-flex gap-2 flex-wrap">
+    <select class="form-select" id="nt-vib" name="vibrate" style="max-width:220px"><?php foreach (array_keys(M4W\Service\Notify::VIBRATIONS) as $v): ?><option value="<?= $v ?>" <?= $p['vibrate'] === $v ? 'selected' : '' ?>><?= te('notify.v_' . $v) ?></option><?php endforeach; ?></select>
+    <button type="button" class="btn btn-light" data-try-vibrate><i class="bi bi-phone-vibrate me-1"></i><?= te('notify.try') ?></button>
+  </div></div>
+  <p class="small text-muted mb-3"><i class="bi bi-info-circle me-1"></i><?= te('notify.limits') ?></p>
+  <div class="text-end"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button></div>
+</form>
+
 <?php if (M4W\Service\WebPush::enabled()): $devices = M4W\Service\WebPush::devices((int) $u['id']); ?>
 <div class="m4w-section mt-4" id="m4w-push" data-state="">
   <div class="m4w-section-title" id="mobile"><?= te('push.title') ?></div>

@@ -76,13 +76,17 @@ $show = static fn(string $modes): string => ' data-modes="' . $modes . '"' . (in
     </div>
   </div>
 
+  <div class="card mb-4"><div class="card-header"><i class="bi bi-arrow-repeat me-2 text-primary"></i><?= te('wm.check_title') ?></div><div class="card-body">
+    <p class="small text-muted"><?= te('wm.check_desc') ?></p>
+    <div class="row g-3"><div class="col-md-6"><label class="form-label" for="wm-interval"><?= te('wm.interval') ?></label><div class="input-group"><input class="form-control" type="number" min="1" max="15" id="wm-interval" name="wm_interval" value="<?= M4W\Service\RemoteMailbox::interval() ?>"><span class="input-group-text">min</span></div><div class="form-text"><?= te('wm.interval_hint') ?></div></div></div>
+  </div></div>
+
   <div class="card mb-4"<?= $show('webmail collector') ?>><div class="card-header"><i class="bi bi-window-stack me-2 text-primary"></i><?= te('wm.provider_title') ?></div><div class="card-body">
     <p class="small text-muted"><?= te('wm.provider_desc') ?></p>
     <div class="row g-3">
       <div class="col-md-6"><label class="form-label"><?= te('wm.preset') ?></label><select class="form-select" name="wm_preset" data-wm-preset>
         <?php foreach (RM::PRESETS as $pk => $p): ?><option value="<?= e($pk) ?>" data-imap="<?= e($p[1]) ?>" data-imap-port="<?= (int) $p[2] ?>" data-imap-sec="<?= e($p[3]) ?>" data-smtp="<?= e($p[4]) ?>" data-smtp-port="<?= (int) $p[5] ?>" data-smtp-sec="<?= e($p[6]) ?>" <?= S::get('webmail.preset') === $pk ? 'selected' : '' ?>><?= e($p[0]) ?></option><?php endforeach; ?>
       </select></div>
-      <div class="col-md-6"><label class="form-label"><?= te('wm.interval') ?></label><div class="input-group"><input class="form-control" type="number" min="1" max="60" name="wm_interval" value="<?= (int) S::get('webmail.interval') ?>"><span class="input-group-text">min</span></div></div>
       <div class="col-md-6"><label class="form-label"><?= te('wm.imap_server') ?></label><div class="input-group"><input class="form-control m4w-code" name="wm_imap_host" value="<?= e(S::get('webmail.imap_host')) ?>" placeholder="imap.fournisseur.fr" data-wm="imap"><input class="form-control" style="max-width:90px" type="number" name="wm_imap_port" value="<?= (int) S::get('webmail.imap_port') ?>" aria-label="Port IMAP" data-wm="imap-port"><select class="form-select" style="max-width:120px" name="wm_imap_security" aria-label="<?= te('admin.smtp_security') ?>" data-wm="imap-sec"><?php foreach (['ssl' => 'SSL', 'tls' => 'STARTTLS', 'none' => te('admin.smtp_none')] as $sk => $sl): ?><option value="<?= $sk ?>" <?= S::get('webmail.imap_security') === $sk ? 'selected' : '' ?>><?= $sl ?></option><?php endforeach; ?></select></div></div>
       <div class="col-md-6"><label class="form-label"><?= te('wm.smtp_server') ?></label><div class="input-group"><input class="form-control m4w-code" name="wm_smtp_host" value="<?= e(S::get('webmail.smtp_host')) ?>" placeholder="smtp.fournisseur.fr" data-wm="smtp"><input class="form-control" style="max-width:90px" type="number" name="wm_smtp_port" value="<?= (int) S::get('webmail.smtp_port') ?>" aria-label="Port SMTP" data-wm="smtp-port"><select class="form-select" style="max-width:120px" name="wm_smtp_security" aria-label="<?= te('admin.smtp_security') ?>" data-wm="smtp-sec"><?php foreach (['ssl' => 'SSL', 'tls' => 'STARTTLS', 'none' => te('admin.smtp_none')] as $sk => $sl): ?><option value="<?= $sk ?>" <?= S::get('webmail.smtp_security') === $sk ? 'selected' : '' ?>><?= $sl ?></option><?php endforeach; ?></select></div></div>
       <div class="col-md-6"><label class="form-label"><?= te('wm.leave') ?></label><select class="form-select" name="wm_leave_days">

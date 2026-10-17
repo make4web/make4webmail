@@ -69,7 +69,7 @@ final class Settings
         'webmail.smtp_host'    => 'ssl0.ovh.net',
         'webmail.smtp_port'    => 465,
         'webmail.smtp_security' => 'ssl',
-        'webmail.interval'     => 2,
+        'webmail.interval'     => 1,
         'webmail.leave_days'   => -1,
         'webmail.spam_folder'  => '',
         'webmail.verify_peer'  => 1,

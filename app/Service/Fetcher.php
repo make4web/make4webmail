@@ -12,6 +12,9 @@ use M4W\Mail\ImapClient;
  */
 final class Fetcher
 {
+    /** How often a person may have an account checked (minutes; 0 = the administrator's setting). */
+    public const INTERVALS = [0, 1, 2, 5, 10, 15];
+
     public static function forUser(int $userId): array
     {
         return DB::all('SELECT * FROM fetch_accounts WHERE user_id = :u ORDER BY id', ['u' => $userId]);
@@ -30,6 +33,7 @@ final class Fetcher
             'delete_remote' => !empty($d['delete_remote']) ? 1 : 0,
             'apply_rules'   => !empty($d['apply_rules']) ? 1 : 0,
             'enabled'       => !empty($d['enabled']) ? 1 : 0,
+            'interval_min'  => in_array((int) ($d['interval_min'] ?? 0), self::INTERVALS, true) ? (int) $d['interval_min'] : 0,
         ];
         if ($data['host'] === '' || $data['username'] === '' || preg_match('/[\r\n\x00]/', $data['username'] . $data['remote_folder'] . (string) ($d['password'] ?? '')) || !preg_match('/^[a-z0-9.-]+$/i', $data['host'])) {
             throw new \InvalidArgumentException(t('fetch.invalid'));
@@ -101,11 +105,17 @@ final class Fetcher
         return ['fetched' => $fetched, 'error' => $error];
     }
 
-    public static function runAll(): int
+    /** Each account at its own pace (or the administrator's), every minute at most. */
+    public static function runAll(?int $now = null): int
     {
+        $now ??= time();
+        $default = RemoteMailbox::interval();
         $n = 0;
-        foreach (DB::all('SELECT * FROM fetch_accounts WHERE enabled = 1 AND last_run_at < :t', ['t' => time() - 240]) as $acc) {
-            $n += self::run($acc)['fetched'];
+        foreach (DB::all('SELECT * FROM fetch_accounts WHERE enabled = 1 AND last_run_at < :t', ['t' => $now - 55]) as $acc) {
+            $every = (int) $acc['interval_min'] ?: $default;
+            if ((int) $acc['last_run_at'] < $now - $every * 60 + 5) {
+                $n += self::run($acc)['fetched'];
+            }
         }
         return $n;
     }

@@ -953,5 +953,14 @@ static function (): void {
   applied_at INTEGER NOT NULL DEFAULT 0
 ) {OPT}",
 "CREATE UNIQUE INDEX offline_actions_id ON offline_actions(device_id, action_id)",
+],35 => [
+// Reminders "3 unread messages": when the last one was sent to a person.
+"CREATE TABLE notify_reminders (
+  user_id INTEGER NOT NULL PRIMARY KEY,
+  sent_at INTEGER NOT NULL DEFAULT 0,
+  unread INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+// External account added by a person: how often it is checked (minutes; 0 = the administrator's setting).
+"ALTER TABLE fetch_accounts ADD COLUMN interval_min INTEGER NOT NULL DEFAULT 0",
 ],
 ];
