@@ -2160,6 +2160,22 @@ test('own mailbox: its own clean-up rule, sent copies, copy back to the provider
     eq(RemoteMailbox::test($uid)['smtp'], '', 'sender accepted');
     eq(RemoteMailbox::envelopeFor(['login' => 'boite@ext.com'] + RemoteMailbox::find($uid), $uid, 'paul@test.local'), 'boite@ext.com', 'the mailbox login as envelope sender');
 });
+test('imap: a folder of thousands of messages is seen whole (long answer lines)', function () {
+    [$a, $b] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+    $client = (new ReflectionClass(M4W\Mail\ImapClient::class))->newInstanceWithoutConstructor();
+    $sock = new ReflectionProperty(M4W\Mail\ImapClient::class, 'sock');
+    $sock->setAccessible(true);
+    $sock->setValue($client, $a);
+    $tag = new ReflectionProperty(M4W\Mail\ImapClient::class, 'tag');
+    $tag->setAccessible(true);
+    $next = 'A' . ((int) $tag->getValue($client) + 1);
+    $uids = range(100001, 103000); // 3000 UIDs: about 21 KB on one line
+    fwrite($b, '* SEARCH ' . implode(' ', $uids) . "\r\n" . $next . " OK search done\r\n");
+    $got = $client->searchUidsAbove(0);
+    eq([count($got), $got[0], end($got)], [3000, 100001, 103000], 'every UID, the newest included');
+    fclose($a);
+    fclose($b);
+});
 test('two-way: deleted, archived, read or flagged on the phone or here, both sides agree', function () use ($paul, $colState, $colMsg, $wm) {
     $uid = (int) $paul['id'];
     $box = static fn(string $f) => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'][$f]['msgs'] ?? [];
@@ -2416,7 +2432,7 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7001, 'flags' => ['\\Flagged']] + $dupe;
     file_put_contents($wm['state'], json_encode($st), LOCK_EX);
     eq(count($at('INBOX', 'pc-1')), 2);
-    Settings::set('webmail.dedupe2.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 0]));
+    Settings::set('webmail.dedupe3.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 0]));
     eq($sync(), '');
     $left = $at('INBOX', 'pc-1');
     eq(count($left), 1, 'duplicate removed at the provider');
@@ -2429,7 +2445,7 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     $orig = array_values(array_filter($st['boxes']['paul@test.local']['INBOX']['msgs'], static fn($m) => str_contains($m['raw'], '<pc-1@test.local>')))[0];
     $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7002, 'flags' => []] + ['raw' => str_replace('<pc-1@test.local>', '<other-pc-1@relay>', $orig['raw'])] + $orig;
     file_put_contents($wm['state'], json_encode($st), LOCK_EX);
-    Settings::set('webmail.dedupe2.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 1]));
+    Settings::set('webmail.dedupe3.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 1]));
     eq($sync(), '');
     $st = json_decode((string) file_get_contents($wm['state']), true);
     eq(count(array_filter($st['boxes']['paul@test.local']['INBOX']['msgs'], static fn($m) => str_contains($m['raw'], 'pc-1@'))), 1, 'same sender, date and subject: one copy left');

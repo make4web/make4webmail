@@ -464,11 +464,31 @@ final class ImapClient
         return ['lines' => $lines, 'literals' => $literals];
     }
 
+    /** Longest response line taken (a SEARCH of a large folder lists every UID on one line). */
+    private const MAX_LINE = 8388608;
+
+    /**
+     * One whole response line, however long: a line cut at a buffer size would lose the end of
+     * a SEARCH answer (the newest messages of a folder of a few thousand), read as another line.
+     */
     private function readLine(): string
     {
-        $line = fgets($this->sock, 8192);
-        if ($line === false) {
-            throw new \RuntimeException('IMAP: connexion fermée');
+        $line = '';
+        while (true) {
+            $chunk = fgets($this->sock, 65536);
+            if ($chunk === false) {
+                if ($line !== '') {
+                    break;
+                }
+                throw new \RuntimeException('IMAP: connexion fermée');
+            }
+            $line .= $chunk;
+            if (str_ends_with($chunk, "\n")) {
+                break;
+            }
+            if (strlen($line) > self::MAX_LINE) {
+                throw new \RuntimeException('IMAP: réponse trop volumineuse');
+            }
         }
         return rtrim($line, "\r\n");
     }

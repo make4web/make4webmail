@@ -818,7 +818,7 @@ final class RemoteMailbox
             }
         }
         $prev = self::dedupeStats($acc) ?? [];
-        Settings::set('webmail.dedupe2.' . (int) $acc['id'], json_encode(['at' => time(), 'n' => (int) ($prev['n'] ?? 0) + $n]));
+        Settings::set('webmail.dedupe3.' . (int) $acc['id'], json_encode(['at' => time(), 'n' => (int) ($prev['n'] ?? 0) + $n]));
         if ($n) {
             Audit::log('sync.duplicates_removed', (string) $acc['login'], ['n' => $n], (int) $acc['user_id']);
         }
@@ -827,8 +827,8 @@ final class RemoteMailbox
 
     public static function dedupeStats(array $acc): ?array
     {
-        // (dedupe2: the wider look, by sender + date + subject too, runs again once after the update)
-        $d = json_decode((string) Settings::get('webmail.dedupe2.' . (int) $acc['id'], ''), true);
+        // (dedupe3: runs again once after the update, now that whole folders are seen)
+        $d = json_decode((string) Settings::get('webmail.dedupe3.' . (int) $acc['id'], ''), true);
         return is_array($d) ? $d : null;
     }
 
