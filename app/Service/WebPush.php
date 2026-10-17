@@ -234,6 +234,8 @@ final class WebPush
     /** @return int number of devices reached */
     /** A device whose app checked in this recently is open (hidden pages check once a minute). */
     public const PRESENCE = 70;
+    /** Held at most this long for an open app that has not shown the new mail yet. */
+    public const HOLD_MAX = 120;
 
     /**
      * @param bool $holdIfOpen new mail, reminders: not to a device where the app is open (it
@@ -292,8 +294,9 @@ final class WebPush
         $n = 0;
         foreach (DB::all('SELECT * FROM push_pending WHERE created_at <= :t ORDER BY id', ['t' => $now - self::PRESENCE]) as $p) {
             $s = DB::one('SELECT * FROM push_subscriptions WHERE id = :id', ['id' => $p['subscription_id']]);
-            // Still open (it will see it at its next full check): kept for now.
-            if ($s && (int) $s['active_at'] > $now - self::PRESENCE) {
+            // Still open (it will see it at its next full check): kept for now, but not for long:
+            // a notification is never lost, even when the page fails to bring it (sent anyway).
+            if ($s && (int) $s['active_at'] > $now - self::PRESENCE && $now - (int) $p['created_at'] < self::HOLD_MAX) {
                 continue;
             }
             DB::delete('push_pending', 'id = :id', ['id' => $p['id']]);

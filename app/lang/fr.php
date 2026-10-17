@@ -2390,4 +2390,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'wm.sync_folders' => 'Dossiers perso aussi chez le fournisseur',
     'wm.sync_folders_hint' => 'Les dossiers créés ici existent aussi dans la boîte (Roundcube, téléphone), et inversement ; un message rangé d\'un côté est rangé de l\'autre. Les règles de Make4WebMail rangent donc aussi chez le fournisseur. Jamais pour la boîte collectrice.',
     'own.duplicates_removed' => 'Doublons : :n exemplaire(s) en trop supprimé(s) dans la boîte (le message lui-même est gardé), dernière vérification le :date.',
+    'js.new_badge' => 'Nouveau',
 ];

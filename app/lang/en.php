@@ -2317,4 +2317,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'wm.sync_folders' => 'Own folders at the provider too',
     'wm.sync_folders_hint' => 'Folders created here also exist in the mailbox (Roundcube, phone), and the other way round; a message filed on one side is filed on the other. Make4WebMail\'s rules therefore file at the provider too. Never for the collector.',
     'own.duplicates_removed' => 'Duplicates: :n extra copy(ies) removed from the mailbox (the message itself is kept), last checked on :date.',
+    'js.new_badge' => 'New',
 ];

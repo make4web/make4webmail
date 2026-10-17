@@ -349,8 +349,19 @@ body.m4w-resizing iframe { pointer-events: none; }
   background: var(--m4w-read-bg); transition: background .1s; user-select: none;
 }
 .m4w-row:hover { background: var(--m4w-hover); }
-.m4w-row.unread { background: var(--m4w-unread-bg); }
-.m4w-row.unread::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 var(--m4w-radius-xs) var(--m4w-radius-xs) 0; background: var(--m4w-primary); }
+.m4w-row.unread { background: var(--m4w-unread-bg); background: color-mix(in srgb, var(--m4w-primary) 9%, var(--m4w-unread-bg)); }
+.m4w-row.unread::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--m4w-primary); }
+/* Unread at a glance: a dot before the sender. */
+.m4w-row.unread .m4w-row-from::before { content: ""; display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--m4w-primary); margin-right: .4rem; vertical-align: .08rem; }
+/* Arrived while the app is open: a flash when it comes in, then "New" until it is read. */
+.m4w-new-pill { flex: none; font-size: .66rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; padding: .1rem .45rem; border-radius: 999px; background: var(--m4w-primary); color: #fff; }
+.m4w-row.fresh-in { animation: m4w-row-in 2.4s ease-out 1; }
+@keyframes m4w-row-in {
+  0% { background: color-mix(in srgb, var(--m4w-primary) 45%, var(--m4w-unread-bg)); box-shadow: inset 0 0 0 2px var(--m4w-primary); }
+  60% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--m4w-primary) 50%, transparent); }
+  100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .m4w-row.fresh-in { animation: none; } }
 .m4w-row.active { background: var(--m4w-selected); }
 .m4w-row.checked { background: var(--m4w-primary-softer); }
 .m4w-row.dragging { opacity: .5; }

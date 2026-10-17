@@ -294,7 +294,10 @@
     var folderChip = (S.q && S.byId[m.folder_id] && S.byId[m.folder_id].role !== 'inbox') ? '<span class="m4w-chip-folder">' + esc(S.byId[m.folder_id].name) + '</span>' : '';
     // Offline: a message not kept on the device is there, but greyed (readable when back online).
     var off = M4W.Offline && M4W.Offline.offline && !M4W.Offline.hasMsg(m.id);
-    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (m.pinned ? ' pinned' : '') + (off ? ' m4w-unavailable' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
+    // Arrived while the app is open: flashed once when it comes in, "New" until read.
+    var fresh = m.unread && S.fresh && S.fresh[m.id];
+    if (fresh === 1) S.fresh[m.id] = 2;
+    return '<div class="m4w-row' + (m.unread ? ' unread' : '') + (fresh ? ' fresh' : '') + (fresh === 1 ? ' fresh-in' : '') + (m.pinned ? ' pinned' : '') + (off ? ' m4w-unavailable' : '') + (S.selected[m.id] ? ' checked' : '') + (S.activeId === m.id ? ' active' : '') + '" data-id="' + m.id + '" draggable="true"' + (S.activeId === m.id ? ' aria-current="true"' : '') + '>'
       + '<input type="checkbox" class="form-check-input m4w-check" ' + (S.selected[m.id] ? 'checked' : '') + ' aria-label="' + esc(t('select')) + '">'
       + '<button type="button" class="m4w-star' + (m.flagged ? ' on' : '') + '" aria-label="' + esc(t('star')) + '"><i class="bi bi-star' + (m.flagged ? '-fill' : '') + '"></i></button>'
       + M4W.avatar(who, whoEmail, '', sent || m.draft ? '' : m.bimi)
@@ -303,6 +306,7 @@
       + (sent && !m.draft ? '<span class="text-muted small">' + esc(t('to_prefix')) + '</span>' : '')
       + (m.pinned ? '<i class="bi bi-pin-angle-fill m4w-row-pin" role="img" title="' + esc(t('pinned')) + '" aria-label="' + esc(t('pinned')) + '"></i>' : '')
       + '<span class="m4w-row-from">' + esc(who) + '</span>'
+      + (fresh ? '<span class="m4w-new-pill">' + esc(t('new_badge')) + '</span>' : '')
       + (m.thread_count > 1 ? '<span class="m4w-row-count">' + m.thread_count + '</span>' : '')
       + '</div><div class="m4w-row-subject">' + folderChip + ' ' + esc(m.subject || t('no_subject')) + '</div>'
       + '<div class="m4w-row-snippet">' + esc(m.snippet || '') + '</div></div>'
@@ -404,7 +408,7 @@
         S.readTimer = setTimeout(function () {
           if (S.activeId !== id) return;
           action('read', r.unread_ids, { silent: true, noReload: true });
-          var it = itemById(id); if (it) { it.unread = false; rowById(id).removeClass('unread'); }
+          var it = itemById(id); if (it) { it.unread = false; rowById(id).removeClass('unread fresh fresh-in').find('.m4w-new-pill').remove(); }
         }, delay * 1000);
       }
     }).fail(function () { closeReader(); });
@@ -862,19 +866,14 @@
       if (r.boxes) setBoxes(r.boxes, !first);
       if (r.csrf) M4W.csrf(r.csrf);
       if (!first && r.new && r.new.length) {
+        S.fresh = S.fresh || {};
+        r.new.forEach(function (x) { if (!S.fresh[x.id]) S.fresh[x.id] = 1; });
         var n = r.new[0];
         M4W.toast(t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || t('no_subject')), 'info', {
           action: { label: t('open'), fn: function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); } }
         });
-        // Its sound (and vibration), as chosen in the settings: once, push or not.
-        var N = M4W.Notify, wanted = !N || (N.cfg.notify_new && N.inPeriod());
-        if (N) N.alert('new', +n.id);
-        if (S.prefs.notifications && wanted && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
-          try {
-            var notif = new Notification(t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, silent: !!N, icon: $('link[rel=apple-touch-icon]').attr('href') });
-            notif.onclick = function () { window.focus(); go(+n.folder_id || S.byRole.inbox.id, +n.id); notif.close(); };
-          } catch (e) {}
-        }
+        // Its sound (and vibration), and the app's notification when looking elsewhere (notify.js).
+        if (M4W.Notify) M4W.Notify.announce(n, function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); });
       }
       S.maxId = r.max_id;
       // Changed elsewhere (another device, the provider's mailbox, a rule): quietly refreshed,
