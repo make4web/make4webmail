@@ -68,6 +68,34 @@ $spfBadge = ['pass' => 'badge-soft-success', 'fail' => 'badge-soft-danger', 'sof
 
   <div class="col-xl-5">
     <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-signpost-split me-2 text-primary"></i><?= te('dh.routes_title') ?></div>
+      <ul class="list-group list-group-flush">
+        <?php foreach ($r['routes'] ?? [] as $rt): ?>
+        <li class="list-group-item small d-flex gap-2 align-items-start">
+          <i class="bi bi-<?= ['internal' => 'building', 'own' => 'person-badge', 'collector' => 'inboxes', 'webmail' => 'cloud', 'relay' => 'arrow-left-right', 'server' => 'hdd-network'][$rt['kind']] ?? 'send' ?> text-muted mt-1"></i>
+          <div class="min-w-0">
+            <div class="fw-semibold"><?= te('dh.route_' . $rt['kind'], ['host' => $rt['host']]) ?> <span class="text-muted fw-normal">· <?= te('dh.n_people', ['n' => (int) $rt['users']]) ?></span></div>
+            <div class="text-muted"><?= te('dh.route_' . $rt['kind'] . '_note', ['host' => $rt['host']]) ?></div>
+          </div>
+        </li>
+        <?php endforeach; ?>
+        <?php if (empty($r['routes'])): ?><li class="list-group-item small text-muted"><?= te('dh.routes_none') ?></li><?php endif; ?>
+      </ul>
+      <?php if (array_filter($r['routes'] ?? [], static fn($rt) => in_array($rt['kind'], ['own', 'collector', 'webmail'], true)) || !empty($r['selectors'])): ?>
+      <div class="card-body border-top">
+        <form method="post" action="<?= e(url('admin/domains/' . (int) $domain['id'] . '/health')) ?>"><?= csrf_field() ?>
+          <label class="form-label small fw-semibold" for="dh-selectors"><?= te('dh.selectors_label') ?></label>
+          <div class="input-group input-group-sm">
+            <input id="dh-selectors" class="form-control m4w-code" name="selectors" value="<?= e(implode(' ', $r['selectors'] ?? [])) ?>" placeholder="ovhmo1234567-selector1 ovhmo1234567-selector2">
+            <button class="btn btn-light"><?= te('dh.selectors_save') ?></button>
+          </div>
+          <div class="form-text"><?= te('dh.selectors_hint') ?></div>
+        </form>
+      </div>
+      <?php endif; ?>
+    </div>
+
+    <div class="card mb-4">
       <div class="card-header"><i class="bi bi-send-check me-2 text-primary"></i><?= te('dh.delivery_title') ?></div>
       <div class="card-body">
         <div class="row g-2 text-center mb-3">

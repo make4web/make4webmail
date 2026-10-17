@@ -104,7 +104,15 @@ final class DmarcReports
             if ($dkim !== 'pass' && $spf !== 'pass') {
                 $failed += $count;
             }
-            $records[] = ['source_ip' => mb_substr(trim((string) $r->row->source_ip), 0, 64), 'messages' => $count,
+            // The selector that signed for the domain itself (lets the health page find the provider's key).
+            $selector = '';
+            foreach ($r->auth_results->dkim ?? [] as $d) {
+                if (strcasecmp(trim((string) $d->domain), trim((string) $r->identifiers->header_from)) === 0 && trim((string) $d->selector) !== '') {
+                    $selector = mb_substr(strtolower(trim((string) $d->selector)), 0, 64);
+                    break;
+                }
+            }
+            $records[] = ['dkim_selector' => $selector, 'source_ip' => mb_substr(trim((string) $r->row->source_ip), 0, 64), 'messages' => $count,
                 'disposition' => mb_substr(strtolower((string) $r->row->policy_evaluated->disposition), 0, 20), 'dkim' => mb_substr($dkim, 0, 10), 'spf' => mb_substr($spf, 0, 10),
                 'header_from' => mb_substr(mb_strtolower(trim((string) $r->identifiers->header_from)), 0, 190)];
             if (count($records) >= 5000) {
