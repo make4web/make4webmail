@@ -145,13 +145,25 @@ self.addEventListener('push', function (event) {
     tag: data.tag || 'm4w',
     icon: base + (data.icon && /^[a-z0-9\/._-]+$/i.test(data.icon) ? data.icon : 'assets/img/icon-192.png'),
     badge: base + 'assets/img/icon-192.png',
-    data: { url: target(data.url) },
+    data: { url: target(data.url), test: data.test || '' },
     // A reminder replaces the previous one but alerts again (sound, vibration of the system).
     renotify: !!data.renotify,
     silent: !!data.silent
   };
   if (vibrate.length) opts.vibrate = vibrate;
   var kind = data.kind === 'reminder' ? 'reminder' : 'new';
+  // Test of every device: each step said back to the server (received, shown), with the app's
+  // state on this device at that moment (no window, in the background, visible, in front).
+  if (data.test) {
+    event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+      var mine = list.filter(function (c) { return c.url.indexOf(base) === 0; });
+      var state = !mine.length ? 'off' : (mine.some(function (c) { return c.focused; }) ? 'focus' : (mine.some(function (c) { return c.visibilityState === 'visible'; }) ? 'visible' : 'background'));
+      return testAck(data.test, 'received', state).then(function () {
+        return self.registration.showNotification(data.title || 'Make4WebMail', opts);
+      }).then(function () { return testAck(data.test, 'shown', state); });
+    }).catch(function () {}));
+    return;
+  }
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     var mine = list.filter(function (c) { return c.url.indexOf(base) === 0; });
     // The app is in front (the server thought it closed: a missed check): no system
@@ -167,9 +179,22 @@ self.addEventListener('push', function (event) {
   }));
 });
 
+// A step of the test of every device, said to the server with this device's subscription hash.
+function testAck(test, stage, state) {
+  return self.registration.pushManager.getSubscription().then(function (sub) {
+    if (!sub || !self.crypto || !crypto.subtle) return;
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(sub.endpoint)).then(function (h) {
+      var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      return fetch(self.registration.scope + 'api/push/ack', { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test: String(test), device: hex, stage: stage, state: state || '' }) });
+    });
+  }).catch(function () {});
+}
+
 // Tapping the notification opens (or focuses) the webmail on that message.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
+  if (event.notification.data && event.notification.data.test) event.waitUntil(testAck(event.notification.data.test, 'clicked', ''));
   var url = (event.notification.data && event.notification.data.url) || self.registration.scope + 'mail';
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     for (var i = 0; i < list.length; i++) {

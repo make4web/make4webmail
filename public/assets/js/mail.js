@@ -919,7 +919,9 @@
           action: { label: t('open'), fn: function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); } }
         });
         // Its sound (and vibration), and the app's notification when looking elsewhere (notify.js).
-        if (M4W.Notify) M4W.Notify.announce(n, function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); });
+        // Only what the server held for this page: the rest was already announced by the system
+        // notification (the app was asleep, taken for closed, see WebPush::send).
+        if (M4W.Notify && M4W.Notify.mine(r, n.id)) M4W.Notify.announce(n, function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); });
       }
       S.maxId = r.max_id;
       // Changed elsewhere (another device, the provider's mailbox, a rule): quietly refreshed,

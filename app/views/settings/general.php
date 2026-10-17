@@ -120,6 +120,14 @@
     </div>
   </div></div>
   <?php endforeach; ?>
+  <div class="m4w-setting-row"><div class="label"><?= te('notify.android_title') ?><small><?= te('notify.android_desc') ?></small></div><div>
+    <a class="btn btn-light" href="#" download data-sound-download><i class="bi bi-download me-1"></i><?= te('notify.android_save') ?></a>
+    <ol class="small text-muted mt-2 mb-0 ps-3">
+      <li><?= te('notify.android_step1') ?></li>
+      <li><?= te('notify.android_step2') ?></li>
+      <li><?= te('notify.android_step3') ?></li>
+    </ol>
+  </div></div>
   <div class="m4w-setting-row" data-own-list-row <?= $ownSounds ? '' : 'hidden' ?>><div class="label"><?= te('notify.my_sounds') ?><small><?= te('notify.my_sounds_desc') ?></small></div><div>
     <ul class="list-unstyled mb-0 d-flex flex-column gap-1" data-own-list>
       <?php foreach ($ownSounds as $os): ?>
@@ -158,7 +166,16 @@
   </div>
   <?php if (!(int) ($p['notifications'] ?? 1)): ?><div class="alert alert-warning mt-3 mb-0 small"><?= te('push.pref_off') ?></div><?php endif; ?>
 
-  <h3 class="fs-6 fw-semibold mt-4 mb-2"><?= te('push.devices') ?></h3>
+  <div class="d-flex align-items-center gap-2 mt-4 mb-2"><h3 class="fs-6 fw-semibold mb-0 flex-grow-1"><?= te('push.devices') ?></h3>
+    <?php if ($devices): ?><button type="button" class="btn btn-light btn-sm" data-push-test-all><i class="bi bi-broadcast me-1"></i><?= te('push.test_all') ?></button><?php endif; ?></div>
+  <?php if ($devices): ?><p class="small text-muted mb-2"><?= te('push.test_all_desc') ?></p>
+  <div class="table-responsive mb-3 d-none" data-test-table>
+    <table class="table table-sm align-middle small mb-1">
+      <thead><tr><th><?= te('push.t_device') ?></th><th><?= te('push.t_state') ?></th><th><?= te('push.t_status') ?></th><th class="text-end"><?= te('push.t_delay') ?></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="small text-muted" data-test-note></div>
+  </div><?php endif; ?>
   <?php if (!$devices): ?>
   <p class="text-muted small mb-0"><?= te('push.no_devices') ?></p>
   <?php else: ?>
@@ -169,6 +186,7 @@
       <div class="flex-grow-1 min-w-0">
         <div class="fw-medium"><?= e(M4W\Service\WebPush::deviceLabel($d['user_agent'])) ?> <span class="badge badge-soft-primary ms-1 d-none" data-this-device><?= te('push.this_device') ?></span></div>
         <div class="small text-muted"><?= te('push.added', ['date' => date('d/m/Y', (int) $d['created_at'])]) ?> · <?= te('push.last_used', ['date' => date('d/m/Y H:i', (int) $d['last_used_at'])]) ?></div>
+
       </div>
       <button type="button" class="btn btn-ghost btn-icon btn-sm" data-device-remove title="<?= te('push.remove') ?>" aria-label="<?= te('push.remove') ?>"><i class="bi bi-x-lg"></i></button>
     </li>

@@ -156,6 +156,42 @@
         .always(function () { $b.prop('disabled', false); });
     }).on('click', '[data-push-disable]', function () {
       disable().done(function () { M4W.toast(t('push_off'), 'info'); setTimeout(function () { location.reload(); }, 600); });
+    }).on('click', '[data-push-test-all]', function () {
+      // Every device at once, one row each: the app's state there, and each step of the
+      // notification (sent to its push service, received by the device, shown, opened).
+      var $b = $(this).prop('disabled', true), $t = $box.find('[data-test-table]').removeClass('d-none');
+      var secs = function (ms) { return ms === null || ms === undefined ? '' : (Math.max(0, ms) / 1000).toFixed(1).replace('.', ',') + ' s'; };
+      var badge = { refused: 'danger', pending: 'warning', received: 'primary', shown: 'success', clicked: 'success' };
+      var stateBadge = { off: 'secondary', background: 'warning', visible: 'primary', focus: 'success' };
+      var draw = function (st) {
+        var pending = 0;
+        $t.find('tbody').html(st.devices.map(function (d) {
+          if (d.status === 'pending') pending++;
+          var status = d.status === 'pending' && st.age > 30000 ? 'late' : d.status;
+          var state = d.state ? '<span class="badge badge-soft-' + stateBadge[d.state] + '">' + M4W.esc(t('push_st_' + d.state)) + '</span>'
+            : '<span class="text-muted">' + M4W.esc(t('push_seen_' + (d.seen || 'quiet'))) + '</span>';
+          var steps = [d.accepted ? t('push_step_sent', { ms: d.push_ms }) : t('push_step_refused')];
+          if (d.received_ms !== null) steps.push(t('push_step_received') + ' ' + secs(d.received_ms));
+          if (d.shown_ms !== null) steps.push(t('push_step_shown') + ' ' + secs(d.shown_ms));
+          if (d.clicked_ms !== null) steps.push(t('push_step_clicked') + ' ' + secs(d.clicked_ms));
+          return '<tr><td><i class="bi bi-' + M4W.esc(d.icon || 'display') + ' me-1 text-muted"></i>' + M4W.esc(d.label) + '</td><td>' + state + '</td>'
+            + '<td><span class="badge badge-soft-' + (status === 'late' ? 'danger' : badge[d.status]) + '">' + M4W.esc(t('push_status_' + status)) + '</span>'
+            + '<div class="text-muted">' + M4W.esc(steps.join(' · ')) + '</div></td>'
+            + '<td class="text-end text-nowrap fw-semibold">' + (d.shown_ms !== null ? secs(d.shown_ms) : (d.received_ms !== null ? secs(d.received_ms) : '—')) + '</td></tr>';
+        }).join(''));
+        $t.find('[data-test-note]').text(pending ? (st.age > 30000 ? t('push_test_not_yet') : t('push_test_waiting')) : t('push_test_done'));
+        return pending;
+      };
+      $t.find('tbody').html('<tr><td colspan="4" class="text-muted">' + M4W.esc(t('push_test_sending')) + '</td></tr>');
+      M4W.post('api/push/test-all').done(function (r) {
+        var tries = 0;
+        (function again() {
+          M4W.get('api/push/test-all/' + r.id, null, { silent: true, quiet: true }).done(function (st) {
+            // Followed for a minute (a device asleep may answer late), then left as it is.
+            if (draw(st) && ++tries < 60) setTimeout(again, 1000); else $b.prop('disabled', false);
+          }).fail(function () { $b.prop('disabled', false); });
+        })();
+      }).fail(function () { $b.prop('disabled', false); $t.addClass('d-none'); });
     }).on('click', '[data-push-test]', function () {
       M4W.post('api/push/test').done(function (r) { M4W.toast(r.message, 'success'); });
     }).on('click', '[data-device-remove]', function () {

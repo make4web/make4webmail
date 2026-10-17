@@ -299,10 +299,11 @@ $cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/b
     <h3>Recevoir les notifications</h3>
     <ol class="m4w-help-steps">
       <li>Dans <?= $go('settings#mobile', 'Paramètres → Profil & préférences') ?>, rubrique « Notifications sur cet appareil », touchez <?= $ui('bell', 'Activer les notifications') ?> et acceptez la demande du navigateur. Un bandeau dans la messagerie vous le propose aussi.</li>
-      <li>« Envoyer un test » vérifie que l'appareil reçoit bien les alertes.</li>
+      <li>« Envoyer un test » vérifie que l'appareil reçoit bien les alertes. « Tester sur tous mes appareils » envoie une notification à tous à la fois. Un tableau montre pour chacun l'état de l'application (fermée, en arrière-plan, au premier plan), si la notification a été envoyée, reçue, affichée ou ouverte, et en combien de temps.</li>
       <li>Répétez l'opération sur chaque appareil : la liste « Appareils enregistrés » les montre tous, et vous pouvez en retirer un (téléphone perdu ou remplacé).</li>
     </ol>
     <p>Une notification est envoyée pour chaque nouveau message non lu qui arrive dans votre boîte de réception ; toucher la notification ouvre le message. Les messages rangés par une règle dans un autre dossier ne déclenchent pas d'alerte.</p>
+    <p>Chaque appareil est prévenu de son côté, selon son état : si vous manquez la notification du PC, le téléphone a la sienne. Application fermée, c'est le téléphone qui joue le son de la notification. Sur Android, « Enregistrer ce son sur le téléphone » (Paramètres → Notifications) permet de lui donner le vôtre, dans les réglages de notification de l'application.</p>
     <div class="m4w-help-note info"><i class="bi bi-info-circle"></i><div>Sur iPhone et iPad, les notifications ne fonctionnent qu'une fois l'application installée sur l'écran d'accueil (iOS 16.4 ou plus récent). Si la demande d'autorisation a été refusée, réactivez-la dans les réglages du navigateur pour ce site.</div></div>
     <?php endif; ?>
   </section>

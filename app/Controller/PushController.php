@@ -44,6 +44,25 @@ final class PushController extends Controller
         return $this->ok();
     }
 
+    /** The same test, on every device at once, with how fast each got it (settings page). */
+    public function testAll(): Response
+    {
+        $r = WebPush::testAll((int) $this->actor()['id']);
+        return $r['devices'] ? $this->ok($r) : $this->fail(t('push.test_none'));
+    }
+
+    public function testStatus(string $id): Response
+    {
+        $r = WebPush::testStatus((int) $this->actor()['id'], $id);
+        return $r ? $this->ok($r) : $this->fail(t('error.not_found'), 404);
+    }
+
+    /** From a device's service worker: the test notification is shown (no session needed). */
+    public function ack(): Response
+    {
+        return WebPush::ack($this->req->str('test'), $this->req->str('device'), $this->req->str('stage') ?: 'shown', $this->req->str('state')) ? $this->ok() : $this->fail('', 404);
+    }
+
     public function test(): Response
     {
         $u = $this->actor();

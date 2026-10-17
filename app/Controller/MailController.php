@@ -809,13 +809,14 @@ final class MailController extends Controller
         $u = $this->user();
         Session::close();
         // Heartbeat: the app is open on this device (no system notification there, see WebPush::send).
-        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
+        $held = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
         // Webmail mode: reading the mailbox is enough to pull new mail from the provider.
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], $this->req->bool('force') ? 15 : 60);
         } catch (\Throwable $e) {
             error_log('[m4w] webmail sync: ' . $e->getMessage());
         }
+        $held = $this->heldAfterSync($held);
         $since = (int) ($this->req->query['since'] ?? 0);
         // New mail: the inbox, and one's own folders (filed there by a rule), as the notifications.
         $new = DB::all(
@@ -835,6 +836,8 @@ final class MailController extends Controller
             'remote'  => ($rmAcc = \M4W\Service\RemoteMailbox::active() ? \M4W\Service\RemoteMailbox::find((int) $u['id']) : \M4W\Service\RemoteMailbox::personal((int) $u['id'])) !== null || \M4W\Service\RemoteMailbox::active() ? ['status' => \M4W\Service\RemoteMailbox::status($rmAcc)] : null,
             'max_id'  => $max,
             'new'     => $since > 0 ? $new : [],
+            // What the page announces itself (held for it); null: everything (no notifications here).
+            'held'    => $held,
             'folders' => Folders::listWithCounts((int) $u['id']),
             'csrf'    => Csrf::token(),
         ]);
@@ -848,12 +851,13 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
-        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
+        $held = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], 60);
         } catch (\Throwable $e) {
             error_log('[m4w] webmail sync: ' . $e->getMessage());
         }
+        $held = $this->heldAfterSync($held);
         $since = (int) ($this->req->query['since'] ?? 0);
         $new = $since > 0 ? DB::all(
             "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
@@ -865,7 +869,18 @@ final class MailController extends Controller
             'boxes'  => \M4W\Service\SharedMailboxes::counts((int) $this->actor()['id']),
             'max_id' => (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]),
             'new'    => $new,
+            'held'   => $held,
         ]);
+    }
+
+    /** Mail fetched during this very check was held for this device too: the page announces it. */
+    private function heldAfterSync(?array $held): ?array
+    {
+        if ($held === null) {
+            return null;
+        }
+        $more = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? '')) ?? [];
+        return array_values(array_unique(array_merge($held, $more)));
     }
 
     public function prefs(): Response

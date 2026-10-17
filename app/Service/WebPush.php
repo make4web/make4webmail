@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace M4W\Service;
 
+use M4W\Core\Config;
 use M4W\Core\Database as DB;
 use M4W\Core\Settings;
 
@@ -269,18 +270,33 @@ final class WebPush
      * The app checked in from this device: it is open. $seen: its check also brought it the new
      * mail (what was held for it is no longer needed).
      */
-    public static function presence(int $userId, string $endpointHash, bool $seen = true): void
+    /**
+     * Returns null when this device gets no notifications (the page announces everything itself),
+     * else the messages held for it, which the page announces: the rest of what is new was
+     * already announced by a system notification (the device was taken for closed).
+     */
+    public static function presence(int $userId, string $endpointHash, bool $seen = true): ?array
     {
         if (!preg_match('/^[0-9a-f]{64}$/', $endpointHash)) {
-            return;
+            return null;
         }
         $s = DB::one('SELECT id FROM push_subscriptions WHERE user_id = :u AND endpoint_hash = :h', ['u' => $userId, 'h' => $endpointHash]);
+        $held = [];
+        if ($s && $seen) {
+            foreach (DB::all('SELECT payload FROM push_pending WHERE subscription_id = :s', ['s' => $s['id']]) as $p) {
+                $m = json_decode((string) $p['payload'], true);
+                if (!empty($m['id'])) {
+                    $held[] = (int) $m['id'];
+                }
+            }
+        }
         if ($s) {
             DB::update('push_subscriptions', ['active_at' => time()], 'id = :id', ['id' => $s['id']]);
             if ($seen) {
                 DB::delete('push_pending', 'subscription_id = :s', ['s' => $s['id']]);
             }
         }
+        return $s ? $held : null;
     }
 
     /**
@@ -312,6 +328,103 @@ final class WebPush
         }
         DB::run('DELETE FROM push_pending WHERE created_at < :t', ['t' => $now - 7 * 86400]);
         return $n;
+    }
+
+    // ---------------------------------------------------------------- test of every device
+
+    private static function testFile(string $id, string $ext = 'json'): string
+    {
+        return Config::storagePath('tmp/pushtest-' . $id . '.' . $ext);
+    }
+
+    /**
+     * A test notification sent to every device of the person at the same moment: how long the
+     * push service took to accept each, then (acknowledged by each device when it shows it, see
+     * ack()) how long it took to arrive. Returns the test id and the devices.
+     */
+    public static function testAll(int $userId): array
+    {
+        $id = bin2hex(random_bytes(8));
+        $sentMs = (int) round(microtime(true) * 1000);
+        $devices = [];
+        foreach (DB::all('SELECT * FROM push_subscriptions WHERE user_id = :u ORDER BY id', ['u' => $userId]) as $s) {
+            $label = self::deviceLabel((string) $s['user_agent']);
+            $body = json_encode([
+                'title' => t('push.test_title'), 'body' => t('push.test_body_at', ['time' => date('H:i:s'), 'device' => $label]),
+                'tag' => 'm4w-test-' . $id, 'url' => 'settings#mobile', 'test' => $id, 'sent' => $sentMs, 'icon' => self::iconPath(),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $t0 = microtime(true);
+            $ok = self::deliver($s, $body, 120);
+            $devices[(string) $s['endpoint_hash']] = ['id' => (int) $s['id'], 'label' => $label, 'icon' => self::deviceIcon((string) $s['user_agent']),
+                'accepted' => $ok, 'push_ms' => (int) round((microtime(true) - $t0) * 1000)];
+        }
+        file_put_contents(self::testFile($id), json_encode(['user' => $userId, 'sent' => $sentMs, 'devices' => $devices]), LOCK_EX);
+        foreach (glob(Config::storagePath('tmp/pushtest-*')) ?: [] as $old) {
+            if (filemtime($old) < time() - 3600) {
+                @unlink($old);
+            }
+        }
+        return ['id' => $id, 'devices' => array_values($devices)];
+    }
+
+    public const TEST_STAGES = ['received', 'shown', 'clicked'];
+    public const TEST_STATES = ['off', 'background', 'visible', 'focus'];
+
+    /**
+     * A device tells where the test stands there (from its service worker): received (the push
+     * reached it), shown (its notification is on screen), clicked; and the app's state then:
+     * off (no window), background, visible, focus.
+     */
+    public static function ack(string $id, string $hash, string $stage = 'shown', string $state = ''): bool
+    {
+        if (!preg_match('/^[0-9a-f]{16}$/', $id) || !preg_match('/^[0-9a-f]{64}$/', $hash) || !is_file(self::testFile($id)) || filemtime(self::testFile($id)) < time() - 600
+            || !in_array($stage, self::TEST_STAGES, true) || ($state !== '' && !in_array($state, self::TEST_STATES, true))) {
+            return false;
+        }
+        $t = json_decode((string) file_get_contents(self::testFile($id)), true);
+        if (!isset($t['devices'][$hash])) {
+            return false;
+        }
+        file_put_contents(self::testFile($id, 'acks'), $hash . ' ' . $stage . ' ' . ($state ?: '-') . ' ' . (int) round(microtime(true) * 1000) . "\n", FILE_APPEND | LOCK_EX);
+        return true;
+    }
+
+    /** Where the test stands: per device, accepted by its push service, and when it arrived. */
+    public static function testStatus(int $userId, string $id): ?array
+    {
+        if (!preg_match('/^[0-9a-f]{16}$/', $id) || !is_file(self::testFile($id))) {
+            return null;
+        }
+        $t = json_decode((string) file_get_contents(self::testFile($id)), true);
+        if (!is_array($t) || (int) $t['user'] !== $userId) {
+            return null;
+        }
+        $got = [];
+        foreach (explode("\n", (string) @file_get_contents(self::testFile($id, 'acks'))) as $line) {
+            [$h, $stage, $state, $ms] = array_pad(explode(' ', trim($line)), 4, '');
+            if ($h === '' || !in_array($stage, self::TEST_STAGES, true)) {
+                continue;
+            }
+            $got[$h][$stage . '_ms'] ??= max(0, (int) $ms - (int) $t['sent']);
+            if ($state !== '-' && $stage !== 'clicked') {
+                $got[$h]['state'] ??= $state;
+            }
+        }
+        $out = [];
+        $now = time();
+        foreach ($t['devices'] as $h => $d) {
+            $sub = DB::one('SELECT active_at FROM push_subscriptions WHERE id = :id', ['id' => $d['id']]);
+            $g = $got[$h] ?? [];
+            // Before the device answers: what the server knows (it checked in lately, or not).
+            $d['seen'] = $sub && (int) $sub['active_at'] > $now - self::PRESENCE ? 'open' : 'quiet';
+            $d['state'] = $g['state'] ?? null;
+            $d['received_ms'] = $g['received_ms'] ?? ($g['shown_ms'] ?? null);
+            $d['shown_ms'] = $g['shown_ms'] ?? null;
+            $d['clicked_ms'] = $g['clicked_ms'] ?? null;
+            $d['status'] = !$d['accepted'] ? 'refused' : ($d['clicked_ms'] !== null ? 'clicked' : ($d['shown_ms'] !== null ? 'shown' : ($d['received_ms'] !== null ? 'received' : 'pending')));
+            $out[] = $d;
+        }
+        return ['id' => $id, 'age' => (int) round(microtime(true) * 1000) - (int) $t['sent'], 'devices' => $out];
     }
 
     private static function deliver(array $s, string $body, int $ttl): bool
