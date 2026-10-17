@@ -528,26 +528,47 @@ final class AdminController extends Controller
         $templates = Signatures::all();
         $sample = Users::find($this->uid());
         foreach ($templates as &$t) {
-            $t['preview'] = Signatures::renderTemplate((string) $t['html'], $sample);
+            $t['preview'] = Signatures::renderTemplate((string) $t['html'], $sample, 'preview', Signatures::options($t));
         }
         return $this->page('signatures', ['templates' => $templates, 'departments' => array_column(DB::all("SELECT DISTINCT department FROM users WHERE department <> '' ORDER BY department"), 'department')]);
     }
 
     public function signatureForm(?string $id = null): Response
     {
-        $tpl = $id ? Signatures::find((int) $id) : ['id' => 0, 'name' => '', 'description' => '', 'html' => Signatures::defaultTemplate(), 'is_default' => 0, 'apply_on_reply' => 1];
+        $tpl = $id ? Signatures::find((int) $id) : ['id' => 0, 'name' => '', 'description' => '', 'html' => Signatures::defaultTemplate(), 'options' => '', 'is_default' => 0, 'apply_on_reply' => 1];
         if (!$tpl) {
             throw new HttpException(404);
         }
         $users = DB::all("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name LIMIT 500");
-        return $this->page('signature_form', ['tpl' => $tpl, 'variables' => Signatures::VARIABLES, 'users' => $users, 'section' => 'signatures']);
+        return $this->page('signature_form', ['tpl' => $tpl, 'opts' => Signatures::options($tpl), 'variables' => Signatures::VARIABLES, 'users' => $users, 'section' => 'signatures']);
+    }
+
+    /** Options of the guided editor, as posted (checked by Signatures::cleanOptions). */
+    private function signatureOptions(): array
+    {
+        $o = (array) ($this->req->input('opt') ?? []);
+        $nets = (array) ($this->req->input('soc_net') ?? []);
+        $urls = (array) ($this->req->input('soc_url') ?? []);
+        $o['socials'] = [];
+        foreach ($nets as $i => $net) {
+            $o['socials'][] = ['net' => (string) $net, 'url' => (string) ($urls[$i] ?? '')];
+        }
+        return $o;
+    }
+
+    /** The guided template's HTML, or the administrator's own when they chose to write it. */
+    private function signatureHtml(): string
+    {
+        return $this->req->bool('custom_html') ? $this->req->raw('html') : '';
     }
 
     public function saveSignature(): Response
     {
         $id = $this->req->int('id') ?: null;
+        $old = $id ? Signatures::options(Signatures::find($id)) : [];
         $id = Signatures::save([
-            'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->req->raw('html'),
+            'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->signatureHtml(),
+            'options' => $this->signatureOptions(), 'old_options' => $old,
             'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => 1,
         ], $id);
         Audit::log('admin.signature_saved', (string) $id);
@@ -564,8 +585,25 @@ final class AdminController extends Controller
     public function previewSignature(): Response
     {
         $user = Users::find($this->req->int('user_id') ?: $this->uid()) ?? $this->user();
-        $html = Signatures::renderTemplate(Signatures::cleanTemplate($this->req->raw('html')), $user);
-        return $this->ok(['html' => $html]);
+        $opts = Signatures::cleanOptions($this->signatureOptions());
+        $html = Signatures::renderTemplate(Signatures::cleanTemplate($this->signatureHtml()), $user, 'preview', $opts);
+        // The guided layout's HTML, for the one who wants to start writing their own from it.
+        return $this->ok(['html' => $html, 'built' => Signatures::build($opts)]);
+    }
+
+    /** A logo of its own for a signature template (stored with the branding images). */
+    public function signatureLogo(): Response
+    {
+        $f = $this->req->files['logo'] ?? null;
+        try {
+            if (!is_array($f)) {
+                throw new \InvalidArgumentException(t('upload.failed'));
+            }
+            $name = \M4W\Service\Branding::storeImage($f, 'siglogo', 2_000_000);
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        return $this->ok(['file' => $name, 'url' => url('brand/' . $name)]);
     }
 
     /** The chosen template becomes the one applied to everyone. */

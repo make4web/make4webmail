@@ -567,6 +567,60 @@ test('the active template is everyone\'s signature, replies included, nothing pe
     Signatures::delete($b);
     Settings::set('features.user_signature', 0);
 });
+test('guided signature: logo left or right, separator, website below, networks sent with the message, notice the person may replace', function () use ($bob) {
+    Settings::set('brand.website', 'https://www.exemple.fr');
+    $base = ['logo' => 'none', 'separator' => 1, 'separator_color' => '#E11D48', 'website_below' => 1, 'notice' => "Fermé du 24/12 au 2/1.\nBonnes fêtes", 'notice_user' => 1,
+        'socials' => [['net' => 'linkedin', 'url' => 'linkedin.com/company/x'], ['net' => 'facebook', 'url' => 'javascript:alert(1)'], ['net' => 'nope', 'url' => 'https://a.b']]];
+    $o = Signatures::cleanOptions($base);
+    eq($o['socials'], [['net' => 'linkedin', 'url' => 'https://linkedin.com/company/x']], 'only known networks with web addresses');
+    eq($o['separator_color'], '#e11d48');
+    $id = Signatures::save(['name' => 'Guidée', 'html' => '', 'options' => $base, 'is_default' => 1]);
+    try {
+        $u = $bob;
+        $u['prefs'] = ['sig_notice_mode' => '', 'sig_notice' => ''];
+        $r = Signatures::render($u, 'send');
+        $h = $r['html'];
+        ok(preg_match('#Fermé du 24/12 au 2/1\.<br>\s*Bonnes fêtes#', $h) && strpos($h, 'Fermé') < strpos($h, (string) $bob['email']), 'the notice, above the signature');
+        ok((bool) preg_match('#mailto:[^>]+>[^<]+</a></div>\s*<div><a href="https://www\.exemple\.fr"#', $h), 'the website on its own line: ' . $h);
+        ok(str_contains($h, 'cid:m4w-soc-linkedin') && str_contains($h, 'href="https://linkedin.com/company/x"'), 'network icon sent with the message, linking to the page');
+        eq(array_keys($r['inline']), ['m4w-soc-linkedin']);
+        ok(is_file($r['inline']['m4w-soc-linkedin']));
+        ok(!str_contains($h, 'border-right:3px') && !str_contains($h, 'border-left:3px solid #e11d48'), 'no logo: no separator either');
+        // With a logo, on the right, separator in its colour; without separator.
+        $png = Config::storagePath('uploads/brand/siglogo-0123456789ab.png');
+        @mkdir(dirname($png), 0750, true);
+        copy(M4W_ROOT . '/public/assets/social/x.png', $png);
+        $opts = Signatures::cleanOptions(['logo' => 'custom', 'logo_file' => 'siglogo-0123456789ab.png', 'logo_position' => 'right', 'separator' => 1, 'separator_color' => '#e11d48'] + $base);
+        $h = Signatures::renderTemplate('', $u, 'send', $opts);
+        ok(str_contains($h, 'border-left:3px solid #e11d48') && (int) strpos($h, 'cid:m4w-logo') > strpos($h, (string) $bob['email']), 'logo on the right, after the details, separator coloured');
+        $h = Signatures::renderTemplate('', $u, 'send', ['logo_position' => 'left', 'separator' => 0] + $opts);
+        ok(!str_contains($h, 'solid #e11d48') && strpos($h, 'cid:m4w-logo') !== false && strpos($h, 'cid:m4w-logo') < strpos($h, (string) $bob['email']), 'on the left, no separator');
+        eq(array_keys(Signatures::inlineImages($opts)), ['m4w-logo', 'm4w-soc-linkedin'], 'the template\'s own logo travels with the message');
+        // The person's own notice, or none; not when the template forbids it.
+        $u['prefs'] = ['sig_notice_mode' => 'custom', 'sig_notice' => 'En congés <b>jusqu\'au 3</b>'];
+        $h = Signatures::render($u)['html'];
+        ok(str_contains($h, 'En congés &lt;b&gt;') && !str_contains($h, 'Fermé'), 'own notice, as plain text');
+        $u['prefs'] = ['sig_notice_mode' => 'none', 'sig_notice' => ''];
+        ok(!str_contains(Signatures::render($u)['html'], 'Fermé'), 'no notice');
+        DB::update('signature_templates', ['options' => json_encode(['notice_user' => 0] + $o)], 'id = :id', ['id' => $id]);
+        ok(str_contains(Signatures::render($u)['html'], 'Fermé'), 'the company notice when people may not change it');
+        // The default template of older versions becomes a guided one; one edited by hand stays.
+        DB::update('signature_templates', ['html' => Signatures::legacyDefault()], 'id = :id', ['id' => $id]);
+        $hand = Signatures::save(['name' => 'Main', 'html' => '<p>{{display_name}} à la main</p>']);
+        $schema = require M4W_ROOT . '/app/Database/schema.php';
+        foreach ($schema[43] as $step) {
+            if ($step instanceof Closure) {
+                $step();
+            }
+        }
+        eq([Signatures::find($id)['html'], Signatures::find($hand)['html']], ['', '<p>{{display_name}} à la main</p>']);
+        Signatures::delete($hand);
+        @unlink($png);
+    } finally {
+        Signatures::delete($id);
+        Settings::set('brand.website', '');
+    }
+});
 test('signature injected before quoted text', function () {
     $body = '<p>Merci</p><div data-m4w-quote="1"><blockquote>old</blockquote></div>';
     $out = Signatures::inject($body, '<b>SIG</b>');

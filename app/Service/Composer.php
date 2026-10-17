@@ -81,16 +81,14 @@ final class Composer
         if ($forSend) {
             $sig = Signatures::render($user, 'send', in_array($mode, ['reply', 'reply_all', 'forward'], true));
             $html = Signatures::inject($html, $sig['html']);
-            if ($sig['needs_logo']) {
-                $logo = storage_path('uploads/brand/' . basename((string) Settings::get('brand.logo', '')));
-                if (is_file($logo)) {
-                    $b->inline[] = [
-                        'name' => 'logo.' . pathinfo($logo, PATHINFO_EXTENSION),
-                        'mime' => mime_content_type($logo) ?: 'image/png',
-                        'content' => (string) file_get_contents($logo),
-                        'cid' => 'm4w-logo',
-                    ];
-                }
+            // The signature's images (logo, network icons) travel with the message.
+            foreach ($sig['inline'] as $cid => $path) {
+                $b->inline[] = [
+                    'name' => ($cid === 'm4w-logo' ? 'logo' : substr($cid, 8)) . '.' . pathinfo($path, PATHINFO_EXTENSION),
+                    'mime' => mime_content_type($path) ?: 'image/png',
+                    'content' => (string) file_get_contents($path),
+                    'cid' => $cid,
+                ];
             }
         }
         $b->html = $html;

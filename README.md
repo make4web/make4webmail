@@ -28,7 +28,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
   - priorité haute et accusé de lecture ;
   - alerte « pièce jointe oubliée ? » ;
   - transfert en ligne ou en pièce jointe, et « modifier comme nouveau ».
-- **Signature centralisée et imposée** : un seul modèle actif, défini par l'administrateur, s'applique à tous les utilisateurs et à tous les messages, réponses comprises. L'utilisateur ne peut ni le modifier, ni en choisir un autre ; il en voit seulement l'aperçu. La signature est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
+- **Signature centralisée et imposée** : un seul modèle actif, défini par l'administrateur, s'applique à tous les utilisateurs et à tous les messages, réponses comprises. L'utilisateur ne peut ni le modifier, ni en choisir un autre ; il en voit l'aperçu et peut, si l'administrateur le permet, remplacer l'encart d'information placé au-dessus. La signature est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
 - **Règles de messages entrants** :
   - conditions : expéditeur, destinataires, objet, corps, en-tête, taille, pièce jointe, priorité ;
   - actions : déplacer, copier, marquer comme lu, suivre, mettre à la corbeille, transférer, répondre automatiquement, supprimer, arrêter le traitement ;
@@ -220,7 +220,14 @@ Limites des navigateurs :
   - changement de mot de passe forcé, réinitialisation de la 2FA ;
   - actions groupées et import CSV.
 - Domaines hébergés et alias.
-- **Modèles de signature** : éditeur HTML avec aperçu en direct pour n'importe quel utilisateur, variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Un seul modèle est actif pour tous ; les autres sont des brouillons, activables en un clic. Il y a toujours un modèle actif tant qu'il en existe un.
+- **Modèles de signature** : mise en page guidée, avec aperçu en direct pour n'importe quel utilisateur :
+  - logo de la Personnalisation, logo propre au modèle ou aucun ; hauteur ; à gauche ou à droite ;
+  - séparateur vertical ou non, dans la couleur principale ou une autre ;
+  - site internet sous l'adresse e-mail (par défaut) ou à côté ;
+  - réseaux sociaux en petites icônes cliquables, côte à côte sous l'adresse postale (couleur ou gris). Les icônes, comme le logo, partent avec le message (CID) ;
+  - encart d'information au-dessus de la signature (fermetures, informations du moment), que chacun peut, si l'administrateur le permet, remplacer par le sien ou retirer (Paramètres › Signature).
+
+  Pour une mise en page libre, « Écrire mon propre HTML » part de la mise en page guidée : variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`, `{{socials}}`, `{{notice}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Le modèle par défaut des versions précédentes, s'il n'a pas été modifié, passe de lui-même en mise en page guidée. Un seul modèle est actif pour tous ; les autres sont des brouillons, activables en un clic. Il y a toujours un modèle actif tant qu'il en existe un.
 - **Fichiers** : limites, conservation et liste des espaces d'équipe.
 - **Personnalisation** (propre à l'instance) avec aperçu en direct :
   - nom et accroche, nom de l'entreprise à côté du logo (option) ;
@@ -302,10 +309,16 @@ Base MariaDB / MySQL : si `127.0.0.1` est refusé (MariaDB n'écoute souvent que
 - En développement : `php -S 0.0.0.0:8080 -t public public/router.php`.
 
 ### 4. Tâche planifiée
-La tâche planifiée gère la file d'envoi, les envois programmés, les comptes externes et la purge de la corbeille et des indésirables après 30 jours. Le fichier `deploy/crontab` contient la ligne à ajouter :
+La tâche planifiée gère la file d'envoi, les envois programmés, les comptes externes et la purge de la corbeille et des indésirables après 30 jours. Elle tourne **sous le compte du serveur web** (`www-data` sur Debian/Ubuntu). Pour l'installer dans la crontab de ce compte (sans doublon, ses autres lignes conservées ; adaptez le chemin) :
+```bash
+(sudo crontab -u www-data -l 2>/dev/null | grep -v '/var/www/make4webmail/bin/'
+ echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/cron.php'
+ echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/backup.php --if-due >> /var/www/make4webmail/storage/logs/backup.log 2>&1'
+) | sudo crontab -u www-data -
+sudo crontab -u www-data -l                                   # vérifier
+sudo -u www-data php /var/www/make4webmail/bin/cron.php -v    # lancer une fois, en détail
 ```
-* * * * * www-data php /var/www/make4webmail/bin/cron.php
-```
+La notice intégrée (Administration › Guide, chapitre Exploitation) donne ces commandes avec le compte et le chemin réels du serveur. Autre possibilité : le fichier `deploy/crontab`, à copier dans `/etc/cron.d/make4webmail` (le compte y figure en 6e colonne).
 Avec PHP-FPM, la file est aussi traitée après chaque requête. Un cron reste recommandé.
 
 Comment la tâche planifiée travaille :

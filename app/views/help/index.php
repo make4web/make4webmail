@@ -8,6 +8,14 @@ $ui = static fn(string $icon, string $label): string => '<span class="m4w-help-u
 $go = static fn(string $path, string $label): string => '<a href="' . e(url($path)) . '">' . e($label) . '</a>';
 $b = e($brand);
 $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
+// The scheduled task: the commands for this very server (its account, its paths).
+$cronUser = function_exists('posix_geteuid') && ($pwu = @posix_getpwuid(posix_geteuid())) && $pwu['name'] !== 'root' ? (string) $pwu['name'] : 'www-data';
+$cronPhp = PHP_SAPI === 'cli' || !str_contains(PHP_BINARY, 'fpm') ? (PHP_BINARY ?: '/usr/bin/php') : '/usr/bin/php';
+$cronRoot = M4W_ROOT;
+$cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/bin/'\n"
+    . " echo '* * * * * $cronPhp $cronRoot/bin/cron.php'\n"
+    . " echo '* * * * * $cronPhp $cronRoot/bin/backup.php --if-due >> $cronRoot/storage/logs/backup.log 2>&1'\n"
+    . ") | sudo crontab -u $cronUser -";
 ?>
 <div class="m4w-help" data-help>
   <header class="m4w-help-hero">
@@ -172,7 +180,8 @@ $days = static fn(int $n): string => $n . ' jour' . ($n > 1 ? 's' : '');
     <p>Votre signature est générée à partir d'un modèle commun à l'entreprise et de vos informations (nom, fonction, service, téléphones). Elle est ajoutée <strong>à l'envoi</strong> ; elle n'apparaît donc pas dans le texte que vous rédigez, seulement dans l'encadré d'aperçu.</p>
     <ul>
       <li>Pour corriger une information (fonction, téléphone…), demandez à votre administrateur : elle est gérée dans votre fiche utilisateur.</li>
-      <li>La signature est fixée par l'administration : il n'est pas possible d'en choisir une autre ni d'y ajouter un texte personnel. <?= $go('settings/signature', 'Paramètres → Signature') ?> vous en montre l'aperçu.</li>
+      <li>La signature est fixée par l'administration : il n'est pas possible d'en choisir une autre. <?= $go('settings/signature', 'Paramètres → Signature') ?> vous en montre l'aperçu.</li>
+      <li><strong>Encart d'information</strong> : au-dessus de la signature, un encart peut annoncer une fermeture, des congés, une information du moment. Si l'administration le permet, vous pouvez dans <?= $go('settings/signature', 'Paramètres → Signature') ?> garder celui de l'entreprise, écrire le vôtre (par exemple « Absent jusqu'au 3 novembre ») ou n'en mettre aucun. Pensez à revenir à celui de l'entreprise quand votre information n'est plus d'actualité.</li>
     </ul>
   </section>
 
@@ -443,7 +452,15 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
 
   <section id="a-signatures" class="m4w-help-section admin">
     <h2><i class="bi bi-vector-pen"></i>Modèles de signature</h2>
-    <p>Un modèle HTML, défini dans <?= $go('admin/signatures', 'Signatures') ?>, est rempli avec les informations de chaque utilisateur et ajouté à l'envoi. L'aperçu en direct permet de tester le rendu pour n'importe quel utilisateur.</p>
+    <p>Un modèle, défini dans <?= $go('admin/signatures', 'Signatures') ?>, est rempli avec les informations de chaque utilisateur et ajouté à l'envoi. L'aperçu en direct permet de tester le rendu pour n'importe quel utilisateur. La <strong>mise en page guidée</strong> se règle sans HTML :</p>
+    <ul>
+      <li><strong>Logo</strong> : celui de la Personnalisation, un autre propre au modèle, ou aucun ; sa hauteur ; sa position, à gauche ou à droite des coordonnées.</li>
+      <li><strong>Séparateur vertical</strong> entre le logo et les coordonnées, ou aucun, dans la couleur principale ou une autre.</li>
+      <li><strong>Site internet</strong> sur sa propre ligne, sous l'adresse e-mail (par défaut), ou à côté.</li>
+      <li><strong>Réseaux sociaux</strong> : une petite icône par réseau (LinkedIn, Facebook, Instagram, X, YouTube…), côte à côte sous l'adresse postale ; un clic ouvre la page. Les icônes partent avec le message, comme le logo : elles s'affichent sans que le destinataire ait à autoriser les images.</li>
+      <li><strong>Encart d'information</strong> : un texte affiché dans un encart au-dessus de la signature s'il n'est pas vide (fermetures, salon, nouvelle adresse). Vous choisissez si chacun peut le remplacer par le sien ou le retirer.</li>
+    </ul>
+    <p>« Écrire mon propre HTML » part de la mise en page guidée et permet une mise en page libre, avec les variables ci-dessous.</p>
     <table class="table table-sm m4w-help-table">
       <thead><tr><th>Variable</th><th>Contenu</th></tr></thead>
       <tbody>
@@ -451,7 +468,8 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
         <tr><td><code>{{job_title}}</code> <code>{{department}}</code></td><td>fonction et service</td></tr>
         <tr><td><code>{{email}}</code> <code>{{phone}}</code> <code>{{mobile}}</code></td><td>coordonnées</td></tr>
         <tr><td><code>{{company}}</code> <code>{{address}}</code> <code>{{website}}</code> <code>{{website_label}}</code></td><td>entreprise (Personnalisation)</td></tr>
-        <tr><td><code>{{logo}}</code> <code>{{logo_url}}</code> <code>{{primary_color}}</code></td><td>logo (intégré au message) et couleur de la charte</td></tr>
+        <tr><td><code>{{logo}}</code> <code>{{logo_url}}</code> <code>{{primary_color}}</code> <code>{{separator_color}}</code></td><td>logo (intégré au message), couleur de la charte et du séparateur</td></tr>
+        <tr><td><code>{{socials}}</code> <code>{{notice}}</code></td><td>icônes des réseaux sociaux ; encart d'information (placé de lui-même au-dessus de la signature si le modèle ne le place pas)</td></tr>
       </tbody>
     </table>
     <p><strong>Sections conditionnelles</strong> : <code>{{#mobile}}Mob. {{mobile}}{{/mobile}}</code> n'affiche la ligne que si le mobile est renseigné. <code>{{^mobile}}…{{/mobile}}</code> fait l'inverse.</p>
@@ -643,7 +661,15 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
   <section id="a-ops" class="m4w-help-section admin">
     <h2><i class="bi bi-tools"></i>Exploitation</h2>
     <ul>
-      <li><strong>Tâche planifiée</strong> : elle doit tourner chaque minute (<code>bin/cron.php</code>). Elle gère la file d'envoi, les envois programmés, les comptes externes, les purges (corbeilles, messages supprimés expirés) et les quotas. Le tableau de bord signale si elle ne tourne pas.</li>
+      <li><strong>Tâche planifiée</strong> : elle doit tourner chaque minute (<code>bin/cron.php</code>). Elle gère la file d'envoi, les envois programmés, les comptes externes, les purges (corbeilles, messages supprimés expirés) et les quotas. Le tableau de bord signale si elle ne tourne pas. Elle doit tourner <strong>sous le compte du serveur web</strong> (<code><?= e($cronUser) ?></code> ici), jamais dans la crontab de root : un message écrit par root n'est plus lisible par le serveur web et s'affiche vide.
+        <ol class="mt-2">
+          <li>Installer les deux lignes (maintenance et sauvegarde) dans la crontab de <code><?= e($cronUser) ?></code>, sans toucher à ses autres lignes ni créer de doublon :
+            <pre class="m4w-help-code"><code><?= e($cronInstall) ?></code></pre></li>
+          <li>Vérifier qu'elles y sont : <pre class="m4w-help-code"><code>sudo crontab -u <?= e($cronUser) ?> -l</code></pre></li>
+          <li>La lancer une fois à la main pour voir ce qu'elle fait : <pre class="m4w-help-code"><code>sudo -u <?= e($cronUser) ?> <?= e($cronPhp) ?> <?= e(M4W_ROOT) ?>/bin/cron.php -v</code></pre></li>
+          <li>Retirer une ancienne ligne de la crontab de root, s'il y en a une : <code>sudo crontab -l</code> pour la voir, <code>sudo crontab -e</code> pour la supprimer. Puis rendre les fichiers au serveur web : <code>sudo chown -R <?= e($cronUser) ?>: <?= e(M4W_ROOT) ?>/storage <?= e(M4W_ROOT) ?>/config</code>.</li>
+        </ol>
+        Pour modifier les lignes à la main : <code>sudo crontab -u <?= e($cronUser) ?> -e</code>. Autre possibilité : le fichier <code>/etc/cron.d/make4webmail</code> (installé par <code>deploy/install-debian.sh</code>), où le compte figure en 6<sup>e</sup> colonne. La page <?= $go('admin/health', 'Supervision') ?> indique la dernière exécution, et signale une tâche lancée en root.</li>
       <li><strong>Sauvegardes</strong> : sauvegardez chaque nuit le dossier <code>storage/</code> (base de données, messages, pièces jointes, fichiers) et <code>config/config.php</code>, qui contient la clé de chiffrement. Sans cette clé, les secrets ne sont plus lisibles. Testez régulièrement une restauration.</li>
       <li><strong>Mises à jour</strong> : remplacez les fichiers de l'application en conservant <code>storage/</code> et <code>config/</code>. Les évolutions de la base s'appliquent automatiquement.</li>
       <li><strong>Outils en ligne de commande</strong> : <code>php bin/user.php list|create|password|enable|disable</code> (dépannage d'un compte administrateur), <code>php bin/cron.php -v</code> (exécution manuelle et détaillée de la maintenance).</li>
