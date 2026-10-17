@@ -67,7 +67,7 @@ final class AdminController extends Controller
             'twofa' => (bool) DB::value("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'superadmin') AND totp_enabled = 1"),
         ];
         $recent = DB::all('SELECT a.*, u.email FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 8');
-        $top = DB::all('SELECT id, email, display_name, used_bytes, quota_mb FROM users ORDER BY used_bytes DESC LIMIT 5');
+        $top = DB::all('SELECT id, email, display_name, role, used_bytes, quota_mb FROM users ORDER BY used_bytes DESC LIMIT 5');
         return $this->page('dashboard', compact('stats', 'days', 'checks', 'recent', 'top'));
     }
 
@@ -164,6 +164,9 @@ final class AdminController extends Controller
         } elseif ($status === 'admin') {
             $where .= " AND u.role IN ('admin', 'superadmin')";
         }
+        if (!is_superadmin($this->user())) {
+            $where .= " AND u.role <> 'superadmin'"; // the provider's accounts are not the customer's to manage
+        }
         $users = DB::all("SELECT u.*, t.name AS template_name FROM users u LEFT JOIN signature_templates t ON t.id = u.signature_template_id WHERE $where ORDER BY u.email", $p);
         $remotes = [];
         foreach (DB::all('SELECT * FROM remote_accounts') as $ra) {
@@ -175,7 +178,7 @@ final class AdminController extends Controller
     public function userForm(?string $id = null): Response
     {
         $user = $id ? Users::find((int) $id) : null;
-        if ($id && !$user) {
+        if ($id && (!$user || !$this->mayManage($user))) {
             throw new HttpException(404, t('error.not_found'));
         }
         $aliases = $user ? DB::all('SELECT * FROM aliases WHERE user_id = :u ORDER BY address', ['u' => $user['id']]) : [];
@@ -195,10 +198,22 @@ final class AdminController extends Controller
         ]);
     }
 
+    /** Super administrators' accounts are managed by super administrators only. */
+    private function mayManage(array $target): bool
+    {
+        return is_superadmin($this->user()) || $target['role'] !== 'superadmin';
+    }
+
     public function saveUser(): Response
     {
         $r = $this->req;
         $id = $r->int('id');
+        if (!is_superadmin($this->user()) && $r->str('role') === 'superadmin') {
+            return $this->back($id ? '/admin/users/' . $id : '/admin/users/new', 'danger', t('admin.no_superadmin_role'));
+        }
+        if ($id && ($t = Users::find($id)) && !$this->mayManage($t)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         $data = [
             'display_name' => $r->str('display_name'), 'first_name' => $r->str('first_name'), 'last_name' => $r->str('last_name'),
             'job_title' => $r->str('job_title'), 'department' => $r->str('department'), 'phone' => $r->str('phone'),
@@ -303,6 +318,9 @@ final class AdminController extends Controller
     /** Webmail mode: check IMAP and SMTP credentials of a mailbox (AJAX). */
     public function testRemote(string $id): Response
     {
+        if (!($t = Users::find((int) $id)) || !$this->mayManage($t)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         $res = \M4W\Service\RemoteMailbox::test((int) $id);
         return $this->ok(['imap' => $res['imap'], 'smtp' => $res['smtp'], 'message' => $res['imap'] === '' && $res['smtp'] === '' ? t('wm.test_ok') : t('wm.test_failed')]);
     }
@@ -329,6 +347,9 @@ final class AdminController extends Controller
     /** Webmail mode: pull new mail now (AJAX). */
     public function syncRemote(string $id): Response
     {
+        if (!($t = Users::find((int) $id)) || !$this->mayManage($t)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         $acc = \M4W\Service\RemoteMailbox::find((int) $id);
         if (!$acc) {
             return $this->fail(t('wm.not_linked'));
@@ -342,6 +363,9 @@ final class AdminController extends Controller
     /** Copy the mail kept here back into the person's own mailbox (done during the next syncs). */
     public function restoreRemote(string $id): Response
     {
+        if (!($t = Users::find((int) $id)) || !$this->mayManage($t)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         try {
             $n = \M4W\Service\RemoteMailbox::startRestore((int) $id, $this->req->arr('folders') ?: ['inbox', 'sent'], $this->uid());
         } catch (\InvalidArgumentException $e) {
@@ -359,6 +383,9 @@ final class AdminController extends Controller
             return $this->back('/admin/users', 'danger', t('admin.cannot_delete_self'));
         }
         $u = Users::find($id);
+        if ($u && !$this->mayManage($u)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         if ($u && $this->lastSuperadmin($u)) {
             return $this->back('/admin/users', 'danger', t('admin.last_superadmin'));
         }
@@ -378,7 +405,7 @@ final class AdminController extends Controller
 
     public function bulkUsers(): Response
     {
-        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid() && !(($bu = Users::find($i)) && $this->lastSuperadmin($bu)));
+        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid() && ($bu = Users::find($i)) && $this->mayManage($bu) && !$this->lastSuperadmin($bu));
         $action = $this->req->str('bulk_action');
         foreach ($ids as $id) {
             switch ($action) {
@@ -448,6 +475,9 @@ final class AdminController extends Controller
     public function reset2fa(): Response
     {
         $id = $this->req->int('id');
+        if (!($t = Users::find($id)) || !$this->mayManage($t)) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         DB::update('users', ['totp_enabled' => 0, 'totp_secret' => ''], 'id = :id', ['id' => $id]);
         Audit::log('admin.2fa_reset', (string) $id);
         return $this->back('/admin/users/' . $id, 'success', t('2fa.disabled'));
@@ -518,7 +548,7 @@ final class AdminController extends Controller
         if (Users::findByEmail($addr) || DB::value('SELECT COUNT(*) FROM aliases WHERE address = :a', ['a' => $addr])) {
             return $this->back($back, 'danger', t('admin.email_taken'));
         }
-        if (!Users::find($uid)) {
+        if (!($target = Users::find($uid)) || !$this->mayManage($target)) {
             return $this->back($back, 'danger', t('error.not_found'));
         }
         DB::insert('aliases', ['address' => $addr, 'user_id' => $uid, 'created_at' => time()]);
@@ -529,6 +559,10 @@ final class AdminController extends Controller
     public function deleteAlias(): Response
     {
         $a = DB::one('SELECT * FROM aliases WHERE id = :id', ['id' => $this->req->int('id')]);
+        // Outside the domains page (super administrator), only the aliases of an account one manages.
+        if ($a && !is_superadmin($this->user()) && (!($owner = Users::find((int) $a['user_id'])) || !$this->mayManage($owner))) {
+            throw new HttpException(404, t('error.not_found'));
+        }
         if ($a) {
             DB::delete('aliases', 'id = :id', ['id' => $a['id']]);
             Audit::log('admin.alias_deleted', $a['address']);
@@ -1126,6 +1160,7 @@ final class AdminController extends Controller
             'security.session_persist' => $r->bool('session_persist') ? 1 : 0,
             'offline.enabled' => $r->bool('offline_enabled') ? 1 : 0,
             'security.enforce_2fa_admin' => $r->bool('enforce_2fa_admin') ? 1 : 0,
+            'roles.admin_users' => $r->bool('admin_users') ? 1 : 0,
             'security.allow_external_forward' => $r->bool('allow_external_forward') ? 1 : 0,
             'security.forward_whitelist' => mb_strtolower($r->str('forward_whitelist')),
             'security.block_remote_images' => $r->bool('block_remote_images') ? 1 : 0,

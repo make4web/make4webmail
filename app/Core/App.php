@@ -161,8 +161,8 @@ final class App
             if ($user['must_change_password'] && !in_array($req->path, ['/password/change', '/logout'], true)) {
                 return $req->isAjax() ? Response::json(['ok' => false, 'error' => t('auth.must_change')], 403) : Response::redirect('/password/change');
             }
-            if ($access === 'admin' || $access === 'superadmin') {
-                if (!is_admin($user) || ($access === 'superadmin' && !is_superadmin($user))) {
+            if ($access === 'admin' || $access === 'superadmin' || $access === 'accounts') {
+                if (!is_admin($user) || ($access === 'superadmin' && !is_superadmin($user)) || ($access === 'accounts' && !can_manage_users($user))) {
                     throw new HttpException(403, t('error.forbidden'));
                 }
                 self::checkAdminIp($req);
@@ -240,6 +240,7 @@ final class App
         $pub = ['auth' => 'public'];
         $admin = ['auth' => 'admin'];           // the customer's administrator (and the super administrator)
         $super = ['auth' => 'superadmin'];      // configuring the application itself
+        $accounts = ['auth' => 'accounts'];     // the accounts: super administrator, administrators when allowed
         $r->get('/install', [Controller\InstallController::class, 'form'], $pub);
         $r->post('/install', [Controller\InstallController::class, 'install'], $pub);
         $r->get('/theme.css', [Controller\AssetController::class, 'theme'], $pub);
@@ -454,24 +455,24 @@ final class App
 
         // Administration
         $r->get('/admin', [Controller\AdminController::class, 'dashboard'], $admin);
-        $r->get('/admin/users', [Controller\AdminController::class, 'users'], $super);
-        $r->get('/admin/users/new', [Controller\AdminController::class, 'userForm'], $super);
-        $r->get('/admin/users/{id}', [Controller\AdminController::class, 'userForm'], $super);
-        $r->post('/admin/users/save', [Controller\AdminController::class, 'saveUser'], $super);
-        $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $super);
-        $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $super);
-        $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $super);
-        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $super);
-        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $super);
-        $r->post('/admin/users/{id}/remote/restore', [Controller\AdminController::class, 'restoreRemote'], $super);
-        $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $super);
+        $r->get('/admin/users', [Controller\AdminController::class, 'users'], $accounts);
+        $r->get('/admin/users/new', [Controller\AdminController::class, 'userForm'], $accounts);
+        $r->get('/admin/users/{id}', [Controller\AdminController::class, 'userForm'], $accounts);
+        $r->post('/admin/users/save', [Controller\AdminController::class, 'saveUser'], $accounts);
+        $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $accounts);
+        $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $accounts);
+        $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $accounts);
+        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $accounts);
+        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $accounts);
+        $r->post('/admin/users/{id}/remote/restore', [Controller\AdminController::class, 'restoreRemote'], $accounts);
+        $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $accounts);
         $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $super);
         $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $super);
         $r->post('/admin/domains/delete', [Controller\AdminController::class, 'deleteDomain'], $super);
         $r->get('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $super);
         $r->post('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $super);
-        $r->post('/admin/aliases/save', [Controller\AdminController::class, 'saveAlias'], $super);
-        $r->post('/admin/aliases/delete', [Controller\AdminController::class, 'deleteAlias'], $super);
+        $r->post('/admin/aliases/save', [Controller\AdminController::class, 'saveAlias'], $accounts);
+        $r->post('/admin/aliases/delete', [Controller\AdminController::class, 'deleteAlias'], $accounts);
         $r->get('/admin/signatures', [Controller\AdminController::class, 'signatures'], $admin);
         $r->get('/admin/signatures/new', [Controller\AdminController::class, 'signatureForm'], $admin);
         $r->get('/admin/signatures/{id}', [Controller\AdminController::class, 'signatureForm'], $admin);

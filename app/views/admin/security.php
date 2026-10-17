@@ -21,6 +21,7 @@
   </div>
   <div class="m4w-section">
     <div class="m4w-section-title"><i class="bi bi-shield-lock me-2 text-primary"></i><?= te('admin.admin_access') ?></div>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.admin_users') ?><small><?= te('admin.admin_users_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="admin_users" value="1" aria-label="<?= te('admin.admin_users') ?>" <?= (int) S::get('roles.admin_users', 0) ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.enforce_2fa') ?><small><?= te('admin.enforce_2fa_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enforce_2fa_admin" value="1" <?= S::get('security.enforce_2fa_admin') ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.admin_ips') ?><small><?= te('admin.admin_ips_desc', ['ip' => $req->ip()]) ?></small></div><div><input class="form-control m4w-code" name="allowed_ips_admin" value="<?= e(S::get('security.allowed_ips_admin')) ?>" placeholder="192.168.1.0/24, 203.0.113.4"></div></div>
   </div>

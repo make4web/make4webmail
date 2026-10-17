@@ -1,7 +1,7 @@
 <?php $max = max(1, ...array_map(static fn($d) => max($d['in'], $d['out']), $days)); ?>
 <div class="m4w-page-header">
   <div><h1><?= te('admin.dash_title') ?></h1><p><?= te('admin.dash_desc', ['brand' => M4W\Core\Settings::get('brand.name')]) ?></p></div>
-  <div class="d-flex gap-2"><a class="btn btn-light" href="<?= e(url('admin/logs')) ?>"><i class="bi bi-journal-text me-1"></i><?= te('admin.nav_logs') ?></a><?php if (is_superadmin($currentUser)): ?><a class="btn btn-primary" href="<?= e(url('admin/users/new')) ?>"><i class="bi bi-person-plus me-1"></i><?= te('admin.new_user') ?></a><?php endif; ?></div>
+  <div class="d-flex gap-2"><a class="btn btn-light" href="<?= e(url('admin/logs')) ?>"><i class="bi bi-journal-text me-1"></i><?= te('admin.nav_logs') ?></a><?php if (can_manage_users($currentUser)): ?><a class="btn btn-primary" href="<?= e(url('admin/users/new')) ?>"><i class="bi bi-person-plus me-1"></i><?= te('admin.new_user') ?></a><?php endif; ?></div>
 </div>
 <div class="row g-3 mb-4">
   <?php foreach ([
@@ -66,7 +66,7 @@ if ($hBad || $hWarn): ?>
       <div class="card-header"><?= te('admin.top_storage') ?></div>
       <ul class="list-group list-group-flush">
         <?php foreach ($top as $u): $pct = $u['quota_mb'] > 0 ? min(100, round($u['used_bytes'] / ($u['quota_mb'] * 1048576) * 100)) : 0; ?>
-        <li class="list-group-item"><div class="d-flex justify-content-between small mb-1"><?php if (is_superadmin($currentUser)): ?><a href="<?= e(url('admin/users/' . $u['id'])) ?>" class="text-reset fw-medium"><?= e($u['display_name'] ?: $u['email']) ?></a><?php else: ?><span class="fw-medium"><?= e($u['display_name'] ?: $u['email']) ?></span><?php endif; ?><span class="text-muted"><?= e(format_bytes((int) $u['used_bytes'])) ?><?= $u['quota_mb'] > 0 ? ' / ' . e(format_bytes($u['quota_mb'] * 1048576)) : '' ?></span></div>
+        <li class="list-group-item"><div class="d-flex justify-content-between small mb-1"><?php if (can_manage_users($currentUser) && (is_superadmin($currentUser) || ($u['role'] ?? '') !== 'superadmin')): ?><a href="<?= e(url('admin/users/' . $u['id'])) ?>" class="text-reset fw-medium"><?= e($u['display_name'] ?: $u['email']) ?></a><?php else: ?><span class="fw-medium"><?= e($u['display_name'] ?: $u['email']) ?></span><?php endif; ?><span class="text-muted"><?= e(format_bytes((int) $u['used_bytes'])) ?><?= $u['quota_mb'] > 0 ? ' / ' . e(format_bytes($u['quota_mb'] * 1048576)) : '' ?></span></div>
         <div class="progress" style="height:5px"><div class="progress-bar <?= $pct > 90 ? 'bg-danger' : '' ?>" style="width:<?= max(1, $pct) ?>%"></div></div></li>
         <?php endforeach; ?>
       </ul>

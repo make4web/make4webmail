@@ -493,6 +493,48 @@
       start = null;
     }).on('dblclick', function (e) { if (!$(e.target).closest('button').length && window.innerWidth >= 768) self.toggleMax(); });
     $(window).on('resize.m4wcompose', function () { self.place(); });
+    this.bindResize();
+  };
+
+  // ---- window: resized by its edges and corners (desktop); the size is kept for the next ones
+  var SIZE_KEY = 'm4w.compose.size', MIN_W = 420, MIN_H = 320;
+  function savedSize() {
+    try { var v = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); return v && v.w && v.h ? v : null; } catch (e) { return null; }
+  }
+  Compose.prototype.bindResize = function () {
+    var self = this, $el = this.$el, el = $el[0], start = null;
+    ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(function (d) { $el.append('<div class="m4w-compose-resize ' + d + '" data-resize="' + d + '" aria-hidden="true"></div>'); });
+    var size = savedSize();
+    if (size && window.innerWidth >= 992) { el.style.width = Math.min(size.w, window.innerWidth - 16) + 'px'; el.style.height = Math.min(size.h, window.innerHeight - 16) + 'px'; }
+    $el.on('pointerdown', '[data-resize]', function (e) {
+      if (e.button !== 0 || $el.hasClass('maximized') || $el.hasClass('minimized') || window.innerWidth < 992) return;
+      e.preventDefault();
+      var r = el.getBoundingClientRect();
+      start = { d: $(this).data('resize'), px: e.clientX, py: e.clientY, x: r.left, y: r.top, w: r.width, h: r.height };
+      self.pos = { x: r.left, y: r.top };
+      $el.addClass('floating resizing');
+      this.setPointerCapture(e.pointerId);
+    }).on('pointermove', '[data-resize]', function (e) {
+      if (!start) return;
+      var dx = e.clientX - start.px, dy = e.clientY - start.py, d = start.d;
+      var w = start.w, h = start.h, x = start.x, y = start.y;
+      if (d.indexOf('e') !== -1) w = start.w + dx;
+      if (d.indexOf('w') !== -1) { w = start.w - dx; }
+      if (d.indexOf('s') !== -1) h = start.h + dy;
+      if (d.indexOf('n') !== -1) { h = start.h - dy; }
+      w = Math.max(MIN_W, Math.min(w, window.innerWidth - 16));
+      h = Math.max(MIN_H, Math.min(h, window.innerHeight - 16));
+      if (d.indexOf('w') !== -1) x = start.x + start.w - w;
+      if (d.indexOf('n') !== -1) y = start.y + start.h - h;
+      el.style.width = w + 'px'; el.style.height = h + 'px';
+      self.pos = { x: x, y: y };
+      self.place();
+    }).on('pointerup pointercancel', '[data-resize]', function () {
+      if (!start) return;
+      start = null;
+      $el.removeClass('resizing');
+      try { localStorage.setItem(SIZE_KEY, JSON.stringify({ w: el.offsetWidth, h: el.offsetHeight })); } catch (e) {}
+    });
   };
 
   Compose.prototype.toggleMax = function () {
