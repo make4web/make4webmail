@@ -436,8 +436,12 @@ final class RemoteMailbox
                 if ($folders) {
                     ProviderFolders::finish($client, $acc, $user, $folders);
                 }
-                // Copies made twice in the past (or by another app): removed once a day.
-                if ((int) ((self::dedupeStats($acc) ?? [])['at'] ?? 0) < time() - 86400) {
+                // One's own messages put into one's own folders there when missing, never twice.
+                if ($folders) {
+                    ProviderFolders::push($client, $acc, $user, $folders);
+                }
+                // Copies made twice in the past (or by another app): removed every quarter of an hour.
+                if ((int) ((self::dedupeStats($acc) ?? [])['at'] ?? 0) < time() - 900) {
                     self::dedupe($client, $acc);
                 }
             }
@@ -680,7 +684,7 @@ final class RemoteMailbox
      * sender + date + subject (a copy whose Message-ID was changed on the way): a copy or a
      * restore never adds a second one. ['ids' => set, 'keys' => set]
      */
-    private static function providerHolds(ImapClient $client, array $acc): array
+    public static function providerHolds(ImapClient $client, array $acc): array
     {
         $out = ['ids' => [], 'keys' => []];
         foreach (self::providerPaths($client, $acc) as $path) {
@@ -702,14 +706,40 @@ final class RemoteMailbox
     }
 
     /** Whether the provider holds this stored message already (see providerHolds). */
-    private static function heldThere(array $holds, array $m): bool
+    public static function heldThere(array $holds, array $m): bool
     {
         if ($m['message_id'] !== '' && isset($holds['ids'][$m['message_id']])) {
             return true;
         }
-        $raw = Mailbox::raw($m);
-        $key = ImapClient::fingerprint(substr($raw, 0, (int) (strpos(str_replace("\r\n", "\n", $raw), "\n\n") ?: 65536)))['key'];
+        $key = self::keyOf($m);
         return $key !== '' && isset($holds['keys'][$key]);
+    }
+
+    /** Sender + date + subject of a stored message (ImapClient::fingerprint). */
+    private static function keyOf(array $m): string
+    {
+        $raw = str_replace("\r\n", "\n", Mailbox::raw($m));
+        return ImapClient::fingerprint(substr($raw, 0, (int) (strpos($raw, "\n\n") ?: 65536)))['key'];
+    }
+
+    /**
+     * Put a message of this webmail into the provider mailbox, never twice: every copy made is
+     * written down (provider_pushed), whatever the provider's search answers afterwards, and
+     * shown in the logs. Returns whether it was put there now.
+     */
+    public static function appendOnce(ImapClient $client, array $acc, array $m, string $path, string $why): bool
+    {
+        $key = self::keyOf($m);
+        $done = DB::value('SELECT COUNT(*) FROM provider_pushed WHERE account_id = :a AND (local_id = :l' . ($m['message_id'] !== '' ? ' OR msgid = :m' : '') . ($key !== '' ? ' OR fkey = :k' : '') . ')',
+            ['a' => $acc['id'], 'l' => $m['id']] + ($m['message_id'] !== '' ? ['m' => $m['message_id']] : []) + ($key !== '' ? ['k' => $key] : []));
+        if ($done) {
+            return false;
+        }
+        $client->append($path, self::providerRaw(Mailbox::raw($m)),
+            array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []), (int) ($m['date_received'] ?: $m['date_sent'] ?: time()));
+        DB::insert('provider_pushed', ['account_id' => $acc['id'], 'local_id' => $m['id'], 'msgid' => mb_substr((string) $m['message_id'], 0, 255), 'fkey' => $key, 'created_at' => time()]);
+        Audit::log('sync.copied_there', mb_substr((string) $m['subject'], 0, 150), ['box' => (string) $acc['login'], 'to' => ImapClient::decodeName($path), 'why' => $why, 'msgid' => (string) $m['message_id']], (int) $acc['user_id']);
+        return true;
     }
 
     /**
@@ -727,20 +757,40 @@ final class RemoteMailbox
         foreach (self::providerPaths($client, $acc, false) as $path) {
             try {
                 $info = $client->select($path);
-                $groups = [];
-                foreach ($client->fingerprints() as $uid => $f) {
-                    if ($f['msgid'] !== '' && !in_array('\\deleted', $f['flags'], true)) {
-                        $groups[$f['msgid']][$uid] = $f['flags'];
+                // Copies of one message: the same Message-ID, or the same sender, date (to the
+                // second) and subject (a copy whose Message-ID was changed on the way).
+                $prints = array_filter($client->fingerprints(), static fn($f) => !in_array('\\deleted', $f['flags'], true));
+                $parent = [];
+                $find = static function (int $u) use (&$parent, &$find): int {
+                    return $parent[$u] === $u ? $u : ($parent[$u] = $find($parent[$u]));
+                };
+                $seen = [];
+                foreach ($prints as $uid => $f) {
+                    $parent[$uid] = $uid;
+                    foreach (['i:' . $f['msgid'] => $f['msgid'], 'k:' . $f['key'] => $f['key']] as $tag => $v) {
+                        if ($v === '') {
+                            continue;
+                        }
+                        if (isset($seen[$tag])) {
+                            $parent[$find($uid)] = $find($seen[$tag]);
+                        } else {
+                            $seen[$tag] = $uid;
+                        }
                     }
                 }
+                $groups = [];
+                foreach ($prints as $uid => $f) {
+                    $groups[$find($uid)][$uid] = $f['flags'];
+                }
                 $removed = [];
-                foreach ($groups as $msgid => $copies) {
+                foreach ($groups as $copies) {
                     if (count($copies) < 2) {
                         continue;
                     }
                     // The one followed here is kept (else the first one).
-                    $followed = isset($keys[$path]) ? array_map('intval', array_column(DB::all('SELECT uid FROM remote_uids WHERE account_id = :a AND folder = :f AND msgid = :m',
-                        ['a' => $acc['id'], 'f' => $keys[$path], 'm' => $msgid]), 'uid')) : [];
+                    [$uin, $up] = DB::in('q', array_keys($copies));
+                    $followed = isset($keys[$path]) ? array_map('intval', array_column(DB::all("SELECT uid FROM remote_uids WHERE account_id = :a AND folder = :f AND validity = :v AND uid IN $uin",
+                        $up + ['a' => $acc['id'], 'f' => $keys[$path], 'v' => $info['uidvalidity']]), 'uid')) : [];
                     $keep = array_values(array_intersect(array_keys($copies), $followed))[0] ?? min(array_keys($copies));
                     $all = array_merge(...array_values($copies));
                     foreach (['\\seen' => '\\Seen', '\\flagged' => '\\Flagged', '\\answered' => '\\Answered'] as $flag => $imap) {
@@ -767,8 +817,8 @@ final class RemoteMailbox
                 error_log('[m4w] provider duplicates: ' . $e->getMessage());
             }
         }
-        $prev = json_decode((string) Settings::get('webmail.dedupe.' . (int) $acc['id'], ''), true) ?: [];
-        Settings::set('webmail.dedupe.' . (int) $acc['id'], json_encode(['at' => time(), 'n' => (int) ($prev['n'] ?? 0) + $n]));
+        $prev = self::dedupeStats($acc) ?? [];
+        Settings::set('webmail.dedupe2.' . (int) $acc['id'], json_encode(['at' => time(), 'n' => (int) ($prev['n'] ?? 0) + $n]));
         if ($n) {
             Audit::log('sync.duplicates_removed', (string) $acc['login'], ['n' => $n], (int) $acc['user_id']);
         }
@@ -777,7 +827,8 @@ final class RemoteMailbox
 
     public static function dedupeStats(array $acc): ?array
     {
-        $d = json_decode((string) Settings::get('webmail.dedupe.' . (int) $acc['id'], ''), true);
+        // (dedupe2: the wider look, by sender + date + subject too, runs again once after the update)
+        $d = json_decode((string) Settings::get('webmail.dedupe2.' . (int) $acc['id'], ''), true);
         return is_array($d) ? $d : null;
     }
 
@@ -806,8 +857,7 @@ final class RemoteMailbox
                 continue;
             }
             try {
-                $client->append('INBOX', self::providerRaw(Mailbox::raw($m)),
-                    array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []), (int) ($m['date_received'] ?: time()));
+                self::appendOnce($client, $acc, $m, 'INBOX', 'copy');
                 DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
             } catch (\Throwable $e) {
                 error_log('[m4w] provider copy ' . (int) $r['message_id'] . ': ' . $e->getMessage());
@@ -912,10 +962,7 @@ final class RemoteMailbox
             }
             try {
                 // Our own lines (delivery, collection, antispam, antivirus) are not part of the message.
-                $raw = self::providerRaw(Mailbox::raw($m));
-                $flags = array_merge($m['is_read'] ? ['\\Seen'] : [], $m['is_flagged'] ? ['\\Flagged'] : [], $m['is_answered'] ? ['\\Answered'] : []);
-                $client->append($target, $raw, $flags, (int) ($m['date_received'] ?: $m['date_sent']));
-                $st['done']++;
+                self::appendOnce($client, $acc, $m, $target, 'restore') ? $st['done']++ : $st['skipped']++;
             } catch (\Throwable $e) {
                 $st['failed']++;
                 $st['error'] = mb_substr($e->getMessage(), 0, 300);

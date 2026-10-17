@@ -2364,6 +2364,13 @@ test('own folders: the same tree here and at the provider, messages filed alike 
     ok(!$folder('Compta') && $local('pf-2')['role'] === 'trash', 'deleted on the phone → messages to the Trash here, folder gone');
     eq($sync(), '');
     ok(!isset($boxes()['Compta']), 'not created again');
+    // A message here in a followed folder that the provider does not have (another way in): put there, once.
+    $only = Mailbox::store($uid, (int) $proj, "From: Lea <lea@test.local>\nTo: paul@test.local\nSubject: Seulement ici\nMessage-ID: <pf-only@ext.com>\nDate: " . date('r') . "\n\nx\n");
+    eq($sync(), '');
+    ok($in('Projets 2026', 'pf-only'), 'put into the same folder there');
+    eq($sync(), '');
+    eq(count(array_filter($boxes()['Projets 2026']['msgs'], static fn($m) => str_contains($m['raw'], '<pf-only@'))), 1, 'once');
+    eq((int) $local('pf-only')['folder_id'], (int) $proj, 'and still there here');
     // Switched off: the folders stay as they are on both sides.
     DB::run('UPDATE remote_accounts SET sync_folders = 0 WHERE user_id = :u', ['u' => $uid]);
     Folders::create($uid, 'Local seulement');
@@ -2409,7 +2416,7 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7001, 'flags' => ['\\Flagged']] + $dupe;
     file_put_contents($wm['state'], json_encode($st), LOCK_EX);
     eq(count($at('INBOX', 'pc-1')), 2);
-    Settings::set('webmail.dedupe.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 0]));
+    Settings::set('webmail.dedupe2.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 0]));
     eq($sync(), '');
     $left = $at('INBOX', 'pc-1');
     eq(count($left), 1, 'duplicate removed at the provider');
@@ -2417,6 +2424,24 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     eq(RemoteMailbox::dedupeStats(RemoteMailbox::find($uid))['n'], 1);
     eq(count($local('pc-1')), 1, 'nothing changed here');
     eq($local('pc-1')[0]['role'], 'inbox');
+    // A copy with another Message-ID (changed on the way): the same sender, date and subject, removed too.
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $orig = array_values(array_filter($st['boxes']['paul@test.local']['INBOX']['msgs'], static fn($m) => str_contains($m['raw'], '<pc-1@test.local>')))[0];
+    $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7002, 'flags' => []] + ['raw' => str_replace('<pc-1@test.local>', '<other-pc-1@relay>', $orig['raw'])] + $orig;
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+    Settings::set('webmail.dedupe2.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 1]));
+    eq($sync(), '');
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    eq(count(array_filter($st['boxes']['paul@test.local']['INBOX']['msgs'], static fn($m) => str_contains($m['raw'], 'pc-1@'))), 1, 'same sender, date and subject: one copy left');
+    // Every copy made is written down: deleted at the provider (on the phone), never put back.
+    $copied = (int) DB::value('SELECT COUNT(*) FROM provider_pushed');
+    ok($copied >= 1 && (int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'sync.copied_there'") >= 1, 'copies written down and logged');
+    $acc = RemoteMailbox::find($uid);
+    $client = (new ReflectionMethod(RemoteMailbox::class, 'imap'))->invoke(null, $acc);
+    $before = count($at('INBOX', 'pc-1'));
+    eq(RemoteMailbox::appendOnce($client, $acc, Mailbox::get($uid, (int) $local('pc-1')[0]['id']), 'INBOX', 'copy'), false, 'never put there twice, whatever the provider answers');
+    $client->logout();
+    eq(count($at('INBOX', 'pc-1')), $before);
     // Then it lives both ways like any other message: deleted here, in the provider Trash.
     Mailbox::move($uid, [(int) $local('pc-1')[0]['id']], (int) Folders::byRole($uid, 'trash')['id']);
     eq($sync(), '');

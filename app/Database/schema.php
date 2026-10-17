@@ -1028,4 +1028,18 @@ static function (): void {
 // How a copy for the provider mailbox came here (the collector: given time to arrive there by itself).
 "ALTER TABLE provider_copies ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT ''",
 ],
+40 => [
+// Every message this webmail put into a provider mailbox (copy, restore, one's own folders): never twice.
+"CREATE TABLE provider_pushed (
+  id {PK},
+  account_id INTEGER NOT NULL,
+  local_id INTEGER NOT NULL DEFAULT 0,
+  msgid VARCHAR(255) NOT NULL DEFAULT '',
+  fkey VARCHAR(40) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX provider_pushed_msgid ON provider_pushed(account_id, msgid)",
+"CREATE INDEX provider_pushed_fkey ON provider_pushed(account_id, fkey)",
+"CREATE INDEX provider_pushed_local ON provider_pushed(account_id, local_id)",
+],
 ];
