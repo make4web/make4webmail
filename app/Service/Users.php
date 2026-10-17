@@ -37,11 +37,9 @@ final class Users
         'reminder_minutes'    => 30,
         'notify_period'       => 'always', // always | custom (weekly hours below)
         'notify_hours'        => '08:00-19:00,08:00-19:00,08:00-19:00,08:00-19:00,08:00-19:00,,',
-        'sound_new'           => 'ding',
+        'sound_new'           => 'ding', // none | a classic sound | own:<id> (Notify::ownSounds)
         'sound_reminder'      => 'chime',
         'sound_volume'        => 70,
-        'sound_file_new'      => '',     // own sounds (Notify::storeSound)
-        'sound_file_reminder' => '',
         'vibrate'             => 'short',
     ];
 
@@ -63,7 +61,6 @@ final class Users
             'conversations', 'show_images', 'shortcuts', 'undo_send', 'notifications', 'notify_new', 'notify_reminder' => [0, 1],
             'reminder_minutes' => Notify::REMINDER_MINUTES,
             'notify_period' => ['always', 'custom'],
-            'sound_new', 'sound_reminder' => Notify::SOUNDS,
             'vibrate' => array_keys(Notify::VIBRATIONS),
             default => null,
         };
@@ -191,7 +188,7 @@ final class Users
                     'meet_teams', 'meet_meet', 'meet_zoom' => \M4W\Service\Meetings::validPersonal(substr($k, 5), trim((string) $v)) ? trim((string) $v) : '',
                     'notify_hours' => Notify::formatHours(Notify::parseHours((string) $v)),
                     'sound_volume' => max(0, min(100, (int) $v)),
-                    'sound_file_new', 'sound_file_reminder' => preg_match('/^\d+-(new|reminder)-[0-9a-f]{12}\.(mp3|ogg|wav)$/', (string) $v) ? (string) $v : '',
+                    'sound_new', 'sound_reminder' => Notify::validSound($id, (string) $v) ? (string) $v : Notify::defaultSound(substr($k, 6)),
                     default => $v,
                 };
                 $allowed = self::prefChoices($k);
@@ -210,6 +207,7 @@ final class Users
         Files::deleteUser($id);
         Delegation::deleteUser($id);
         SharedMailboxes::deleteUser($id);
+        Notify::deleteUser($id);
         MailAssets::forgetUser($id);
         RemoteMailbox::delete($id);
         // A departing employee's mail stays recoverable by administrators for the retention period.

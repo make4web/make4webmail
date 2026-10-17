@@ -816,6 +816,33 @@ final class MailController extends Controller
         ]);
     }
 
+    /**
+     * The light check of the other pages (settings, calendar, files…): unread mail of all the
+     * mailboxes for the badges, and what arrived since the last look for the alert.
+     */
+    public function unread(): Response
+    {
+        $u = $this->user();
+        Session::close();
+        try {
+            \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], 60);
+        } catch (\Throwable $e) {
+            error_log('[m4w] webmail sync: ' . $e->getMessage());
+        }
+        $since = (int) ($this->req->query['since'] ?? 0);
+        $new = $since > 0 ? DB::all(
+            "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id']) . '
+             ORDER BY m.id DESC LIMIT 5',
+            ['u' => $u['id'], 's' => $since]
+        ) : [];
+        return $this->ok([
+            'boxes'  => \M4W\Service\SharedMailboxes::counts((int) $this->actor()['id']),
+            'max_id' => (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]),
+            'new'    => $new,
+        ]);
+    }
+
     public function prefs(): Response
     {
         $u = $this->user();

@@ -165,7 +165,7 @@ Dans Paramètres → Profil & préférences → Notifications, chacun choisit :
 - **à chaque nouveau message** : « Nouveau message de … », avec l'adresse de l'expéditeur, l'objet et le dossier où une règle l'a rangé ;
 - **une relance** tant que des messages restent non lus : « 3 nouveaux messages », envoyée à nouveau toutes les 5 min à 2 h, avec depuis quand et de qui ;
 - **la période** : tout le temps (par défaut) ou des horaires par jour, comme pour les salles. En dehors de ces horaires, aucune alerte, mais les messages arrivent quand même ;
-- **les sons** : quelques sons classiques (ding, carillon, cloche, pop, marimba, bip) ou un son à soi (MP3, OGG, WAV, 1 Mo au plus, vérifié par son contenu). Un son différent est possible pour l'arrivée et pour la relance, ainsi que « Aucun son », et un volume ;
+- **les sons** : six sons classiques (ding, carillon, cloche, pop, marimba, bip), fournis en fichiers WAV par l'application (`php bin/sounds.php` les refait), et ses propres sons (MP3, OGG, WAV, 1 Mo au plus, vérifiés par leur contenu, 12 au plus). Un son importé rejoint « Mes sons » et devient disponible dans les deux listes. Un fichier que le navigateur ne sait pas lire est refusé tout de suite. On peut choisir un son différent pour l'arrivée et pour la relance, ou « Aucun son », et régler le volume ;
 - **la vibration** sur téléphone (courte, longue, trois impulsions).
 
 Limites des navigateurs :
