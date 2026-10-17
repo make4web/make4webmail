@@ -74,6 +74,41 @@ while (true) {
                         $out('* LIST (' . $attr . ') "/" "' . $name . '"');
                     }
                     $out("$tag OK list done");
+                } elseif ($cmd === 'CREATE' && $user) {
+                    $name = $quoted($args)[0] ?? '';
+                    if ($name === '' || isset($st['boxes'][$user][$name])) {
+                        $out("$tag NO [ALREADYEXISTS] mailbox exists");
+                        continue;
+                    }
+                    $st['boxes'][$user][$name] = ['validity' => random_int(1000, 999999), 'next' => 1, 'msgs' => []];
+                    $save($st);
+                    $out("$tag OK created");
+                } elseif ($cmd === 'RENAME' && $user) {
+                    [$from, $to] = array_pad($quoted($args), 2, '');
+                    if (!isset($st['boxes'][$user][$from]) || isset($st['boxes'][$user][$to]) || strcasecmp($from, 'INBOX') === 0) {
+                        $out("$tag NO cannot rename");
+                        continue;
+                    }
+                    // The folder and the ones under it.
+                    foreach (array_keys($st['boxes'][$user]) as $n) {
+                        if ($n === $from || str_starts_with($n, $from . '/')) {
+                            $st['boxes'][$user][$to . substr($n, strlen($from))] = $st['boxes'][$user][$n];
+                            unset($st['boxes'][$user][$n]);
+                        }
+                    }
+                    $save($st);
+                    $out("$tag OK renamed");
+                } elseif ($cmd === 'DELETE' && $user) {
+                    $name = $quoted($args)[0] ?? '';
+                    if (!isset($st['boxes'][$user][$name]) || strcasecmp($name, 'INBOX') === 0) {
+                        $out("$tag NO no such mailbox");
+                        continue;
+                    }
+                    unset($st['boxes'][$user][$name]);
+                    $save($st);
+                    $out("$tag OK deleted");
+                } elseif ($cmd === 'SUBSCRIBE' && $user) {
+                    $out("$tag OK subscribed");
                 } elseif ($cmd === 'APPEND' && $user) {
                     preg_match('/^"((?:[^"\\\\]|\\\\.)*)"(?: \(([^)]*)\))?(?: "([^"]+)")? \{(\d+)\}$/', $args, $m);
                     if (!$m || !isset($st['boxes'][$user][stripcslashes($m[1])])) {

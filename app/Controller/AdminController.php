@@ -283,6 +283,7 @@ final class AdminController extends Controller
                 'imap_host' => $r->str('remote_imap_host'), 'imap_port' => $r->int('remote_imap_port'), 'imap_security' => $r->str('remote_imap_security'),
                 'smtp_host' => $r->str('remote_smtp_host'), 'smtp_port' => $r->int('remote_smtp_port'), 'smtp_security' => $r->str('remote_smtp_security'),
                 'two_way' => $r->bool('remote_two_way'),
+                'sync_folders' => $r->bool('remote_sync_folders'),
             ] + (\M4W\Service\RemoteMailbox::active() ? [] : [
                 // Other modes: the administrator imposes (or not) the user's own mailbox.
                 'forced' => $r->bool('remote_forced'), 'overflow' => $r->bool('remote_overflow'), 'hourly_limit' => $r->int('remote_hourly_limit'),

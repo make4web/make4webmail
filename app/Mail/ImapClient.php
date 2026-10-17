@@ -186,6 +186,46 @@ final class ImapClient
 
     /** Folder list (LIST "" "*"), read once per connection: name => attributes. */
     private ?array $folders = null;
+    private ?string $delimiter = null;
+
+    /** The separator of the folder hierarchy ("/" or "."), as the server lists it. */
+    public function delimiter(): string
+    {
+        $this->folders();
+        return $this->delimiter ?: '/';
+    }
+
+    public function createFolder(string $name): void
+    {
+        $this->command('CREATE ' . self::quote($name));
+        $this->command('SUBSCRIBE ' . self::quote($name), false, true);
+        $this->folders = null;
+    }
+
+    public function renameFolder(string $from, string $to): void
+    {
+        $this->command('RENAME ' . self::quote($from) . ' ' . self::quote($to));
+        $this->command('SUBSCRIBE ' . self::quote($to), false, true);
+        $this->folders = null;
+    }
+
+    public function deleteFolder(string $name): void
+    {
+        $this->command('DELETE ' . self::quote($name));
+        $this->folders = null;
+    }
+
+    /** Modified UTF-7 (RFC 3501) to UTF-8, and back: folder names as people read them. */
+    public static function decodeName(string $name): string
+    {
+        $s = @mb_convert_encoding($name, 'UTF-8', 'UTF7-IMAP');
+        return is_string($s) && $s !== '' ? $s : $name;
+    }
+
+    public static function encodeName(string $name): string
+    {
+        return (string) mb_convert_encoding($name, 'UTF7-IMAP', 'UTF-8');
+    }
 
     /** @return array<string,string> */
     public function folders(): array
@@ -195,9 +235,13 @@ final class ImapClient
         }
         $this->folders = [];
         foreach ($this->command('LIST "" "*"')['lines'] as $l) {
-            if (!preg_match('/^\* LIST \(([^)]*)\) (?:"[^"]*"|NIL) (.+)$/i', $l, $m)) {
+            if (!preg_match('/^\* LIST \(([^)]*)\) ("[^"]*"|NIL) (.+)$/i', $l, $m)) {
                 continue;
             }
+            if ($this->delimiter === null && $m[2] !== 'NIL') {
+                $this->delimiter = stripcslashes(substr($m[2], 1, -1));
+            }
+            $m[2] = $m[3];
             $name = trim($m[2]);
             if (str_starts_with($name, '"')) {
                 $name = stripcslashes(substr($name, 1, -1));
@@ -337,7 +381,8 @@ final class ImapClient
     }
 
     /** @return array{lines:string[],literals:string[]} */
-    private function command(string $cmd, bool $secret = false): array
+    /** @param bool $quiet a refusal is not an error (optional commands such as SUBSCRIBE) */
+    private function command(string $cmd, bool $secret = false, bool $quiet = false): array
     {
         $tag = 'A' . (++$this->tag);
         fwrite($this->sock, $tag . ' ' . $cmd . "\r\n");
@@ -365,7 +410,7 @@ final class ImapClient
             }
             if (str_starts_with($line, $tag . ' ')) {
                 $status = strtoupper(substr($line, strlen($tag) + 1, 2));
-                if ($status !== 'OK') {
+                if ($status !== 'OK' && !$quiet) {
                     throw new \RuntimeException('IMAP: ' . ($secret ? 'authentification refusée' : substr($line, strlen($tag) + 1)));
                 }
                 break;

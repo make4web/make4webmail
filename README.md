@@ -153,7 +153,12 @@ En mode boîte collectrice :
 - Sa boîte a sa propre limite horaire. Une fois atteinte, ou si le fournisseur refuse pour dépassement, les envois **débordent sur la boîte collectrice** (option) : les deux limites s'additionnent. Sans débordement, les messages attendent sa boîte.
 - **Dans les deux sens** (boîte imposée et mode webmail), pour que le téléphone, Roundcube et Make4WebMail montrent la même chose :
   - **supprimé, archivé ou classé indésirable ici** → déplacé de même chez le fournisseur (dans sa Corbeille, jamais effacé), et marqué lu s'il l'était ici ;
-  - **lu ou suivi ici** → lu ou suivi chez le fournisseur, y compris pour un message rangé ici dans un dossier perso (à la main ou par une règle), qui reste dans la boîte de réception du fournisseur ;
+  - **lu ou suivi ici** → lu ou suivi chez le fournisseur ;
+  - **dossiers perso** (option « Dossiers perso aussi chez le fournisseur », activée par défaut ; jamais pour la boîte collectrice) : le même arbre des deux côtés, sous-dossiers et noms accentués compris :
+    - un dossier créé, renommé ou supprimé ici l'est chez le fournisseur, et inversement ; une suppression ou un renommage côté fournisseur n'est pris en compte qu'après avoir été constaté deux fois de suite ;
+    - un message rangé ici, à la main ou par une règle de Make4WebMail, est rangé dans le même dossier chez le fournisseur. Un message rangé sur le téléphone ou dans Roundcube l'est aussi ici ;
+    - le courrier rangé directement par les filtres du fournisseur est relevé dans le bon dossier ;
+    - un dossier supprimé ici envoie ses messages dans la Corbeille du fournisseur, puis disparaît chez lui ;
   - **supprimé, archivé ou lu sur le téléphone** → de même ici ;
   - ce qui est fait ici est reporté **aussitôt** après l'action (sous PHP-FPM), sinon à la vérification suivante ;
   - si le fournisseur refuse un déplacement (dossier introuvable…), le changement est réessayé à chaque relève, et l'erreur est affichée dans la fiche utilisateur ;
