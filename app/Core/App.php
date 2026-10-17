@@ -29,7 +29,7 @@ final class App
             return;
         }
         try {
-            $res = self::handle($req);
+            $res = ($problem = self::startupProblem()) !== null ? self::startupPage($req, $problem) : self::handle($req);
         } catch (HttpException $e) {
             $res = self::errorResponse($req, $e->status, $e->getMessage());
         } catch (\Throwable $e) {
@@ -500,6 +500,47 @@ final class App
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
         $r->post('/admin/queue/retry', [Controller\AdminController::class, 'retryQueue'], $admin);
         $r->post('/admin/queue/delete', [Controller\AdminController::class, 'deleteQueue'], $admin);
+    }
+
+    /**
+     * What prevents the application from running at all, said plainly instead of a bare error
+     * 500: files the web server cannot write (an installation copied as another user: the
+     * error log itself is then out of reach, the reason went to the web server's own log), or
+     * a database that does not answer.
+     */
+    public static function startupProblem(): ?string
+    {
+        if (!Config::installed()) {
+            return null;
+        }
+        $paths = [Config::storagePath(), Config::storagePath('logs'), Config::storagePath('tmp'), Config::storagePath('mail'), Config::storagePath('sessions')];
+        $db = (array) Config::get('db', []);
+        if (($db['driver'] ?? 'sqlite') === 'sqlite') {
+            $file = (string) ($db['path'] ?? Config::storagePath('data/m4w.sqlite'));
+            $paths[] = dirname($file);
+            if (!is_file($file)) {
+                return t('startup.db_file_missing', ['path' => $file]);
+            }
+            $paths[] = $file;
+        }
+        $denied = array_values(array_filter(array_unique($paths), static fn($p) => file_exists($p) && !is_writable($p)));
+        if ($denied) {
+            $who = function_exists('posix_geteuid') && ($pw = @posix_getpwuid(posix_geteuid())) ? (string) $pw['name'] : 'www-data';
+            error_log('[m4w] not writable by ' . $who . ': ' . implode(', ', $denied));
+            return t('startup.not_writable', ['user' => $who, 'paths' => implode(', ', $denied), 'root' => M4W_ROOT]);
+        }
+        try {
+            Database::pdo();
+        } catch (\PDOException $e) {
+            error_log('[m4w] database unreachable: ' . $e->getMessage());
+            return t('startup.db_unreachable', ['host' => (string) ($db['host'] ?? ''), 'error' => (string) preg_replace('/^SQLSTATE\[\w+\]\s*/', '', $e->getMessage())]);
+        }
+        return null;
+    }
+
+    private static function startupPage(Request $req, string $problem): Response
+    {
+        return self::errorResponse($req, 503, $problem);
     }
 
     private static function errorResponse(Request $req, int $status, string $message): Response

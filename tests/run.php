@@ -2387,6 +2387,23 @@ test('own folders: the same tree here and at the provider, messages filed alike 
     eq($sync(), '');
     eq(count(array_filter($boxes()['Projets 2026']['msgs'], static fn($m) => str_contains($m['raw'], '<pf-only@'))), 1, 'once');
     eq((int) $local('pf-only')['folder_id'], (int) $proj, 'and still there here');
+    // A folder there named like one of our system folders (not flagged as special there): left alone, no error.
+    $arch = DB::one("SELECT * FROM folders WHERE user_id = :u AND role = 'archive'", ['u' => $uid]);
+    DB::update('folders', ['name' => 'Classeur'], 'id = :id', ['id' => $arch['id']]);
+    $colState(static function (array &$st) { $st['boxes']['paul@test.local']['Classeur'] = ['validity' => 78, 'next' => 1, 'msgs' => []]; });
+    $logged = ini_get('error_log');
+    ini_set('error_log', $tmpLog = sys_get_temp_dir() . '/m4w-pf-' . getmypid() . '.log');
+    try {
+        eq($sync(), '');
+        eq($sync(), '');
+    } finally {
+        ini_set('error_log', (string) $logged);
+    }
+    ok(!str_contains((string) @file_get_contents($tmpLog), 'folder here'), 'no "folder exists" error at each pass');
+    @unlink($tmpLog);
+    eq((int) DB::value("SELECT COUNT(*) FROM folders WHERE user_id = :u AND LOWER(name) = 'classeur'", ['u' => $uid]), 1, 'no second folder');
+    ok(!DB::value('SELECT COUNT(*) FROM remote_folders WHERE folder_id = :f', ['f' => $arch['id']]), 'the system folder is not tied to it');
+    DB::update('folders', ['name' => $arch['name']], 'id = :id', ['id' => $arch['id']]);
     // Switched off: the folders stay as they are on both sides.
     DB::run('UPDATE remote_accounts SET sync_folders = 0 WHERE user_id = :u', ['u' => $uid]);
     Folders::create($uid, 'Local seulement');
@@ -4345,6 +4362,46 @@ test('sender padlock: internal mail, provider mail checked again (DKIM, the prov
         eq($C::collected(M4W\Mail\MimeParser::parse($other), $other, ['provider.test'])['state'], 'partial');
     } finally {
         M4W\Mail\MailAuth::$resolver = null;
+    }
+});
+test('install: a moved installation finds its data; paths of the application are not written; the database reached another way', function () {
+    // Older configurations kept absolute paths: moved elsewhere, the application's own folder is used.
+    $root = sys_get_temp_dir() . '/m4w-move-' . getmypid();
+    $prop = new ReflectionProperty(Config::class, 'data');
+    $saved = $prop->getValue();
+    try {
+        @mkdir($root . '/data', 0777, true);
+        touch($root . '/data/m4w.sqlite');
+        $m = new ReflectionMethod(Config::class, 'followMove');
+        $prop->setValue(null, ['storage_path' => '/srv/ancien/storage', 'db' => ['driver' => 'sqlite', 'path' => '/srv/ancien/storage/data/m4w.sqlite']] + $saved);
+        $m->invoke(null, ['storage_path' => $root, 'db' => ['driver' => 'sqlite', 'path' => $root . '/data/m4w.sqlite']]);
+        eq([Config::get('storage_path'), Config::get('db.path')], [$root, $root . '/data/m4w.sqlite']);
+        // A path that exists is kept as it is.
+        $prop->setValue(null, ['storage_path' => $saved['storage_path'], 'db' => $saved['db']] + $saved);
+        $m->invoke(null, ['storage_path' => $root, 'db' => ['driver' => 'sqlite', 'path' => $root . '/data/m4w.sqlite']]);
+        eq(Config::get('storage_path'), $saved['storage_path']);
+    } finally {
+        $prop->setValue(null, $saved);
+        @unlink($root . '/data/m4w.sqlite');
+        @rmdir($root . '/data');
+        @rmdir($root);
+    }
+    eq(M4W\Core\App::startupProblem(), null, 'a sound installation starts');
+    if (DB::driver() !== 'mysql') {
+        return;
+    }
+    // MariaDB: a refused port falls back to the local socket when there is one; a bad password is explained.
+    $cfg = (array) Config::get('db');
+    $sockets = array_filter(['/run/mysqld/mysqld.sock', '/var/run/mysqld/mysqld.sock', '/var/lib/mysql/mysql.sock', '/tmp/mysql.sock'], 'file_exists');
+    if ($sockets && in_array($cfg['host'], ['127.0.0.1', 'localhost'], true)) {
+        $r = M4W\Service\Installer::reachDatabase(['port' => 1] + $cfg);
+        ok(!empty($r['socket']), 'reached through the socket');
+    }
+    try {
+        M4W\Service\Installer::reachDatabase(['pass' => 'not-the-password'] + $cfg);
+        ok(false, 'a wrong password must fail');
+    } catch (RuntimeException $e) {
+        ok(str_contains($e->getMessage(), $cfg['user']) && !str_starts_with($e->getMessage(), 'SQLSTATE'), $e->getMessage());
     }
 });
 test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {

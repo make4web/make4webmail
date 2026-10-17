@@ -293,6 +293,8 @@ Déposez le projet sur le serveur, par exemple dans `/var/www/make4webmail`, et 
   php bin/install.php --domain=example.com --admin=admin@example.com --password='Mot2Passe!Solide' --name="Prénom Nom" --brand="Acme Mail"
   ```
 
+Base MariaDB / MySQL : si `127.0.0.1` est refusé (MariaDB n'écoute souvent que sur son socket local), l'assistant essaie de lui-même le socket (`/run/mysqld/mysqld.sock`…) puis `localhost`, et garde la voie qui répond. Une base absente est créée si le compte en a le droit. Chaque échec est expliqué (serveur arrêté ou injoignable, identifiant refusé, droits manquants, base absente, avec la commande SQL à lancer) et écrit dans `storage/logs/php-error.log`.
+
 ### 3. Serveur web
 - nginx : voir `deploy/nginx.conf`.
 - Pour l'espace fichiers, alignez `upload_max_filesize` et `post_max_size` (PHP), `client_max_body_size` (nginx) et la taille maximale choisie dans « Administration → Fichiers ». En base MySQL, prévoyez `max_allowed_packet` ≥ 4 Mo.
@@ -343,7 +345,9 @@ Restauration, sur le même serveur ou un nouveau (installé sans lancer l'assist
 sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…'          # aperçu, rien n'est modifié
 sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…' --yes    # restauration
 ```
-L'option `--config` reprend aussi la configuration sur un serveur déjà configuré. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
+L'option `--config` reprend aussi la configuration sur un serveur déjà configuré.
+
+**Déplacer ou copier une installation** : copiez le dossier entier (dont `storage/` et `config/`), puis donnez-le au compte du serveur web : `sudo chown -R www-data: storage config`. La configuration n'enregistre plus les chemins internes à l'application ; une configuration plus ancienne qui pointe encore vers l'ancien emplacement est suivie d'elle-même vers le nouveau. Si le serveur web ne peut pas écrire dans `storage/`, ou si la base ne répond pas, chaque page le dit en clair (au lieu d'une erreur 500), avec la commande qui répare ; `sudo -u www-data php bin/check.php` fait le même contrôle. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
 
 ## Outils en ligne de commande
 | Commande | Rôle |

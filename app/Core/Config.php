@@ -35,10 +35,31 @@ final class Config
             if (is_array($cfg)) {
                 self::$data = array_replace_recursive($defaults, $cfg);
                 self::$installed = !empty(self::$data['app_key']);
+                self::followMove($defaults);
                 return;
             }
         }
         self::$data = $defaults;
+    }
+
+    /**
+     * An installation copied or moved elsewhere keeps the paths of its old place in its
+     * configuration (written that way by older installers): when they no longer exist and the
+     * application's own folder holds the data, that one is used.
+     */
+    private static function followMove(array $defaults): void
+    {
+        $storage = (string) self::$data['storage_path'];
+        if ($storage !== $defaults['storage_path'] && !is_dir($storage) && is_dir($defaults['storage_path'])) {
+            self::$data['storage_path'] = $defaults['storage_path'];
+        }
+        $db = self::$data['db'];
+        if (($db['driver'] ?? '') === 'sqlite' && ($db['path'] ?? '') !== $defaults['db']['path']) {
+            $local = rtrim((string) self::$data['storage_path'], '/') . '/data/' . basename((string) $db['path']);
+            if (!is_file((string) $db['path']) && is_file($local)) {
+                self::$data['db']['path'] = $local;
+            }
+        }
     }
 
     public static function installed(): bool
