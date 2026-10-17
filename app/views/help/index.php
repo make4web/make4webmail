@@ -423,7 +423,7 @@ $cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/b
         <tr><td><strong>Utilisateur</strong></td><td>Utilise la messagerie, sans droit de configuration. Il peut ajouter une autre boîte à son compte avec le mot de passe de cette boîte (la boîte reçoit un message qui l'en prévient), et gérer une salle dont il est gestionnaire.</td></tr>
       </tbody>
     </table>
-    <p>Le rôle se choisit dans la fiche de l'utilisateur (Utilisateurs, réservé au super administrateur). À la mise à jour, le premier administrateur, celui qui a installé l'application, devient super administrateur ; les autres restent administrateurs.</p>
+    <p>Le rôle se choisit dans la fiche de l'utilisateur. Les comptes sont gérés par le super administrateur ; il peut le permettre aux administrateurs dans <?= $go('admin/security', 'Sécurité') ?> (« Les administrateurs gèrent les comptes »). Ils gèrent alors les comptes utilisateur et administrateur, sans voir ceux des super administrateurs ni pouvoir donner ce rôle. À la mise à jour, le premier administrateur, celui qui a installé l'application, devient super administrateur ; les autres restent administrateurs.</p>
     <div class="m4w-help-note warn"><i class="bi bi-shield-exclamation"></i><div>Les administrateurs ont accès à des données sensibles : activez la double authentification sur votre compte, et imposez-la à tous les administrateurs dans <?= $go('admin/security', 'Sécurité') ?>.</div></div>
   </section>
 

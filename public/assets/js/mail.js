@@ -693,14 +693,35 @@
     return '<iframe sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" loading="lazy" title="' + esc(t('message_content')) + '" src="' + esc(src) + '"></iframe>';
   }
 
+  // Space the reading pane leaves to a message shown alone (desktop): the content gets a fixed
+  // area down to the bottom of the pane and scrolls inside it; 0 when the content decides
+  // (several messages open, small screens).
+  function paneSpace(frame) {
+    if (window.innerWidth < 768) return 0;
+    var $scroll = $(frame).closest('.m4w-reader-scroll');
+    if (!$scroll.length || $scroll.find('.m4w-msg:not(.collapsed)').length !== 1) return 0;
+    var sc = $scroll[0], scTop = sc.getBoundingClientRect().top, top = frame.getBoundingClientRect().top - scTop + sc.scrollTop;
+    // What follows the content (attachments, reply buttons, the pane's bottom padding).
+    var last = sc.lastElementChild, end = last ? last.getBoundingClientRect().bottom - scTop + sc.scrollTop : top + frame.offsetHeight;
+    var after = end - (top + frame.offsetHeight) + (parseFloat(window.getComputedStyle(sc).paddingBottom) || 0);
+    var space = sc.clientHeight - top - after;
+    return space >= 240 ? Math.floor(space) : 0;
+  }
+
   function fitIframe(frame) {
     try {
       var doc = frame.contentDocument;
       if (!doc) return;
       var h = Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0);
-      frame.style.height = (h + 4) + 'px';
+      // Padding and border are inside the height (border-box: the dark theme pads the frame).
+      var cs = window.getComputedStyle(frame);
+      var extra = cs.boxSizing === 'border-box' ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0) : 0;
+      var space = paneSpace(frame);
+      frame.style.height = (space || (h + extra + 4)) + 'px';
+      frame.classList.toggle('m4w-frame-fixed', !!space);
     } catch (e) { frame.style.height = '600px'; }
   }
+  $(window).on('resize', M4W.debounce(function () { $('.m4w-reader-scroll .m4w-msg-body iframe').each(function () { fitIframe(this); }); }, 150));
 
   function bindIframes($ctx) {
     if (M4W.Offline && M4W.Offline.fillBodies) M4W.Offline.fillBodies($ctx);
@@ -1212,6 +1233,8 @@
       var expand = $m.hasClass('collapsed');
       $m.toggleClass('collapsed', !expand);
       if (expand && !$m.find('iframe').length) { $m.find('.m4w-msg-body').html(iframeHtml($m.data('msg'))); bindIframes($m); }
+      // One or several open: fixed area or the content's own height.
+      $m.closest('.m4w-reader-scroll').find('.m4w-msg-body iframe').each(function () { fitIframe(this); });
     });
     $reader.on('click', '[data-expand-thread]', function () { $(this).next('[data-hidden-thread]').removeClass('d-none'); $(this).remove(); bindIframes($reader); });
     $reader.on('click', '[data-show-images]', function (e) {

@@ -2583,4 +2583,7 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'audit.update.disconnected' => 'GitHub account disconnected',
     'audit.update.applied' => 'Application updated',
     'audit.update.rolled_back' => 'Update undone',
+    'admin.admin_users' => 'Administrators manage the accounts',
+    'admin.admin_users_desc' => 'Creating, editing, disabling and deleting accounts (except super administrators\', which they do not see), with the user or administrator role. Off: only super administrators manage the accounts.',
+    'admin.no_superadmin_role' => 'Only a super administrator can give this role.',
 ];

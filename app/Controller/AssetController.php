@@ -58,7 +58,7 @@ final class AssetController extends Controller
                 ['src' => AppIcon::url('512'), 'sizes' => '512x512', 'type' => 'image/png'],
                 ['src' => AppIcon::url('maskable'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
             ],
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 200, ['Content-Type' => 'application/manifest+json']);
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 200, ['Content-Type' => 'application/manifest+json', 'Cache-Control' => 'no-cache']);
     }
 
     /** Icon of the installed app, made from the logo (see AppIcon); the default one otherwise. */

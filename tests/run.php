@@ -4462,6 +4462,12 @@ test('install: a moved installation finds its data; paths of the application are
 test('roles: the customer\'s administrator opens everyone\'s files (not as shares), a mailbox added with its password is told, the installer stays super administrator', function () use ($fsBob, $fsCarol, $fsAdmin) {
     ok(is_admin(['role' => 'admin']) && is_admin(['role' => 'superadmin']) && !is_admin(['role' => 'user']) && !is_admin(null));
     ok(is_superadmin(['role' => 'superadmin']) && !is_superadmin(['role' => 'admin']));
+    // Accounts: the super administrator always; administrators only when allowed (Security).
+    Settings::set('roles.admin_users', 0);
+    ok(can_manage_users(['role' => 'superadmin']) && !can_manage_users(['role' => 'admin']) && !can_manage_users(['role' => 'user']));
+    Settings::set('roles.admin_users', 1);
+    ok(can_manage_users(['role' => 'admin']) && !can_manage_users(['role' => 'user']), 'allowed by the super administrator');
+    Settings::set('roles.admin_users', 0);
     $bobRoot = Files::personalRoot((int) $fsBob['id']);
     $carol = $fsCarol;
     eq(Files::permission($carol, (int) $bobRoot['id']), Files::NONE, 'a user does not see someone else\'s files');
