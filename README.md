@@ -173,6 +173,12 @@ Limites des navigateurs :
 - application fermée, l'appareil utilise son propre son de notification. Avec « Aucun son », la notification est silencieuse ;
 - un service worker ne peut pas interroger le serveur à intervalle régulier quand l'application est fermée. C'est le serveur qui prévient l'appareil, par Web Push.
 
+**Pas de notification en double** :
+- chaque vérification de l'application ouverte sert de signal de présence pour cet appareil : toutes les 10 à 30 s quand elle est à l'écran, une fois par minute en arrière-plan ;
+- sur un appareil où l'application est ouverte, le serveur n'envoie pas de notification système. C'est l'application qui annonce le message, avec le son choisi, une fois qu'il est visible dans la liste ;
+- si l'application est fermée entre deux vérifications, la notification mise de côté part par Web Push dès que l'appareil ne s'est plus manifesté depuis 70 s. Elle ne part pas si le message a été lu entre-temps ;
+- si une notification arrive malgré tout pendant que l'application est à l'écran, le service worker ne l'affiche pas : il demande à la page de se mettre à jour.
+
 **Fréquence des relèves** :
 - les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont relevées par la tâche planifiée toutes les 1 à 15 minutes ;
 - le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;

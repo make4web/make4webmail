@@ -3272,6 +3272,65 @@ test('notifications: hours, own sounds, quiet new mail, reminders', function () 
     }
 });
 
+test('notifications: no system notification where the app is open; held, sent if it closes', function () use ($bob, $pushDecrypt, $sendTo) {
+    $sent = [];
+    M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) { $sent[] = [$ep, $h, $body]; return 201; };
+    try {
+        DB::delete('push_subscriptions', 'user_id = :u', ['u' => $bob['id']]);
+        DB::delete('push_pending', '1 = 1');
+        $subs = [];
+        foreach (['pc', 'phone'] as $name) {
+            $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+            $d = openssl_pkey_get_details($k)['ec'];
+            $pub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+            $ep = 'https://fcm.googleapis.com/fcm/send/' . $name;
+            M4W\Service\WebPush::subscribe((int) $bob['id'], $ep, M4W\Service\WebPush::b64u($pub), M4W\Service\WebPush::b64u(random_bytes(16)), $name);
+            $subs[$name] = hash('sha256', $ep);
+        }
+        $W = M4W\Service\WebPush::class;
+        // The app is open on the computer (its checks): only the phone gets a system notification.
+        $W::presence((int) $bob['id'], $subs['pc']);
+        $W::presence((int) $bob['id'], str_repeat('0', 64)); // unknown device: nothing
+        Delivery::deliver($sendTo('bob@test.local', 'Ouvert sur le PC', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(array_map(static fn($x) => basename($x[0]), $sent), ['phone'], 'the phone only');
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 1, 'held for the computer');
+        // Its full check brings it the new mail: nothing more to send there.
+        $W::presence((int) $bob['id'], $subs['pc']);
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 0, 'seen by the app');
+        // Held, then the app is closed before its next full check: sent once it stops checking in.
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Fermé entre deux', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        $W::presence((int) $bob['id'], $subs['pc'], false); // a quick check only (no new mail in it)
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 1, 'a quick check keeps it held');
+        $sent = [];
+        eq($W::flushPending(time() + 30), 0, 'not before the delay');
+        eq($W::flushPending(time() + 50), 0, 'still open (checked in lately): kept');
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 1);
+        eq($W::flushPending(time() + $W::PRESENCE + 15), 1, 'no check since: sent');
+        eq(basename($sent[0][0]), 'pc');
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 0, 'once');
+        // Read elsewhere meanwhile: not announced any more.
+        $W::presence((int) $bob['id'], $subs['pc']);
+        Delivery::deliver($sendTo('bob@test.local', 'Lu ailleurs', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        DB::run("UPDATE messages SET is_read = 1 WHERE user_id = :u AND subject = 'Lu ailleurs'", ['u' => $bob['id']]);
+        $sent = [];
+        eq($W::flushPending(time() + $W::PRESENCE + 15), 0, 'read meanwhile: nothing');
+        // Reminders too; other notifications (calendar, test) are not held.
+        $W::presence((int) $bob['id'], $subs['pc']);
+        $sent = [];
+        $W::send((int) $bob['id'], ['title' => 'Réunion', 'tag' => 'cal'], 300);
+        eq(count($sent), 2, 'a calendar reminder reaches every device');
+        // Closed for good: the computer gets them directly again.
+        DB::run('UPDATE push_subscriptions SET active_at = :t WHERE user_id = :u', ['t' => time() - 600, 'u' => $bob['id']]);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Appli fermée', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 2, 'app closed: both devices at once');
+        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u', ['u' => $bob['id']]);
+    } finally {
+        M4W\Service\WebPush::$transport = null;
+    }
+});
+
 test('checks: providers every 1 to 15 minutes, each external account at its own pace', function () use ($bob) {
     Settings::set('webmail.interval', 60);
     eq(M4W\Service\RemoteMailbox::interval(), 15, '15 minutes at least');

@@ -994,4 +994,18 @@ static function (): void {
     }
 },
 ],
+37 => [
+// The app open on a device (its checks, every 10 to 20 s): no system notification there, the app
+// announces new mail itself, with the person's sound, once its list is up to date.
+"ALTER TABLE push_subscriptions ADD COLUMN active_at INTEGER NOT NULL DEFAULT 0",
+// Held back because the app was open; sent if no check comes back from that device (closed meanwhile).
+"CREATE TABLE push_pending (
+  id {PK},
+  subscription_id INTEGER NOT NULL,
+  payload {TEXT},
+  ttl INTEGER NOT NULL DEFAULT 86400,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX push_pending_sub ON push_pending(subscription_id)",
+],
 ];

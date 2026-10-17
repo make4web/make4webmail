@@ -3,6 +3,7 @@
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;
   M4W.mailPage = true; // its own checks (poll) keep the bubbles up to date, not notify.js
+  M4W.mailRefresh = function () { poll(false, true); }; // a push arrived: check at once
 
   var boot = {};
   try { boot = JSON.parse(document.getElementById('m4w-boot').textContent || '{}'); } catch (e) { boot = {}; }
@@ -30,14 +31,16 @@
       S.maxId = 0;
       route();
       poll(true);
-      setInterval(function () { if (!document.hidden) poll(false); }, 30000);
+      // In the background too, once a minute: new mail is announced by the app (its sound), and the
+      // server knows the app is open here (no system notification on top, see WebPush::send).
+      setInterval(function () { if (!document.hidden || Date.now() - (S.lastPoll || 0) > 55000) poll(false); }, 30000);
       // Quick check of the open folder every 10 s (a few bytes): changed elsewhere, everything is
       // refreshed at once instead of at the next full check.
       setInterval(function () {
         var f = S.folder && !S.q ? S.folder : 0;
         if (document.hidden || !f || S.checking || !S.stamp || S.stamp.folder !== f) return;
         S.checking = true;
-        M4W.get('api/stamp', { folder: f }, { silent: true, quiet: true }).done(function (r) {
+        M4W.get('api/stamp', { folder: f, device: M4W.Notify ? M4W.Notify.device() : '' }, { silent: true, quiet: true }).done(function (r) {
           if (r.stamp && S.stamp && S.stamp.folder === f && r.stamp !== S.stamp.value) poll(false);
         }).always(function () { S.checking = false; });
       }, 10000);
@@ -849,6 +852,8 @@
   // ------------------------------------------------------------- polling
   function poll(first, force) {
     var q = { since: S.maxId }, onFolder = S.folder && !S.q ? S.folder : 0;
+    if (M4W.Notify && M4W.Notify.device()) q.device = M4W.Notify.device(); // heartbeat (WebPush::send)
+    S.lastPoll = Date.now();
     if (force) q.force = 1;
     if (onFolder) q.folder = onFolder;
     return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
@@ -859,7 +864,7 @@
       if (!first && r.new && r.new.length) {
         var n = r.new[0];
         M4W.toast(t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || t('no_subject')), 'info', {
-          action: { label: t('open'), fn: function () { go(S.byRole.inbox.id, +n.id); } }
+          action: { label: t('open'), fn: function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); } }
         });
         // Its sound (and vibration), as chosen in the settings: once, push or not.
         var N = M4W.Notify, wanted = !N || (N.cfg.notify_new && N.inPeriod());
@@ -867,7 +872,7 @@
         if (S.prefs.notifications && wanted && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
           try {
             var notif = new Notification(t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || t('no_subject'), tag: 'm4w-' + n.id, silent: !!N, icon: $('link[rel=apple-touch-icon]').attr('href') });
-            notif.onclick = function () { window.focus(); go(S.byRole.inbox.id, +n.id); notif.close(); };
+            notif.onclick = function () { window.focus(); go(+n.folder_id || S.byRole.inbox.id, +n.id); notif.close(); };
           } catch (e) {}
         }
       }

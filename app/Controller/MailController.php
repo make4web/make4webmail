@@ -770,6 +770,8 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
+        // Heartbeat only: this check does not bring the new mail (held notifications stay held).
+        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''), false);
         return $this->ok(['stamp' => self::folderStamp((int) $u['id'], (int) ($this->req->query['folder'] ?? 0))]);
     }
 
@@ -788,6 +790,8 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
+        // Heartbeat: the app is open on this device (no system notification there, see WebPush::send).
+        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
         // Webmail mode: reading the mailbox is enough to pull new mail from the provider.
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], $this->req->bool('force') ? 15 : 60);
@@ -795,10 +799,12 @@ final class MailController extends Controller
             error_log('[m4w] webmail sync: ' . $e->getMessage());
         }
         $since = (int) ($this->req->query['since'] ?? 0);
-        $inbox = Folders::byRole((int) $u['id'], 'inbox');
+        // New mail: the inbox, and one's own folders (filed there by a rule), as the notifications.
         $new = DB::all(
-            'SELECT id, from_name, from_email, subject FROM messages WHERE user_id = :u AND folder_id = :f AND id > :s AND is_read = 0' . Mailbox::privacySql((int) $u['id']) . ' ORDER BY id DESC LIMIT 5',
-            ['u' => $u['id'], 'f' => $inbox['id'], 's' => $since]
+            "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id'], 'm') . '
+             ORDER BY m.id DESC LIMIT 5',
+            ['u' => $u['id'], 's' => $since]
         );
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         // Fingerprint of the folder on screen: read, starred, moved or deleted elsewhere (another
@@ -824,6 +830,7 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
+        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], 60);
         } catch (\Throwable $e) {
@@ -832,7 +839,7 @@ final class MailController extends Controller
         $since = (int) ($this->req->query['since'] ?? 0);
         $new = $since > 0 ? DB::all(
             "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id']) . '
+             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id'], 'm') . '
              ORDER BY m.id DESC LIMIT 5',
             ['u' => $u['id'], 's' => $since]
         ) : [];

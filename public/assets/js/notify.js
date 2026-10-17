@@ -74,13 +74,38 @@
     var key = kind + ':' + (id || Math.floor(Date.now() / 20000));
     if (played[key]) return;
     played[key] = Date.now();
+    // Already announced by the system (its notification, sound and vibration): not twice.
+    if (fromPush) return;
     play(kind === 'reminder' ? cfg.sound_reminder : cfg.sound_new).catch(function () { /* not allowed yet: no sound */ });
-    if (!fromPush) vibrate(); // the system notification already vibrates for a push
+    vibrate();
   }
+
+  // ------------------------------------------------------------- heartbeat
+  // Each check of the page tells the server the app is open on this device (its push
+  // subscription, by a hash of its address): the server then sends no system notification here
+  // and lets the app announce new mail itself, once its list shows it (see WebPush::send).
+  var device = '';
+  function findDevice() {
+    if (!navigator.serviceWorker || !window.crypto || !crypto.subtle || !window.TextEncoder) return;
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager && reg.pushManager.getSubscription(); }).then(function (sub) {
+      if (!sub) { device = ''; return; }
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(sub.endpoint)).then(function (h) {
+        device = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      });
+    }).catch(function () { /* no push here */ });
+  }
+  findDevice();
+  setInterval(findDevice, 300000); // notifications turned on or off meanwhile
+
+  /** Something arrived: the open page checks at once (mail.js sets its own way, see refresh). */
+  var refresh = function () { if (M4W.mailRefresh) M4W.mailRefresh(); };
   if (navigator.serviceWorker) {
     navigator.serviceWorker.addEventListener('message', function (e) {
       var d = e.data || {};
-      if (d.type === 'm4w-alert') { pushSeen = Date.now(); alert(d.kind, d.id, true); }
+      // The system showed the notification (app in the background): no second sound.
+      if (d.type === 'm4w-alert') { pushSeen = Date.now(); alert(d.kind, d.id, true); M4W.Notify.refresh(); }
+      // The app is on screen: no system notification, the page announces it once its list shows it.
+      if (d.type === 'm4w-push') { M4W.Notify.refresh(); }
     });
   }
 
@@ -93,8 +118,8 @@
   }
   setInterval(function () {
     if (!cfg.on || !cfg.notify_reminder || !unread || !unreadSince) return;
-    if (Date.now() - pushSeen < 3 * 3600000) return; // the server's reminders reach this device
     var every = (+cfg.reminder_minutes || 30) * 60000;
+    if (Date.now() - pushSeen < every) return; // a system notification came meanwhile
     if (Date.now() - unreadSince < every || Date.now() - lastReminder < every || !inPeriod()) return;
     lastReminder = Date.now();
     alert('reminder', 'r' + lastReminder);
@@ -136,7 +161,12 @@
     try { $link.attr('href', c.toDataURL('image/png')); } catch (e) { /* picture from elsewhere */ }
   }
 
-  M4W.Notify = { play: play, alert: alert, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg };
+  M4W.Notify = {
+    play: play, alert: alert, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg,
+    /** The hash of this device's push subscription, sent with each check (heartbeat). */
+    device: function () { return device; },
+    refresh: function () { refresh(); }
+  };
 
   // ------------------------------------------------- the other pages (not the mail)
   // Settings, calendar, files…: a light check every 20 s keeps the bubbles (avatar, account menu,
@@ -165,7 +195,7 @@
     });
     function check() {
       if (M4W.Offline && M4W.Offline.offline) return;
-      M4W.get('api/unread', { since: since }, { silent: true, quiet: true }).done(function (r) {
+      M4W.get('api/unread', { since: since, device: device }, { silent: true, quiet: true }).done(function (r) {
         var news = since ? (r.new || []) : [];
         show(r.boxes, news.length > 0);
         since = r.max_id || since;
@@ -175,9 +205,17 @@
             action: { label: M4W.t('open'), fn: function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; } }
           });
           alert('new', +n.id);
+          // In the background: also the app's own notification (the server sent none here).
+          if (cfg.on && cfg.notify_new && inPeriod() && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try {
+              var no = new Notification(M4W.t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || M4W.t('no_subject'), tag: 'm4w-' + n.id, silent: true, icon: $('link[rel=apple-touch-icon]').attr('href') });
+              no.onclick = function () { window.focus(); location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; no.close(); };
+            } catch (e) { /* not allowed here */ }
+          }
         }
       });
     }
+    refresh = check;
     check();
     setInterval(check, 20000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });

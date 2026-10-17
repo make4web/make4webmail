@@ -252,7 +252,7 @@ final class Notify
                 'title' => t($count > 1 ? 'notify.reminder_title_n' : 'notify.reminder_title_1', ['n' => $count]),
                 'body' => $body, 'tag' => 'm4w-reminder', 'url' => 'mail', 'kind' => 'reminder', 'renotify' => true,
                 'vibrate' => self::vibration($p), 'silent' => self::silent($p, 'reminder'), 'count' => array_sum(SharedMailboxes::counts((int) $u['id'])), 'icon' => WebPush::iconPath(),
-            ], 3600);
+            ], 3600, true);
             if ($sent) {
                 $n++;
             }

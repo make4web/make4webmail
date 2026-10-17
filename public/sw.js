@@ -141,13 +141,20 @@ self.addEventListener('push', function (event) {
     silent: !!data.silent
   };
   if (vibrate.length) opts.vibrate = vibrate;
-  event.waitUntil(Promise.all([
-    self.registration.showNotification(data.title || 'Make4WebMail', opts),
-    // An open app plays the sound the person chose (a closed one gets the system's own).
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
-      list.forEach(function (c) { if (c.url.indexOf(base) === 0) c.postMessage({ type: 'm4w-alert', kind: data.kind === 'reminder' ? 'reminder' : 'new', id: data.id || 0 }); });
-    })
-  ]));
+  var kind = data.kind === 'reminder' ? 'reminder' : 'new';
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    var mine = list.filter(function (c) { return c.url.indexOf(base) === 0; });
+    // The app is on screen (the server thought it closed: a missed check): no system
+    // notification, the page checks at once and announces it itself, with the person's sound.
+    if (data.kind && mine.some(function (c) { return c.visibilityState === 'visible'; })) {
+      mine.forEach(function (c) { c.postMessage({ type: 'm4w-push', kind: kind, id: data.id || 0 }); });
+      return;
+    }
+    // Otherwise the system announces it; an open page in the background only updates (no second sound).
+    return self.registration.showNotification(data.title || 'Make4WebMail', opts).then(function () {
+      mine.forEach(function (c) { c.postMessage({ type: 'm4w-alert', kind: kind, id: data.id || 0 }); });
+    });
+  }));
 });
 
 // Tapping the notification opens (or focuses) the webmail on that message.

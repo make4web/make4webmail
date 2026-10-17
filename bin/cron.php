@@ -45,6 +45,8 @@ $job('spreadsheets saved', static fn() => M4W\Service\Sheet::housekeeping());
 $job('documents saved', static fn() => M4W\Service\DocEdit::housekeeping());
 $job('calendar reminders', static fn() => M4W\Service\Calendar::processAlarms());
 $job('unread reminders', static fn() => M4W\Service\Notify::reminders());
+// Notifications held for a device where the app was open, which has stopped checking in since.
+$job('held notifications', static fn() => M4W\Service\WebPush::flushPending());
 $job('scheduled', static fn() => M4W\Service\Composer::processScheduled(100));
 if ((int) Settings::get('features.fetch_accounts', 1)) {
     $job('fetched', static fn() => M4W\Service\Fetcher::runAll());
