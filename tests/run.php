@@ -2384,6 +2384,9 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     Mailbox::move($uid, [(int) $local('pc-2')[0]['id']], (int) Folders::byRole($uid, 'archive')['id']);
     eq((int) DB::value('SELECT COUNT(*) FROM provider_copies WHERE user_id = :u', ['u' => $uid]), 2, 'waiting for the next sync');
     eq($sync(), '');
+    eq($at('INBOX', 'pc-1'), [], 'not at once: it may be on its way there too');
+    DB::run('UPDATE provider_copies SET created_at = created_at - 3600 WHERE user_id = :u', ['u' => $uid]);
+    eq($sync(), '');
     $copy = $at('INBOX', 'pc-1');
     eq(count($copy), 1, 'in the provider inbox, for the phone and the other webmail');
     ok(!str_contains($copy[0]['raw'], 'Delivered-To:') && !str_contains($copy[0]['raw'], 'X-M4W-'), 'without our own delivery lines');
@@ -2392,6 +2395,28 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     eq($sync(), '');
     eq(count($local('pc-1')), 1, 'found again there by its Message-ID: not imported twice');
     eq(count($at('INBOX', 'pc-1')), 1, 'not copied twice');
+    // On its way there too (sent through the provider): never copied a second time.
+    Delivery::deliver($mail('pc-3', 'Envoyé aussi par le fournisseur'), 'lea@test.local', ['paul@test.local'], 'local');
+    DB::run('UPDATE provider_copies SET created_at = created_at - 3600 WHERE user_id = :u', ['u' => $uid]);
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7000, 'raw' => str_replace("Message-ID: <pc-3@test.local>\n", "Message-ID: <relayed-pc-3@provider>\n", $mail('pc-3', 'Envoyé aussi par le fournisseur')), 'flags' => []];
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+    eq($sync(), '');
+    eq($at('INBOX', 'pc-3'), [], 'its Message-ID changed on the way: recognised by sender, date and subject');
+    // Two copies of one message already there (made before): one kept, with the state of both.
+    $st = json_decode((string) file_get_contents($wm['state']), true);
+    $dupe = array_values(array_filter($st['boxes']['paul@test.local']['INBOX']['msgs'], static fn($m) => str_contains($m['raw'], '<pc-1@test.local>')))[0];
+    $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 7001, 'flags' => ['\\Flagged']] + $dupe;
+    file_put_contents($wm['state'], json_encode($st), LOCK_EX);
+    eq(count($at('INBOX', 'pc-1')), 2);
+    Settings::set('webmail.dedupe.' . (int) RemoteMailbox::find($uid)['id'], json_encode(['at' => 0, 'n' => 0]));
+    eq($sync(), '');
+    $left = $at('INBOX', 'pc-1');
+    eq(count($left), 1, 'duplicate removed at the provider');
+    eq((int) DB::value("SELECT COUNT(*) FROM remote_uids WHERE msgid = 'pc-1@test.local' AND folder = 'inbox'"), 1, 'one copy followed');
+    eq(RemoteMailbox::dedupeStats(RemoteMailbox::find($uid))['n'], 1);
+    eq(count($local('pc-1')), 1, 'nothing changed here');
+    eq($local('pc-1')[0]['role'], 'inbox');
     // Then it lives both ways like any other message: deleted here, in the provider Trash.
     Mailbox::move($uid, [(int) $local('pc-1')[0]['id']], (int) Folders::byRole($uid, 'trash')['id']);
     eq($sync(), '');

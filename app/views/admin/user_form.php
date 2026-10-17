@@ -72,6 +72,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
             <?php if ((string) $rm['imap_host'] === '' || (string) $rm['smtp_host'] === ''): ?><div class="text-warning-emphasis mt-1"><i class="bi bi-info-circle me-1"></i><?= te('own.inherited') ?></div><?php endif; ?>
             <?php $del = M4W\Service\RemoteMailbox::deletedStats($rm); ?>
             <div class="mt-1"><i class="bi bi-trash3 me-1"></i><?= $del ? te('own.deleted_n', ['n' => $del['n'], 'date' => date('d/m/Y H:i', (int) $del['last'])]) : te('own.deleted_none') ?></div>
+            <?php $dup = M4W\Service\RemoteMailbox::dedupeStats($rm); if ($dup && $dup['n'] > 0): ?><div class="mt-1"><i class="bi bi-files me-1"></i><?= te('own.duplicates_removed', ['n' => (int) $dup['n'], 'date' => date('d/m/Y H:i', (int) $dup['at'])]) ?></div><?php endif; ?>
             <?php $tw = (int) ($rm['two_way'] ?? 1) ? M4W\Service\RemoteMailbox::twoWayReport($rm) : null; if ($tw): ?>
             <div class="mt-1"><i class="bi bi-arrow-left-right me-1"></i><?= te('wm.tw_report', ['time' => date('d/m/Y H:i', (int) $tw['at']), 'followed' => $tw['followed'], 'provider' => $tw['provider'], 'trashed' => $tw['trashed'], 'archived' => $tw['archived'], 'moved' => $tw['moved'], 'flags' => $tw['flags']]) ?>
               <?php if ($tw['other_way'] > 0): ?><div class="text-muted"><?= te('wm.tw_other_way', ['n' => $tw['other_way']]) ?></div><?php endif; ?>

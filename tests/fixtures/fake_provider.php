@@ -149,8 +149,17 @@ while (true) {
                                 continue;
                             }
                             if (in_array($msg['uid'], $set, true)) {
-                                $hdr = (preg_match('/^Message-ID:[^\n]*/mi', str_replace("\r\n", "\n", $msg['raw']), $h) ? rtrim($h[0]) . "\r\n" : '') . "\r\n";
-                                fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' FLAGS (' . implode(' ', $msg['flags'] ?? []) . ') BODY[HEADER.FIELDS (MESSAGE-ID)] {' . strlen($hdr) . "}\r\n" . $hdr . ")\r\n");
+                                // The header lines asked for (MESSAGE-ID, DATE…), as a real server gives them.
+                                preg_match('/HEADER\.FIELDS \(([^)]*)\)/i', $args, $fm);
+                                $head = explode("\n\n", str_replace("\r\n", "\n", $msg['raw']), 2)[0];
+                                $hdr = '';
+                                foreach (preg_split('/\s+/', trim($fm[1] ?? 'MESSAGE-ID')) as $field) {
+                                    if (preg_match('/^' . preg_quote($field, '/') . ':[^\n]*(?:\n[ \t][^\n]*)*/mi', $head, $h)) {
+                                        $hdr .= str_replace("\n", "\r\n", rtrim($h[0])) . "\r\n";
+                                    }
+                                }
+                                $hdr .= "\r\n";
+                                fwrite($c, '* ' . ($i + 1) . ' FETCH (UID ' . $msg['uid'] . ' FLAGS (' . implode(' ', $msg['flags'] ?? []) . ') BODY[HEADER.FIELDS (' . ($fm[1] ?? 'MESSAGE-ID') . ')] {' . strlen($hdr) . "}\r\n" . $hdr . ")\r\n");
                             }
                         }
                         $out("$tag OK fetch done");

@@ -1024,4 +1024,8 @@ static function (): void {
 "CREATE UNIQUE INDEX remote_folders_folder ON remote_folders(account_id, folder_id)",
 "ALTER TABLE remote_accounts ADD COLUMN sync_folders INTEGER NOT NULL DEFAULT 1",
 ],
+39 => [
+// How a copy for the provider mailbox came here (the collector: given time to arrive there by itself).
+"ALTER TABLE provider_copies ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT ''",
+],
 ];
