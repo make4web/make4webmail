@@ -203,6 +203,13 @@ Limites des navigateurs :
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
 ### Administration
+- **Santé d'un domaine** (Domaines & alias → bouton « Santé ») : pourquoi un message envoyé depuis ce domaine arrive, ou pas. La page reprend :
+  - l'authentification : SPF évalué pour les adresses qui envoient réellement (relais, fournisseur, adresses vues dans les rapports DMARC), avec le nombre de consultations DNS ; DKIM (notre clé, les sélecteurs vus dans les messages reçus du domaine, les sélecteurs habituels) ; DMARC (politique, alignement, rapports) ;
+  - le DNS inverse des serveurs d'envoi, et sa cohérence (le nom pointe-t-il en retour vers l'adresse) ;
+  - la présence de ces adresses et du domaine dans les principales listes noires (Spamhaus, Barracuda, SpamCop, SURBL…). Une liste qui refuse de répondre est signalée « inconnue », et non comme une inscription ;
+  - les envois des 7 derniers jours : remis, en attente dans la file, refusés, avis de non-remise reçus ;
+  - des conseils pour les destinataires principaux du domaine (Free, Orange, Gmail, Outlook…).
+- **Suivi de remise des messages envoyés** : quand le serveur d'envoi le permet (accusés de remise SMTP DSN), Make4WebMail demande à être prévenu. Chaque message de la boîte « Envoyés » indique alors, par destinataire, s'il a été remis au serveur d'envoi, retardé chez le destinataire (par exemple par du greylisting), livré, ou refusé, avec la raison. Les bonnes nouvelles ne sont pas classées dans la boîte ; un refus l'est toujours, même si l'antispam l'aurait écarté.
 - **Supervision** : tâche planifiée, file d'envoi, disque, sauvegarde, antivirus, certificat HTTPS, DNS (MX, SPF, DKIM, DMARC) vérifiés chaque heure ; alertes aux administrateurs (et à une adresse extérieure) avec rappel quotidien ; lecture automatique des **rapports DMARC** agrégés (taux d'authentification, serveurs non autorisés).
 - Tableau de bord : statistiques, trafic sur 14 jours, checklist de configuration, activité récente.
 - **Utilisateurs** :

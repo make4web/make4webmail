@@ -90,12 +90,26 @@ final class Delivery
             $userRaw = $prefix . $raw;
             $isLoop = in_array(mb_strtolower($user['email']), $loopHeaders, true);
 
+            // A delivery report about mail this person sent (only one tied to a message of theirs
+            // that is followed): its status updated; good news ("delivered", "delayed") is not
+            // filed, a refusal is (and goes on like any mail).
+            $report = DeliveryReports::consume($uid, $parsed);
+            if ($report === 'quiet') {
+                $results[$rcpt] = 'ok';
+                Transport::log('in', $uid, $envelopeFrom, [$rcpt], $raw, 'ok', 'delivery report');
+                continue;
+            }
+
             // Spam filter: inbox, Junk (suspect), administrators' quarantine, or deleted.
             $spam = $spamBase ? SpamFilter::forUser($spamBase, $uid, $parsed, $auth) : null;
             $level = $spam['level'] ?? (((int) Settings::get('inbound.spam_header', 1) && $parsed->isSpamFlagged()) ? 'suspect' : 'ok');
             // Failed authentication, or a disposable sender in "spam" mode, is at least suspect.
             if (($suspicious || $disposable !== '') && $level === 'ok') {
                 $level = 'suspect';
+            }
+            // The refusal of a message this person sent (tied to it): never kept from them.
+            if ($report === 'failed') {
+                $level = 'ok';
             }
             if ($spam) {
                 $spam['level'] = $level;

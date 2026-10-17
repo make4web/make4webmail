@@ -110,6 +110,7 @@ if ($hourly) {
     $job('expired sessions', static fn() => M4W\Core\DbSessionHandler::purge());
     $job('unused file contents', static fn() => M4W\Service\Files::gcBlobs());
     $job('offline devices', static fn() => M4W\Service\Offline::gc());
+    $job('delivery statuses', static fn() => M4W\Service\DeliveryReports::gc());
     Settings::set('system.cron_hourly', $now);
 }
 Settings::set('system.cron_last', $now);

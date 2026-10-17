@@ -570,6 +570,18 @@
         + (msg.spam.reasons.length ? '<strong>' + esc(t('spam_why', { score: msg.spam.score })) + '</strong> ' + esc(msg.spam.reasons.join(' · ')) : '<strong>' + esc(t('spam_in_junk')) + '</strong>')
         + '</span><button type="button" class="btn btn-sm btn-success ms-auto text-nowrap" data-not-spam="' + msg.id + '"><i class="bi bi-hand-thumbs-up me-1"></i>' + esc(t('not_spam_btn')) + '</button></div>';
     }
+    if (msg.delivery && msg.delivery.length) {
+      // What became of it, recipient by recipient (delivery reports, see DeliveryReports.php).
+      var cls = { queued: 'warning', handed: 'primary', delayed: 'warning', relayed: 'success', delivered: 'success', failed: 'danger' };
+      var ico = { queued: 'hourglass-split', handed: 'send', delayed: 'hourglass-split', relayed: 'send-check', delivered: 'check2-all', failed: 'x-octagon' };
+      banner += '<div class="m4w-msg-banner m4w-delivery"><i class="bi bi-truck text-muted"></i><span class="d-flex flex-column gap-1 min-w-0"><strong>' + esc(t('dlv_title')) + '</strong>'
+        + msg.delivery.map(function (d) {
+          return '<span class="small"><span class="badge badge-soft-' + cls[d.state] + ' me-1"><i class="bi bi-' + ico[d.state] + ' me-1"></i>' + esc(t('dlv_' + d.state)) + '</span>'
+            + esc(d.recipient) + ' <span class="text-muted">· ' + esc(M4W.date(d.at, true)) + '</span>'
+            + (d.state === 'handed' && !d.dsn ? ' <span class="text-muted">· ' + esc(t('dlv_no_reports')) + '</span>' : '')
+            + (d.detail && d.detail !== 'local' ? '<span class="d-block text-muted text-break">' + esc(d.detail) + '</span>' : '') + '</span>';
+        }).join('') + '</span></div>';
+    }
     if (msg.reply_target) {
       banner += '<div class="m4w-msg-banner warn"><i class="bi bi-reply-fill text-warning"></i><span>' + esc(t('reply_target_' + msg.reply_target)) + '</span></div>';
     }

@@ -11,6 +11,8 @@ final class SmtpClient
     /** @var resource|null */
     private $sock = null;
     private array $ext = [];
+    /** Whether the last message sent asked for delivery reports (the server offers DSN). */
+    public static bool $lastDsn = false;
     public array $transcript = [];
 
     public function __construct(
@@ -119,12 +121,22 @@ final class SmtpClient
         }
         $size = isset($this->ext['SIZE']) ? ' SIZE=' . strlen($data) : '';
         $body8 = isset($this->ext['8BITMIME']) ? ' BODY=8BITMIME' : '';
-        $this->command('MAIL FROM:<' . Address::asciiEmail($from) . '>' . $size . $body8, [250]);
+        // Delivery reports (RFC 3461), when the server offers them: whether the message was
+        // delivered, delayed or refused comes back, tied to it by its Message-ID (DeliveryReports).
+        // Not for automatic mail (null sender, Auto-Submitted): nobody waits for its fate.
+        $head = substr($data, 0, (int) (strpos(str_replace("\r\n", "\n", $data), "\n\n") ?: 65536));
+        $head = (string) preg_replace("/\r?\n[ \t]+/", ' ', $head);
+        $envid = isset($this->ext['DSN']) && $from !== '' && (int) \M4W\Core\Settings::get('smtp.dsn', 1)
+            && !preg_match('/^Auto-Submitted:\s*(?!no\b)\S/mi', $head) && preg_match('/^Message-ID:\s*<([^<>\s]+)>/mi', $head, $mid)
+            ? \M4W\Service\DeliveryReports::xtext($mid[1]) : '';
+        self::$lastDsn = $envid !== '';
+        $this->command('MAIL FROM:<' . Address::asciiEmail($from) . '>' . $size . $body8 . ($envid !== '' ? ' RET=HDRS ENVID=' . $envid : ''), [250]);
         $rejected = [];
         $accepted = 0;
         foreach ($recipients as $rcpt) {
             try {
-                $this->command('RCPT TO:<' . Address::asciiEmail($rcpt) . '>', [250, 251]);
+                $notify = $envid !== '' ? ' NOTIFY=SUCCESS,FAILURE,DELAY ORCPT=rfc822;' . \M4W\Service\DeliveryReports::xtext(Address::asciiEmail($rcpt)) : '';
+                $this->command('RCPT TO:<' . Address::asciiEmail($rcpt) . '>' . $notify, [250, 251]);
                 $accepted++;
             } catch (SmtpException $e) {
                 $rejected[$rcpt] = $e->getMessage();

@@ -58,11 +58,14 @@ final class Transport
         $failed = [];
         $deferred = [];
         $retryAt = 0;
+        $localSent = [];
+        SmtpClient::$lastDsn = false;
         if ($local) {
             $res = Delivery::deliver($raw, $envelopeFrom, $local, 'local');
             foreach ($res as $rcpt => $status) {
                 if ($status === 'ok') {
                     $sent[] = $rcpt;
+                    $localSent[] = $rcpt;
                 } else {
                     $failed[$rcpt] = $status;
                 }
@@ -82,6 +85,12 @@ final class Transport
         }
         if ($deferred && !$fromQueue) {
             self::enqueue($raw, $envelopeFrom, $deferred, $userId, $kind, $retryAt, $heldNote ?? Collector::HELD);
+        }
+        // What became of it, recipient by recipient (shown with the message in Sent).
+        try {
+            DeliveryReports::recordSend($userId, $raw, $localSent, array_values(array_diff($sent, $localSent)), $failed, $deferred, SmtpClient::$lastDsn);
+        } catch (\Throwable $e) {
+            error_log('[m4w] delivery status: ' . $e->getMessage());
         }
         $status = $failed ? (count($sent) ? 'partial' : 'failed') : ($deferred ? 'held' : 'ok');
         self::log('out', $userId, $envelopeFrom, $recipients, $raw, $status, $failed ? implode('; ', $failed) : ($deferred ? t('col.log_held', ['n' => count($deferred), 'time' => date('H:i', $retryAt)]) : ''));

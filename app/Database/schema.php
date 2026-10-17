@@ -1042,4 +1042,19 @@ static function (): void {
 "CREATE INDEX provider_pushed_fkey ON provider_pushed(account_id, fkey)",
 "CREATE INDEX provider_pushed_local ON provider_pushed(account_id, local_id)",
 ],
+41 => [
+// What became of each message sent, recipient by recipient (DeliveryReports).
+"CREATE TABLE delivery_status (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  message_id VARCHAR(255) NOT NULL DEFAULT '',
+  recipient VARCHAR(255) NOT NULL DEFAULT '',
+  state VARCHAR(20) NOT NULL DEFAULT 'handed',
+  detail VARCHAR(500) NOT NULL DEFAULT '',
+  dsn INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX delivery_status_msg ON delivery_status(user_id, message_id)",
+],
 ];

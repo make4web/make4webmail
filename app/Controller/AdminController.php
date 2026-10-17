@@ -448,6 +448,18 @@ final class AdminController extends Controller
         return $this->page('domains', compact('domains', 'aliases', 'users'));
     }
 
+    /** Health and reputation of a domain: authentication, senders, blocklists, deliveries (DomainHealth). */
+    public function domainHealth(string $id): Response
+    {
+        $d = DB::one('SELECT * FROM domains WHERE id = :id', ['id' => (int) $id]);
+        if (!$d) {
+            return Response::redirect('/admin/domains');
+        }
+        \M4W\Core\Session::close();
+        $report = \M4W\Service\DomainHealth::report((string) $d['name'], $this->req->method === 'POST');
+        return $this->page('domain_health', ['domain' => $d, 'r' => $report]);
+    }
+
     public function saveDomain(): Response
     {
         $name = mb_strtolower($this->req->str('name'));
