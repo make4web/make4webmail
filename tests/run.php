@@ -3634,6 +3634,42 @@ test('notifications: no system notification where the app is open; held, sent if
         $sent = [];
         Delivery::deliver($sendTo('bob@test.local', 'Appli fermée', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
         eq(count($sent), 2, 'app closed: both devices at once');
+        // Each device on its own, according to its own state. Its page is told what it announces
+        // itself: what was held for it, not what its system notification already said (asleep).
+        eq($W::presence((int) $bob['id'], str_repeat('0', 64)), null, 'no notifications on this device: the page announces everything');
+        $W::presence((int) $bob['id'], $subs['pc']);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Tenu pour la page', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(array_map(static fn($x) => basename($x[0]), $sent), ['phone'], 'the phone, asleep, notified by its system, whatever the computer does');
+        $heldId = (int) DB::value("SELECT id FROM messages WHERE user_id = :u AND subject = 'Tenu pour la page'", ['u' => $bob['id']]);
+        eq($W::presence((int) $bob['id'], $subs['pc']), [$heldId], 'held for the computer: its page announces it');
+        eq($W::presence((int) $bob['id'], $subs['pc']), [], 'once');
+        eq($W::presence((int) $bob['id'], $subs['phone']), [], 'the phone back in front: not announced a second time by its page');
+        $W::presence((int) $bob['id'], $subs['phone']);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Deux ouverts', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq([count($sent), (int) DB::value('SELECT COUNT(*) FROM push_pending')], [0, 2], 'both open: each page announces it');
+        $W::presence((int) $bob['id'], $subs['pc']);
+        eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 1, 'seen on the computer: the phone keeps its own');
+        DB::run('UPDATE push_subscriptions SET active_at = :t WHERE endpoint_hash = :h', ['t' => time() - 600, 'h' => $subs['phone']]);
+        $sent = [];
+        eq($W::flushPending(time() + $W::PRESENCE + 5), 1, 'the phone closed before seeing it: notified anyway');
+        eq(basename($sent[0][0]), 'phone');
+        // Test on every device at once: accepted by each push service, then acknowledged by each device.
+        $sent = [];
+        $t = $W::testAll((int) $bob['id']);
+        eq([count($sent), count($t['devices']), $t['devices'][0]['accepted']], [2, 2, true], 'both devices at the same moment');
+        ok($W::ack($t['id'], $subs['phone'], 'received', 'off') && $W::ack($t['id'], $subs['phone'], 'shown', 'off'), 'the phone, app closed, receives and shows it');
+        ok($W::ack($t['id'], $subs['pc'], 'received', 'focus'), 'the computer, app in front, receives it');
+        ok(!$W::ack($t['id'], str_repeat('a', 64)) && !$W::ack('0000000000000000', $subs['pc']) && !$W::ack($t['id'], $subs['pc'], 'hacked') && !$W::ack($t['id'], $subs['pc'], 'shown', 'evil'), 'unknown device, test, step or state: refused');
+        $st = $W::testStatus((int) $bob['id'], $t['id']);
+        $rows = array_column($st['devices'], null, 'id');
+        $ids = array_column(DB::all('SELECT id, endpoint_hash FROM push_subscriptions WHERE user_id = :u', ['u' => $bob['id']]), 'id', 'endpoint_hash');
+        eq([$rows[$ids[$subs['phone']]]['status'], $rows[$ids[$subs['phone']]]['state']], ['shown', 'off'], 'phone: notified, app closed');
+        eq([$rows[$ids[$subs['pc']]]['status'], $rows[$ids[$subs['pc']]]['state']], ['received', 'focus'], 'computer: received, app in front');
+        $W::ack($t['id'], $subs['phone'], 'clicked');
+        eq(array_column($W::testStatus((int) $bob['id'], $t['id'])['devices'], 'status', 'id')[$ids[$subs['phone']]], 'clicked', 'then opened');
+        eq($W::testStatus((int) $bob['id'] + 1, $t['id']), null, 'someone else cannot read it');
         DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u', ['u' => $bob['id']]);
     } finally {
         M4W\Service\WebPush::$transport = null;

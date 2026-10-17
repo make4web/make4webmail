@@ -128,7 +128,7 @@
       // The system showed the notification (app in the background): no second sound.
       if (d.type === 'm4w-alert') { pushSeen = Date.now(); alert(d.kind, d.id, true); M4W.Notify.refresh(); }
       // The app is on screen: no system notification, the page announces it once its list shows it.
-      if (d.type === 'm4w-push') { M4W.Notify.refresh(); }
+      if (d.type === 'm4w-push') { if (d.id) expected[+d.id] = 1; M4W.Notify.refresh(); }
     });
   }
 
@@ -184,7 +184,13 @@
     try { $link.attr('href', c.toDataURL('image/png')); } catch (e) { /* picture from elsewhere */ }
   }
 
+  // Pushed while the app was on screen (the service worker left it to the page): announced here.
+  var expected = {};
+  /** Whether the page announces this new message itself: held for it by the server, or handed over. */
+  function mine(r, id) { return !r.held || r.held.indexOf(+id) !== -1 || !!expected[+id]; }
+
   M4W.Notify = {
+    mine: mine,
     play: play, alert: alert, announce: announce, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg,
     /** The hash of this device's push subscription, sent with each check (heartbeat). */
     device: function () { return device; },
@@ -227,7 +233,8 @@
           M4W.toast(M4W.t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || M4W.t('no_subject')), 'info', {
             action: { label: M4W.t('open'), fn: function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; } }
           });
-          announce(n, function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; });
+          // Only what the server held for this page: the rest was announced by the system (WebPush::send).
+          if (mine(r, n.id)) announce(n, function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; });
         }
       });
     }
@@ -265,6 +272,16 @@
       var pat = { short: [200], long: [600], pulse: [200, 100, 200, 100, 200] }[$f.find('[name=vibrate]').val()];
       if (pat && navigator.vibrate) navigator.vibrate(pat); else M4W.toast(M4W.t('notif_no_vibrate'), 'info');
     });
+    // The new-mail sound, to save on the phone and give to its notifications (Android plays its own
+    // sound when the app is closed: a web page cannot choose it).
+    function downloadLink() {
+      var name = $f.find('[name=sound_new]').val(), url = cfg.sounds[name];
+      var label = $f.find('[name=sound_new] option:selected').text().trim() || name;
+      $('[data-sound-download]').toggleClass('disabled', !url).attr('href', url || '#')
+        .attr('download', ('webmail-' + label).replace(/[^\w.-]+/g, '-').toLowerCase() + (url && /\.mp3(\?|$)/i.test(url) ? '.mp3' : (url && /\.ogg(\?|$)/i.test(url) ? '.ogg' : '.wav')));
+    }
+    $f.on('change', '[name=sound_new]', downloadLink);
+    downloadLink();
     // A sound of one's own: sent at once, added to every list, chosen here and played to check.
     $f.on('change', 'input[type=file][data-sound-file]', function () {
       var kind = $(this).data('sound-file'), file = this.files && this.files[0], input = this;

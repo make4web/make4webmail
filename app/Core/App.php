@@ -312,6 +312,9 @@ final class App
         $r->post('/api/push/renew', [Controller\PushController::class, 'renew']);
         $r->post('/api/push/unsubscribe', [Controller\PushController::class, 'unsubscribe']);
         $r->post('/api/push/test', [Controller\PushController::class, 'test']);
+        $r->post('/api/push/test-all', [Controller\PushController::class, 'testAll']);
+        $r->get('/api/push/test-all/{id}', [Controller\PushController::class, 'testStatus']);
+        $r->post('/api/push/ack', [Controller\PushController::class, 'ack'], ['auth' => 'public', 'nocsrf' => true]);
 
         // User guide
         $r->get('/help', [Controller\HelpController::class, 'index']);

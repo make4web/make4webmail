@@ -188,14 +188,17 @@ Dans Paramètres → Profil & préférences → Notifications, chacun choisit :
 
 Limites des navigateurs :
 - les sons choisis sont joués quand l'application est ouverte, même en arrière-plan ;
-- application fermée, l'appareil utilise son propre son de notification. Avec « Aucun son », la notification est silencieuse ;
+- application fermée, l'appareil utilise son propre son de notification. Avec « Aucun son », la notification est silencieuse. Sur Android, on peut lui donner le sien : « Enregistrer ce son sur le téléphone » télécharge le son choisi, à sélectionner ensuite dans Paramètres › Applications › l'appli › Notifications › Son ;
 - un service worker ne peut pas interroger le serveur à intervalle régulier quand l'application est fermée. C'est le serveur qui prévient l'appareil, par Web Push.
 
 **Pas de notification en double** :
 - chaque vérification de l'application ouverte sert de signal de présence pour cet appareil : toutes les 10 à 30 s quand elle est à l'écran, une fois par minute en arrière-plan ;
 - sur un appareil où l'application est ouverte, le serveur n'envoie pas de notification système. C'est l'application qui annonce le message, avec le son choisi, une fois qu'il est visible dans la liste ;
 - si l'application est fermée entre deux vérifications, la notification mise de côté part par Web Push dès que l'appareil ne s'est plus manifesté depuis 70 s. Elle ne part pas si le message a été lu entre-temps ;
-- si une notification arrive malgré tout pendant que l'application est à l'écran, le service worker ne l'affiche pas : il demande à la page de se mettre à jour.
+- si une notification arrive malgré tout pendant que l'application est à l'écran, le service worker ne l'affiche pas : il la confie à la page, qui l'annonce ;
+- **chaque appareil est traité indépendamment**, selon son propre état (fermé, en veille, ouvert). Le serveur indique à chaque page ce qu'il a gardé pour elle : la page n'annonce que cela. Un message déjà notifié par le système pendant la veille n'est pas annoncé une seconde fois quand l'application revient au premier plan.
+
+**Tester sur tous mes appareils** (Paramètres › Notifications sur cet appareil) : une notification part vers tous les appareils au même moment. Un tableau montre, pour chacun, l'état de l'application à la réception (fermée, arrière-plan, visible, premier plan, dit par l'appareil lui-même) et les étapes de la notification : envoyée (acceptée par le service push, en ms), reçue, notifiée, ouverte si on la touche, avec le délai de chacune.
 
 **Fréquence des relèves** :
 - les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont relevées par la tâche planifiée toutes les 1 à 15 minutes ;
