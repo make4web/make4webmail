@@ -436,6 +436,10 @@ final class RemoteMailbox
                 if ($folders) {
                     ProviderFolders::finish($client, $acc, $user, $folders);
                 }
+                // Copies made twice in the past (or by another app): removed once a day.
+                if ((int) ((self::dedupeStats($acc) ?? [])['at'] ?? 0) < time() - 86400) {
+                    self::dedupe($client, $acc);
+                }
             }
             $client->logout();
         } catch (\Throwable $e) {
@@ -643,12 +647,138 @@ final class RemoteMailbox
      * A message delivered here directly for someone whose own mailbox (two-way) is at the
      * provider: its copy is placed in the provider's inbox at the next synchronisation.
      */
-    public static function queueCopy(int $userId, int $messageId): void
+    /**
+     * How long a copy for the provider waits: mail delivered here is often on its way there too
+     * (sent through the provider, a forward keeping a copy…), and must not arrive twice.
+     */
+    private const COPY_DELAY = 600;
+
+    public static function queueCopy(int $userId, int $messageId, string $source = ''): void
     {
         $acc = self::personal($userId);
         if ($acc && (int) ($acc['two_way'] ?? 1)) {
-            DB::insert('provider_copies', ['user_id' => $userId, 'message_id' => $messageId, 'created_at' => time()]);
+            DB::insert('provider_copies', ['user_id' => $userId, 'message_id' => $messageId, 'created_at' => time(), 'source' => mb_substr($source, 0, 20)]);
         }
+    }
+
+    /** Where the provider mailbox may hold a message: inbox, junk, Trash, Archives, one's own folders. */
+    private static function providerPaths(ImapClient $client, array $acc, bool $withBins = true): array
+    {
+        $paths = ['INBOX', trim((string) Settings::get('webmail.spam_folder', ''))];
+        if ($withBins) {
+            $paths[] = self::providerFolder($client, $acc, 'trash_folder');
+            $paths[] = self::providerFolder($client, $acc, 'archive_folder');
+        }
+        foreach (DB::all('SELECT path FROM remote_folders WHERE account_id = :a AND missing = 0', ['a' => $acc['id']]) as $f) {
+            $paths[] = (string) $f['path'];
+        }
+        return array_values(array_unique(array_filter($paths)));
+    }
+
+    /**
+     * What the provider mailbox holds anywhere one may have put a message, by Message-ID and by
+     * sender + date + subject (a copy whose Message-ID was changed on the way): a copy or a
+     * restore never adds a second one. ['ids' => set, 'keys' => set]
+     */
+    private static function providerHolds(ImapClient $client, array $acc): array
+    {
+        $out = ['ids' => [], 'keys' => []];
+        foreach (self::providerPaths($client, $acc) as $path) {
+            try {
+                $client->select($path);
+                foreach ($client->fingerprints() as $f) {
+                    if ($f['msgid'] !== '') {
+                        $out['ids'][$f['msgid']] = true;
+                    }
+                    if ($f['key'] !== '') {
+                        $out['keys'][$f['key']] = true;
+                    }
+                }
+            } catch (\RuntimeException) {
+                // a folder the provider does not have
+            }
+        }
+        return $out;
+    }
+
+    /** Whether the provider holds this stored message already (see providerHolds). */
+    private static function heldThere(array $holds, array $m): bool
+    {
+        if ($m['message_id'] !== '' && isset($holds['ids'][$m['message_id']])) {
+            return true;
+        }
+        $raw = Mailbox::raw($m);
+        $key = ImapClient::fingerprint(substr($raw, 0, (int) (strpos(str_replace("\r\n", "\n", $raw), "\n\n") ?: 65536)))['key'];
+        return $key !== '' && isset($holds['keys'][$key]);
+    }
+
+    /**
+     * Two copies of one message at the provider (same Message-ID in one folder: a copy made here
+     * while the original was still on its way): one is kept, with the read / flagged state of both.
+     * Once a day, and when a restore ends. Returns how many were removed.
+     */
+    public static function dedupe(ImapClient $client, array $acc): int
+    {
+        $n = 0;
+        $keys = ['INBOX' => 'inbox'];
+        foreach (DB::all('SELECT folder_id, path FROM remote_folders WHERE account_id = :a AND missing = 0', ['a' => $acc['id']]) as $f) {
+            $keys[(string) $f['path']] = 'f' . (int) $f['folder_id'];
+        }
+        foreach (self::providerPaths($client, $acc, false) as $path) {
+            try {
+                $info = $client->select($path);
+                $groups = [];
+                foreach ($client->fingerprints() as $uid => $f) {
+                    if ($f['msgid'] !== '' && !in_array('\\deleted', $f['flags'], true)) {
+                        $groups[$f['msgid']][$uid] = $f['flags'];
+                    }
+                }
+                $removed = [];
+                foreach ($groups as $msgid => $copies) {
+                    if (count($copies) < 2) {
+                        continue;
+                    }
+                    // The one followed here is kept (else the first one).
+                    $followed = isset($keys[$path]) ? array_map('intval', array_column(DB::all('SELECT uid FROM remote_uids WHERE account_id = :a AND folder = :f AND msgid = :m',
+                        ['a' => $acc['id'], 'f' => $keys[$path], 'm' => $msgid]), 'uid')) : [];
+                    $keep = array_values(array_intersect(array_keys($copies), $followed))[0] ?? min(array_keys($copies));
+                    $all = array_merge(...array_values($copies));
+                    foreach (['\\seen' => '\\Seen', '\\flagged' => '\\Flagged', '\\answered' => '\\Answered'] as $flag => $imap) {
+                        if (in_array($flag, $all, true) && !in_array($flag, $copies[$keep], true)) {
+                            $client->storeFlags($keep, true, [$imap]);
+                        }
+                    }
+                    foreach (array_keys($copies) as $uid) {
+                        if ($uid !== $keep) {
+                            $client->markDeleted($uid);
+                            $removed[] = $uid;
+                        }
+                    }
+                }
+                if ($removed) {
+                    $client->expunge();
+                    if (isset($keys[$path])) {
+                        [$in, $p] = DB::in('u', $removed);
+                        DB::run("DELETE FROM remote_uids WHERE account_id = :a AND folder = :f AND validity = :v AND uid IN $in", $p + ['a' => $acc['id'], 'f' => $keys[$path], 'v' => $info['uidvalidity']]);
+                    }
+                    $n += count($removed);
+                }
+            } catch (\RuntimeException $e) {
+                error_log('[m4w] provider duplicates: ' . $e->getMessage());
+            }
+        }
+        $prev = json_decode((string) Settings::get('webmail.dedupe.' . (int) $acc['id'], ''), true) ?: [];
+        Settings::set('webmail.dedupe.' . (int) $acc['id'], json_encode(['at' => time(), 'n' => (int) ($prev['n'] ?? 0) + $n]));
+        if ($n) {
+            Audit::log('sync.duplicates_removed', (string) $acc['login'], ['n' => $n], (int) $acc['user_id']);
+        }
+        return $n;
+    }
+
+    public static function dedupeStats(array $acc): ?array
+    {
+        $d = json_decode((string) Settings::get('webmail.dedupe.' . (int) $acc['id'], ''), true);
+        return is_array($d) ? $d : null;
     }
 
     /**
@@ -658,10 +788,12 @@ final class RemoteMailbox
      */
     private static function pushCopies(ImapClient $client, array $acc, array $user, int $max = 50): void
     {
-        $rows = DB::all("SELECT * FROM provider_copies WHERE user_id = :u ORDER BY id LIMIT $max", ['u' => $user['id']]);
+        $now = time();
+        $rows = DB::all("SELECT * FROM provider_copies WHERE user_id = :u AND created_at <= :t ORDER BY id LIMIT $max", ['u' => $user['id'], 't' => $now - self::COPY_DELAY]);
         if (!$rows) {
             return;
         }
+        $there = self::providerHolds($client, $acc);
         $client->select('INBOX');
         foreach ($rows as $r) {
             $m = Mailbox::get((int) $user['id'], (int) $r['message_id']);
@@ -669,7 +801,7 @@ final class RemoteMailbox
             // Gone, moved out of the inbox meanwhile (the sync would bring it back), without a
             // Message-ID to recognise it by, or already at the provider: nothing to copy.
             if (!$m || (int) $m['folder_id'] !== (int) (Folders::byRole((int) $user['id'], 'inbox')['id'] ?? 0) || $m['message_id'] === ''
-                || $m['storage_path'] === '' || !is_file($path) || $client->searchMessageId((string) $m['message_id'])) {
+                || $m['storage_path'] === '' || !is_file($path) || self::heldThere($there, $m)) {
                 DB::run('DELETE FROM provider_copies WHERE id = :id', ['id' => $r['id']]);
                 continue;
             }
@@ -754,21 +886,28 @@ final class RemoteMailbox
         // What the mailbox already holds, by Message-ID (per target folder).
         $have = [];
         foreach (array_unique($map) as $target) {
-            $client->select($target);
-            $have[$target] = $client->flagsByMessageId();
+            // Anywhere it may have been filed or deleted there since, not only the inbox.
+            $have[$target] = $target === 'INBOX' ? self::providerHolds($client, $acc) : ['ids' => [], 'keys' => []];
+            if ($target !== 'INBOX') {
+                $client->select($target);
+                foreach ($client->fingerprints() as $f) {
+                    $f['msgid'] !== '' && $have[$target]['ids'][$f['msgid']] = true;
+                    $f['key'] !== '' && $have[$target]['keys'][$f['key']] = true;
+                }
+            }
         }
         [$in, $p] = DB::in('f', array_keys($map));
         $rows = DB::all("SELECT * FROM messages WHERE user_id = :u AND is_draft = 0 AND folder_id IN $in AND id > :n ORDER BY id LIMIT $max", $p + ['u' => $uid, 'n' => (int) $st['next']]);
         foreach ($rows as $m) {
             $st['next'] = (int) $m['id'];
             $target = $map[(int) $m['folder_id']];
-            if ($m['message_id'] !== '' && isset($have[$target][$m['message_id']])) {
-                $st['skipped']++;
-                continue;
-            }
             $path = storage_path((string) $m['storage_path']);
             if ($m['storage_path'] === '' || !is_file($path)) {
                 $st['failed']++;
+                continue;
+            }
+            if (self::heldThere($have[$target], $m)) {
+                $st['skipped']++;
                 continue;
             }
             try {
@@ -784,6 +923,7 @@ final class RemoteMailbox
         }
         if (count($rows) < $max) {
             $st['finished'] = time();
+            self::dedupe($client, $acc);
             Audit::log('own.restore_finished', (string) $acc['login'], ['done' => $st['done'], 'skipped' => $st['skipped'], 'failed' => $st['failed']], $uid);
         }
         DB::update('remote_accounts', ['restore_state' => json_encode($st)], 'id = :id', ['id' => $acc['id']]);
@@ -801,16 +941,19 @@ final class RemoteMailbox
             ['u' => $userId, 'm' => $msgid]);
     }
 
-    /** A folder of the provider by role, found once and remembered ('-' = it has none). */
+    /** A folder of the provider by role, remembered once found ('' = it has none, for now). */
     private static function providerFolder(ImapClient $client, array &$acc, string $col): string
     {
         $f = (string) ($acc[$col] ?? '');
-        if ($f === '') {
-            $f = ($col === 'trash_folder' ? $client->trashFolder() : $client->archiveFolder()) ?: '-';
-            DB::update('remote_accounts', [$col => mb_substr($f, 0, 190)], 'id = :id', ['id' => $acc['id']]);
+        if ($f === '' || $f === '-') {
+            // Remembered once found; looked for again otherwise (it may be created later).
+            $f = $col === 'trash_folder' ? $client->trashFolder() : $client->archiveFolder();
+            if ($f !== '') {
+                DB::update('remote_accounts', [$col => mb_substr($f, 0, 190)], 'id = :id', ['id' => $acc['id']]);
+            }
             $acc[$col] = $f;
         }
-        return $f === '-' ? '' : $f;
+        return $f;
     }
 
     /**

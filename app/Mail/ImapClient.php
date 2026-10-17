@@ -135,6 +135,50 @@ final class ImapClient
         return $out;
     }
 
+    /**
+     * What tells two copies of one message apart from two messages: its Message-ID, and, for a copy
+     * whose Message-ID was changed on the way (forwarding, a server without one), the sender, the
+     * date and the subject together. From the raw header lines.
+     * @return array{msgid:string,key:string}
+     */
+    public static function fingerprint(string $headers): array
+    {
+        $h = preg_replace("/\r?\n[ \t]+/", ' ', str_replace("\r\n", "\n", $headers));
+        $get = static fn(string $name) => preg_match('/^' . $name . ':[ \t]*(.*)$/mi', (string) $h, $m) ? trim($m[1]) : '';
+        $from = preg_match('/[\w.+%\'-]+@[\w.-]+/', $get('From'), $fm) ? mb_strtolower($fm[0]) : '';
+        $date = $get('Date');
+        $ts = $date !== '' ? (strtotime(preg_replace('/\s*\([^)]*\)\s*$/', '', $date)) ?: 0) : 0;
+        $subject = mb_strtolower((string) preg_replace('/\s+/', ' ', $get('Subject')));
+        return [
+            'msgid' => preg_match('/<([^>\s]+)>/', $get('Message-ID'), $mm) ? $mm[1] : '',
+            'key' => $from !== '' && $ts > 0 ? sha1($from . '|' . $ts . '|' . $subject) : '',
+        ];
+    }
+
+    /**
+     * Every message of the selected folder: UID => fingerprint() + flags.
+     * @return array<int,array{msgid:string,key:string,flags:string[]}>
+     */
+    public function fingerprints(int $max = 20000): array
+    {
+        $out = [];
+        $uids = array_slice($this->searchUidsAbove(0), -$max);
+        foreach (array_chunk($uids, 300) as $chunk) {
+            $res = $this->command('UID FETCH ' . implode(',', $chunk) . ' (UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM SUBJECT)])');
+            $i = 0;
+            foreach ($res['lines'] as $line) {
+                if (!preg_match('/\{\d+\}$/', $line)) {
+                    continue;
+                }
+                $hdr = $res['literals'][$i++] ?? '';
+                if (preg_match('/\bUID (\d+)/i', $line, $u)) {
+                    $out[(int) $u[1]] = self::fingerprint($hdr) + ['flags' => self::flags($line)];
+                }
+            }
+        }
+        return $out;
+    }
+
     /** @return string[] */
     private static function flags(string $meta): array
     {
