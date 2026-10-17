@@ -232,7 +232,15 @@ final class WebPush
     // ---------------------------------------------------------------- send
 
     /** @return int number of devices reached */
-    public static function send(int $userId, array $message, int $ttl = 86400): int
+    /** A device whose app checked in this recently is open (hidden pages check once a minute). */
+    public const PRESENCE = 70;
+
+    /**
+     * @param bool $holdIfOpen new mail, reminders: not to a device where the app is open (it
+     *   announces them itself, with the person's sound); held, and sent if that device stops
+     *   checking in (app closed meanwhile), see presence() and flushPending()
+     */
+    public static function send(int $userId, array $message, int $ttl = 86400, bool $holdIfOpen = false): int
     {
         if (!self::enabled()) {
             return 0;
@@ -243,32 +251,94 @@ final class WebPush
         }
         $body = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $n = 0;
+        $now = time();
         foreach ($subs as $s) {
-            try {
-                $cipher = self::encrypt($body, $s['p256dh'], $s['auth']);
-                $headers = [
-                    'Authorization' => self::vapidHeader($s['endpoint']),
-                    'Content-Encoding' => 'aes128gcm',
-                    'Content-Type' => 'application/octet-stream',
-                    'TTL' => (string) $ttl,
-                    'Urgency' => 'high',
-                ];
-                $status = self::post($s['endpoint'], $headers, $cipher);
-            } catch (\Throwable $e) {
-                error_log('[m4w] push: ' . $e->getMessage());
-                $status = 0;
-            }
-            if ($status >= 200 && $status < 300) {
-                DB::update('push_subscriptions', ['last_used_at' => time(), 'failures' => 0], 'id = :id', ['id' => $s['id']]);
+            if ($holdIfOpen && (int) $s['active_at'] > $now - self::PRESENCE) {
+                DB::insert('push_pending', ['subscription_id' => $s['id'], 'payload' => $body, 'ttl' => $ttl, 'created_at' => $now]);
                 $n++;
-            } elseif (in_array($status, [404, 410], true) || (int) $s['failures'] >= 20) {
-                // Expired or revoked by the browser: forget it.
-                DB::delete('push_subscriptions', 'id = :id', ['id' => $s['id']]);
-            } else {
-                DB::update('push_subscriptions', ['failures' => (int) $s['failures'] + 1], 'id = :id', ['id' => $s['id']]);
+                continue;
             }
+            $n += self::deliver($s, $body, $ttl) ? 1 : 0;
         }
         return $n;
+    }
+
+    /**
+     * The app checked in from this device: it is open. $seen: its check also brought it the new
+     * mail (what was held for it is no longer needed).
+     */
+    public static function presence(int $userId, string $endpointHash, bool $seen = true): void
+    {
+        if (!preg_match('/^[0-9a-f]{64}$/', $endpointHash)) {
+            return;
+        }
+        $s = DB::one('SELECT id FROM push_subscriptions WHERE user_id = :u AND endpoint_hash = :h', ['u' => $userId, 'h' => $endpointHash]);
+        if ($s) {
+            DB::update('push_subscriptions', ['active_at' => time()], 'id = :id', ['id' => $s['id']]);
+            if ($seen) {
+                DB::delete('push_pending', 'subscription_id = :s', ['s' => $s['id']]);
+            }
+        }
+    }
+
+    /**
+     * Held notifications of devices that stopped checking in (app or browser closed) before seeing
+     * the new mail: sent now, unless the message was read meanwhile. Scheduled task, every minute.
+     * Returns how many were sent.
+     */
+    public static function flushPending(?int $now = null): int
+    {
+        $now ??= time();
+        $n = 0;
+        foreach (DB::all('SELECT * FROM push_pending WHERE created_at <= :t ORDER BY id', ['t' => $now - self::PRESENCE]) as $p) {
+            $s = DB::one('SELECT * FROM push_subscriptions WHERE id = :id', ['id' => $p['subscription_id']]);
+            // Still open (it will see it at its next full check): kept for now.
+            if ($s && (int) $s['active_at'] > $now - self::PRESENCE) {
+                continue;
+            }
+            DB::delete('push_pending', 'id = :id', ['id' => $p['id']]);
+            if (!$s || $now - (int) $p['created_at'] > (int) $p['ttl']) {
+                continue;
+            }
+            $msg = json_decode((string) $p['payload'], true) ?: [];
+            if (($msg['kind'] ?? '') === 'new' && !empty($msg['id'])
+                && (int) DB::value('SELECT COUNT(*) FROM messages WHERE id = :id AND is_read = 0', ['id' => (int) $msg['id']]) === 0) {
+                continue;
+            }
+            $n += self::deliver($s, (string) $p['payload'], max(60, (int) $p['ttl'] - ($now - (int) $p['created_at']))) ? 1 : 0;
+        }
+        DB::run('DELETE FROM push_pending WHERE created_at < :t', ['t' => $now - 7 * 86400]);
+        return $n;
+    }
+
+    private static function deliver(array $s, string $body, int $ttl): bool
+    {
+        try {
+            $cipher = self::encrypt($body, $s['p256dh'], $s['auth']);
+            $headers = [
+                'Authorization' => self::vapidHeader($s['endpoint']),
+                'Content-Encoding' => 'aes128gcm',
+                'Content-Type' => 'application/octet-stream',
+                'TTL' => (string) $ttl,
+                'Urgency' => 'high',
+            ];
+            $status = self::post($s['endpoint'], $headers, $cipher);
+        } catch (\Throwable $e) {
+            error_log('[m4w] push: ' . $e->getMessage());
+            $status = 0;
+        }
+        if ($status >= 200 && $status < 300) {
+            DB::update('push_subscriptions', ['last_used_at' => time(), 'failures' => 0], 'id = :id', ['id' => $s['id']]);
+            return true;
+        }
+        if (in_array($status, [404, 410], true) || (int) $s['failures'] >= 20) {
+            // Expired or revoked by the browser: forget it.
+            DB::delete('push_subscriptions', 'id = :id', ['id' => $s['id']]);
+            DB::delete('push_pending', 'subscription_id = :s', ['s' => $s['id']]);
+        } else {
+            DB::update('push_subscriptions', ['failures' => (int) $s['failures'] + 1], 'id = :id', ['id' => $s['id']]);
+        }
+        return false;
     }
 
     private static function post(string $endpoint, array $headers, string $body): int
@@ -336,7 +406,7 @@ final class WebPush
             'silent' => Notify::silent($to['prefs'] ?? [], 'new'),
         ];
         if (self::wants($user)) {
-            self::send((int) $user['id'], $msg($user, ['url' => 'mail' . $hash]));
+            self::send((int) $user['id'], $msg($user, ['url' => 'mail' . $hash]), 86400, true);
         }
         // People who have this mailbox among their other mailboxes are alerted too; tapping opens it.
         foreach (SharedMailboxes::usersOf((int) $user['id']) as $memberId) {
