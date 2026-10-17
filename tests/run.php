@@ -3172,31 +3172,45 @@ test('notifications: hours, own sounds, quiet new mail, reminders', function () 
     eq($N::vibration(['vibrate' => 'none']), []);
     ok($N::silent(['sound_reminder' => 'none'], 'reminder') && !$N::silent(['sound_reminder' => 'chime'], 'reminder'), 'no sound for the reminder: a silent notification');
     // Saved preferences are checked.
-    Users::savePrefs((int) $bob['id'], ['sound_new' => 'trumpet', 'notify_hours' => 'n\'importe quoi', 'sound_volume' => 300, 'reminder_minutes' => 7, 'sound_file_new' => '../../etc/passwd']);
+    Users::savePrefs((int) $bob['id'], ['sound_new' => 'trumpet', 'sound_reminder' => 'own:999999', 'notify_hours' => 'n\'importe quoi', 'sound_volume' => 300, 'reminder_minutes' => 7]);
     $pr = Users::find((int) $bob['id'])['prefs'];
-    eq([$pr['sound_new'], $pr['notify_hours'], $pr['sound_volume'], $pr['reminder_minutes'], $pr['sound_file_new']], ['ding', ',,,,,,', 100, 30, ''], 'unknown values refused');
+    eq([$pr['sound_new'], $pr['sound_reminder'], $pr['notify_hours'], $pr['sound_volume'], $pr['reminder_minutes']], ['ding', 'chime', ',,,,,,', 100, 30], 'unknown values refused');
+    // The classic sounds are there, as real audio files.
+    foreach ($N::SOUNDS as $snd) {
+        $wav = (string) @file_get_contents(M4W_ROOT . '/public/assets/sounds/' . $snd . '.wav');
+        ok(str_starts_with($wav, 'RIFF') && substr($wav, 8, 4) === 'WAVE' && strlen($wav) > 5000, $snd . '.wav');
+    }
 
-    // Own sound: the content decides (not the name), 1 MB at most, the old one replaced.
+    // Own sounds: the content decides (not the name), 1 MB at most; offered for every kind of alert.
     $tmpf = tempnam(sys_get_temp_dir(), 'snd');
     file_put_contents($tmpf, '<?php echo 1;');
     $err = '';
-    try { $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 13); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
+    try { $N::addSoundFile((int) $bob['id'], $tmpf, 13, 'x.mp3'); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
     eq($err, t('notify.sound_not_audio'), 'not a sound');
     $err = '';
-    try { $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 2 * 1048576); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
+    try { $N::addSoundFile((int) $bob['id'], $tmpf, 2 * 1048576, 'x.mp3'); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
     eq($err, t('notify.sound_too_big'));
     file_put_contents($tmpf, 'ID3' . str_repeat("\0", 200));
-    $first = $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 203);
+    $a = $N::addSoundFile((int) $bob['id'], $tmpf, 203, 'C:\\Musique\\Cloche "du" <port>.mp3');
     file_put_contents($tmpf, "RIFF\x10\0\0\0WAVEfmt " . str_repeat("\0", 64));
-    $second = $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 80);
-    $u = Users::find((int) $bob['id']);
-    eq([$u['prefs']['sound_new'], $u['prefs']['sound_file_new']], ['custom', $second]);
-    $f = $N::soundFile($u, 'new');
+    $b = $N::addSoundFile((int) $bob['id'], $tmpf, 80, 'oiseau.wav');
+    eq(array_column($N::ownSounds((int) $bob['id']), 'label'), ['Cloche du port', 'oiseau'], 'named after the file, made harmless');
+    Users::savePrefs((int) $bob['id'], ['sound_new' => 'own:' . $b['id'], 'sound_reminder' => 'own:' . $b['id']]);
+    $pr = Users::find((int) $bob['id'])['prefs'];
+    eq([$pr['sound_new'], $pr['sound_reminder']], ['own:' . $b['id'], 'own:' . $b['id']], 'the same own sound for both kinds');
+    $f = $N::soundFile((int) $bob['id'], $b['id']);
     ok($f && $f['mime'] === 'audio/wav' && is_file($f['path']), 'served to its owner');
-    ok(!is_file(dirname($f['path']) . '/' . $first), 'the previous sound deleted');
-    eq($N::soundFile(['id' => 999] + $u, 'new'), null, 'not to someone else');
-    $N::deleteSound((int) $bob['id'], 'new');
-    ok(!is_file($f['path']) && Users::find((int) $bob['id'])['prefs']['sound_new'] === 'ding', 'removed');
+    eq($N::soundFile(999, $b['id']), null, 'not to someone else');
+    $other = Users::create(['email' => 'snd.other@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Sol', 'last_name' => 'Fa']);
+    Users::savePrefs($other, ['sound_new' => 'own:' . $b['id']]);
+    eq(Users::find($other)['prefs']['sound_new'], 'ding', "someone else's sound cannot be chosen");
+    ok($N::deleteSound((int) $bob['id'], $b['id']) && !is_file($f['path']), 'deleted');
+    $pr = Users::find((int) $bob['id'])['prefs'];
+    eq([$pr['sound_new'], $pr['sound_reminder']], ['ding', 'chime'], 'the alerts that used it go back to the classic sounds');
+    ok(!$N::deleteSound($other, $a['id']), "not someone else's");
+    Users::delete($other);
+    $N::deleteUser((int) $bob['id']);
+    eq($N::ownSounds((int) $bob['id']), [], 'all gone with the account');
     @unlink($tmpf);
 
     // New mail: not outside the hours, not when turned off; the chosen vibration and silence.

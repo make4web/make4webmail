@@ -14,8 +14,13 @@ $notifyCfg = [
     'reminder_minutes' => (int) $np['reminder_minutes'], 'period' => $np['notify_period'], 'hours' => $np['notify_hours'],
     'sound_new' => $np['sound_new'], 'sound_reminder' => $np['sound_reminder'], 'volume' => (int) $np['sound_volume'], 'vibrate' => $np['vibrate'],
 ];
-foreach (M4W\Service\Notify::KINDS as $k) {
-    $notifyCfg['custom_' . $k] = $np['sound_file_' . $k] !== '' ? url('settings/sound/' . $k) . '?v=' . substr(md5($np['sound_file_' . $k]), 0, 8) : '';
+// Where each sound is: the classic ones, and the person's own.
+$notifyCfg['sounds'] = [];
+foreach (M4W\Service\Notify::SOUNDS as $snd) {
+    $notifyCfg['sounds'][$snd] = asset('sounds/' . $snd . '.wav');
+}
+foreach (M4W\Service\Notify::ownSounds((int) $currentUser['id']) as $snd) {
+    $notifyCfg['sounds']['own:' . $snd['id']] = url('settings/sound/' . $snd['id']);
 }
 ?>
 <script type="application/json" id="m4w-notify-cfg"><?= json_encode($notifyCfg, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) ?></script>

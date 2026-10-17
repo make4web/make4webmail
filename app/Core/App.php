@@ -249,6 +249,7 @@ final class App
         $r->post('/api/messages/{id}/unsubscribe', [Controller\MailController::class, 'unsubscribe']);
         $r->post('/api/messages/{id}/phishing', [Controller\MailController::class, 'phishing']);
         $r->get('/api/poll', [Controller\MailController::class, 'poll']);
+        $r->get('/api/unread', [Controller\MailController::class, 'unread']);
         $r->get('/api/ping', [Controller\MailController::class, 'ping']);
         $r->get('/api/stamp', [Controller\MailController::class, 'stamp']);
         $r->post('/api/offline/key', [Controller\OfflineController::class, 'key']);
@@ -387,7 +388,8 @@ final class App
         $r->post('/settings', [Controller\SettingsController::class, 'saveGeneral']);
         $r->post('/settings/notifications', [Controller\SettingsController::class, 'saveNotifications']);
         $r->post('/settings/sound', [Controller\SettingsController::class, 'uploadSound']);
-        $r->get('/settings/sound/{kind}', [Controller\SettingsController::class, 'sound']);
+        $r->post('/settings/sound/delete', [Controller\SettingsController::class, 'deleteSound']);
+        $r->get('/settings/sound/{id}', [Controller\SettingsController::class, 'sound']);
         $r->get('/settings/rules', [Controller\SettingsController::class, 'rules']);
         $r->post('/settings/rules/save', [Controller\SettingsController::class, 'saveRule']);
         $r->post('/settings/rules/delete', [Controller\SettingsController::class, 'deleteRule']);

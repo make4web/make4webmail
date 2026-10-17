@@ -102,20 +102,33 @@
     <div class="form-text"><?= te('notify.hours_desc') ?></div>
   </div>
 
-  <?php foreach (M4W\Service\Notify::KINDS as $kind): $own = M4W\Service\Notify::soundFile($u, $kind); ?>
+  <?php $ownSounds = M4W\Service\Notify::ownSounds((int) $u['id']); ?>
+  <?php foreach (M4W\Service\Notify::KINDS as $kind): ?>
   <div class="m4w-setting-row"><div class="label"><label for="ns-<?= $kind ?>"><?= te('notify.sound_' . $kind) ?></label></div><div>
     <div class="d-flex gap-2 flex-wrap align-items-center">
-      <select class="form-select" id="ns-<?= $kind ?>" name="sound_<?= $kind ?>" style="max-width:220px">
-        <?php foreach (M4W\Service\Notify::SOUNDS as $s): ?><option value="<?= $s ?>" <?= $p['sound_' . $kind] === $s ? 'selected' : '' ?>><?= te('notify.s_' . $s) ?></option><?php endforeach; ?>
+      <select class="form-select" id="ns-<?= $kind ?>" name="sound_<?= $kind ?>" style="max-width:240px" data-sound-select>
+        <option value="none" <?= $p['sound_' . $kind] === 'none' ? 'selected' : '' ?>><?= te('notify.s_none') ?></option>
+        <optgroup label="<?= te('notify.classic_sounds') ?>">
+          <?php foreach (M4W\Service\Notify::SOUNDS as $s): ?><option value="<?= $s ?>" <?= $p['sound_' . $kind] === $s ? 'selected' : '' ?>><?= te('notify.s_' . $s) ?></option><?php endforeach; ?>
+        </optgroup>
+        <optgroup label="<?= te('notify.my_sounds') ?>" data-own-sounds <?= $ownSounds ? '' : 'hidden' ?>>
+          <?php foreach ($ownSounds as $os): ?><option value="own:<?= (int) $os['id'] ?>" <?= $p['sound_' . $kind] === 'own:' . $os['id'] ? 'selected' : '' ?>><?= e($os['label']) ?></option><?php endforeach; ?>
+        </optgroup>
       </select>
       <button type="button" class="btn btn-light" data-listen="<?= $kind ?>"><i class="bi bi-play-fill me-1"></i><?= te('notify.listen') ?></button>
-    </div>
-    <div class="d-flex gap-2 flex-wrap align-items-center mt-2" data-custom-<?= $kind ?>>
-      <label class="btn btn-light btn-sm mb-0"><i class="bi bi-upload me-1"></i><?= te('notify.upload') ?><input type="file" class="d-none" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav,.mp3,.ogg,.wav" data-sound-file="<?= $kind ?>"></label>
-      <span class="small text-muted" data-sound-name="<?= $kind ?>"><?= $own ? te('notify.own_sound') : te('notify.no_own_sound') ?></span>
+      <label class="btn btn-light mb-0" title="<?= te('notify.upload_hint') ?>"><i class="bi bi-upload me-1"></i><?= te('notify.upload') ?><input type="file" class="d-none" accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav,.mp3,.ogg,.wav" data-sound-file="<?= $kind ?>"></label>
     </div>
   </div></div>
   <?php endforeach; ?>
+  <div class="m4w-setting-row" data-own-list-row <?= $ownSounds ? '' : 'hidden' ?>><div class="label"><?= te('notify.my_sounds') ?><small><?= te('notify.my_sounds_desc') ?></small></div><div>
+    <ul class="list-unstyled mb-0 d-flex flex-column gap-1" data-own-list>
+      <?php foreach ($ownSounds as $os): ?>
+      <li class="d-flex align-items-center gap-2" data-own="own:<?= (int) $os['id'] ?>"><i class="bi bi-music-note-beamed text-muted"></i><span class="flex-grow-1 text-truncate" style="max-width:260px"><?= e($os['label']) ?></span>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-own-play title="<?= te('notify.listen') ?>" aria-label="<?= te('notify.listen') ?>"><i class="bi bi-play-fill"></i></button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm text-danger" data-own-delete title="<?= te('common.delete') ?>" aria-label="<?= te('common.delete') ?>"><i class="bi bi-trash3"></i></button></li>
+      <?php endforeach; ?>
+    </ul>
+  </div></div>
   <div class="m4w-setting-row"><div class="label"><label for="nt-vol"><?= te('notify.volume') ?></label></div><div><input type="range" class="form-range" id="nt-vol" name="sound_volume" min="0" max="100" step="5" value="<?= (int) $p['sound_volume'] ?>" style="max-width:220px"></div></div>
   <div class="m4w-setting-row"><div class="label"><label for="nt-vib"><?= te('notify.vibrate') ?></label><small><?= te('notify.vibrate_desc') ?></small></div><div class="d-flex gap-2 flex-wrap">
     <select class="form-select" id="nt-vib" name="vibrate" style="max-width:220px"><?php foreach (array_keys(M4W\Service\Notify::VIBRATIONS) as $v): ?><option value="<?= $v ?>" <?= $p['vibrate'] === $v ? 'selected' : '' ?>><?= te('notify.v_' . $v) ?></option><?php endforeach; ?></select>

@@ -97,35 +97,44 @@ final class SettingsController extends Controller
             'reminder_minutes' => in_array($r->int('reminder_minutes'), Notify::REMINDER_MINUTES, true) ? $r->int('reminder_minutes') : 30,
             'notify_period' => $r->str('notify_period') === 'custom' ? 'custom' : 'always',
             'notify_hours' => Notify::formatHours(Notify::parseHours(Notify::formatHours($hours))),
-            'sound_new' => $choice($r->str('sound_new'), Notify::SOUNDS, 'ding'),
-            'sound_reminder' => $choice($r->str('sound_reminder'), Notify::SOUNDS, 'chime'),
+            'sound_new' => $r->str('sound_new'),
+            'sound_reminder' => $r->str('sound_reminder'),
             'sound_volume' => max(0, min(100, $r->int('sound_volume', 70))),
             'vibrate' => $choice($r->str('vibrate'), array_keys(Notify::VIBRATIONS), 'short'),
         ]);
         return $this->back('/settings#notifications', 'success', t('settings.saved'));
     }
 
-    /** One's own sound for new mail or reminders (MP3, OGG, WAV). */
+    /** A sound of one's own (MP3, OGG, WAV), offered afterwards for every kind of alert. */
     public function uploadSound(): Response
     {
-        $u = $this->user();
-        $kind = $this->req->str('kind');
+        $uid = (int) $this->user()['id'];
         try {
-            Notify::storeSound((int) $u['id'], $kind, $this->req->files['file'] ?? []);
+            $s = Notify::addSound($uid, $this->req->files['file'] ?? []);
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
-        return $this->ok(['url' => url('settings/sound/' . $kind) . '?v=' . time()]);
+        return $this->ok(['id' => $s['id'], 'value' => 'own:' . $s['id'], 'label' => $s['label'], 'url' => url('settings/sound/' . $s['id'])]);
     }
 
-    public function sound(string $kind): Response
+    public function deleteSound(): Response
     {
-        $f = Notify::soundFile($this->user(), $kind);
+        $uid = (int) $this->user()['id'];
+        if (!Notify::deleteSound($uid, $this->req->int('id'))) {
+            return $this->fail(t('notify.sound_gone'), 404);
+        }
+        $p = Users::find($uid)['prefs'];
+        return $this->ok(['sound_new' => $p['sound_new'], 'sound_reminder' => $p['sound_reminder']]);
+    }
+
+    public function sound(string $id): Response
+    {
+        $f = ctype_digit($id) ? Notify::soundFile((int) $this->user()['id'], (int) $id) : null;
         if (!$f) {
             return Response::json(['ok' => false], 404);
         }
-        $r = Response::file($f['path'], $f['mime'], $kind . '.' . pathinfo($f['name'], PATHINFO_EXTENSION), true);
-        $r->header('Cache-Control', 'private, max-age=86400');
+        $r = Response::file($f['path'], $f['mime'], 'sound.' . $f['ext'], true);
+        $r->header('Cache-Control', 'private, max-age=604800');
         return $r;
     }
 

@@ -2,6 +2,7 @@
 (function ($, window, document) {
   'use strict';
   var M4W = window.M4W, t = M4W.t, esc = M4W.esc;
+  M4W.mailPage = true; // its own checks (poll) keep the bubbles up to date, not notify.js
 
   var boot = {};
   try { boot = JSON.parse(document.getElementById('m4w-boot').textContent || '{}'); } catch (e) { boot = {}; }
@@ -149,36 +150,8 @@
     if (S.pulseSince && Date.now() - S.pulseSince > 1000) { $('[data-boxes-elsewhere]').removeClass('m4w-pulse'); S.pulseSince = 0; }
   });
 
-  var favicon = null;
-  function tabBadge(n) {
-    var $link = $('link[rel="icon"]').first();
-    if (!$link.length) return;
-    if (!favicon) {
-      favicon = { href: $link.attr('href'), img: null, ready: false, last: -1 };
-      var img = new Image();
-      img.onload = function () { favicon.img = img; favicon.ready = true; var w = favicon.last; favicon.last = -1; tabBadge(w); };
-      img.src = favicon.href;
-    }
-    if (favicon.last === n) return;
-    favicon.last = n;
-    if (!n) { $link.attr('href', favicon.href); return; }
-    if (!favicon.ready) return;
-    var c = document.createElement('canvas'), s = 64;
-    c.width = c.height = s;
-    var x = c.getContext('2d');
-    x.drawImage(favicon.img, 0, 0, s, s);
-    var label = n > 99 ? '99+' : String(n), r = 18;
-    x.font = 'bold ' + (label.length > 2 ? 22 : 30) + 'px system-ui, sans-serif';
-    var w = Math.max(r * 2, x.measureText(label).width + 14), cx = s - w / 2, cy = r;
-    x.fillStyle = '#ef4444';
-    x.beginPath();
-    x.moveTo(cx - w / 2 + r, cy - r); x.arcTo(cx + w / 2, cy - r, cx + w / 2, cy + r, r); x.arcTo(cx + w / 2, cy + r, cx - w / 2, cy + r, r);
-    x.arcTo(cx - w / 2, cy + r, cx - w / 2, cy - r, r); x.arcTo(cx - w / 2, cy - r, cx + w / 2, cy - r, r);
-    x.fill();
-    x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(label, cx, cy + 2);
-    try { $link.attr('href', c.toDataURL('image/png')); } catch (e) { /* picture from elsewhere */ }
-  }
+  // A bubble on the tab's icon (notify.js: the same on every page).
+  function tabBadge(n) { if (M4W.Notify) M4W.Notify.tabBadge(n); }
   M4W.setFolders = setFolders;
 
   function folderItem(f, depth) {

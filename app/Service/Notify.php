@@ -11,16 +11,19 @@ use M4W\Core\Settings;
  * (each new message, and a reminder while mail stays unread), how (sound, vibration).
  *
  * Sounds play when the app or the tab is open (a closed app gets the system's own sound: the
- * browsers let no page choose it). Built-in sounds are made by the page itself (Web Audio), a
- * person may also give their own (MP3, OGG, WAV; 1 MB at most), kept here and served to them only.
+ * browsers let no page choose it). Classic sounds are files of the application; a person may also
+ * add their own (MP3, OGG, WAV; 1 MB at most), kept here, served to them only, offered for every
+ * kind of alert.
  */
 final class Notify
 {
-    public const SOUNDS = ['none', 'ding', 'chime', 'bell', 'pop', 'marimba', 'beep', 'custom'];
+    /** Classic sounds (public/assets/sounds, made by bin/sounds.php). */
+    public const SOUNDS = ['ding', 'chime', 'bell', 'pop', 'marimba', 'beep'];
     public const VIBRATIONS = ['none' => [], 'short' => [200], 'long' => [600], 'pulse' => [200, 100, 200, 100, 200]];
     public const REMINDER_MINUTES = [5, 10, 15, 30, 60, 120];
     public const KINDS = ['new', 'reminder'];
     private const MAX_SOUND = 1048576;
+    private const MAX_OWN = 12;
 
     /** Weekly hours "08:00-19:00,…" (Monday first, empty = off that day) → [1 => ['08:00','19:00']|null, …]. */
     public static function parseHours(string $s): array
@@ -77,6 +80,21 @@ final class Notify
 
     // ------------------------------------------------------------- sounds
 
+    /** A sound chosen for an alert: "none", a classic one, or one of the person's own ("own:12"). */
+    public static function validSound(int $userId, string $v): bool
+    {
+        if ($v === 'none' || in_array($v, self::SOUNDS, true)) {
+            return true;
+        }
+        return (bool) preg_match('/^own:(\d+)$/', $v, $m)
+            && (bool) DB::value('SELECT COUNT(*) FROM user_sounds WHERE id = :id AND user_id = :u', ['id' => (int) $m[1], 'u' => $userId]);
+    }
+
+    public static function defaultSound(string $kind): string
+    {
+        return $kind === 'reminder' ? 'chime' : 'ding';
+    }
+
     private static function dir(): string
     {
         $d = storage_path('uploads/sounds');
@@ -86,23 +104,29 @@ final class Notify
         return $d;
     }
 
-    /** A person's own sound for one kind of alert. Returns the stored name. */
-    public static function storeSound(int $userId, string $kind, array $file): string
+    /** The person's own sounds, offered in every list of sounds. */
+    public static function ownSounds(int $userId): array
     {
-        if (!in_array($kind, self::KINDS, true)) {
-            throw new \InvalidArgumentException('kind');
-        }
+        return DB::all('SELECT id, label FROM user_sounds WHERE user_id = :u ORDER BY label, id', ['u' => $userId]);
+    }
+
+    /** A sound sent by a person. Returns ['id', 'label']. */
+    public static function addSound(int $userId, array $file): array
+    {
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $file['tmp_name'])) {
             throw new \InvalidArgumentException(t('upload.failed'));
         }
-        return self::storeSoundFile($userId, $kind, (string) $file['tmp_name'], (int) $file['size'], true);
+        return self::addSoundFile($userId, (string) $file['tmp_name'], (int) $file['size'], (string) ($file['name'] ?? ''), true);
     }
 
     /** (Separate for the tests: no real upload there.) */
-    public static function storeSoundFile(int $userId, string $kind, string $path, int $size, bool $uploaded = false): string
+    public static function addSoundFile(int $userId, string $path, int $size, string $name, bool $uploaded = false): array
     {
         if ($size <= 0 || $size > self::MAX_SOUND) {
             throw new \InvalidArgumentException(t('notify.sound_too_big'));
+        }
+        if ((int) DB::value('SELECT COUNT(*) FROM user_sounds WHERE user_id = :u', ['u' => $userId]) >= self::MAX_OWN) {
+            throw new \InvalidArgumentException(t('notify.sound_too_many', ['n' => self::MAX_OWN]));
         }
         $head = (string) file_get_contents($path, false, null, 0, 16);
         // The content decides, not the name: MP3 (ID3 or frame sync), OGG, WAV.
@@ -115,38 +139,57 @@ final class Notify
         if ($ext === null) {
             throw new \InvalidArgumentException(t('notify.sound_not_audio'));
         }
-        $u = Users::find($userId);
-        $name = $userId . '-' . $kind . '-' . bin2hex(random_bytes(6)) . '.' . $ext;
-        $dest = self::dir() . '/' . $name;
-        if ($uploaded ? !move_uploaded_file($path, $dest) : !copy($path, $dest)) {
+        $file = $userId . '-' . bin2hex(random_bytes(6)) . '.' . $ext;
+        if ($uploaded ? !move_uploaded_file($path, self::dir() . '/' . $file) : !copy($path, self::dir() . '/' . $file)) {
             throw new \InvalidArgumentException(t('upload.failed'));
         }
-        $old = (string) ($u['prefs']['sound_file_' . $kind] ?? '');
-        if ($old !== '' && preg_match('/^\d+-(new|reminder)-[0-9a-f]{12}\.(mp3|ogg|wav)$/', $old)) {
-            @unlink(self::dir() . '/' . $old);
-        }
-        Users::savePrefs($userId, ['sound_file_' . $kind => $name, 'sound_' . $kind => 'custom']);
-        return $name;
+        $label = (string) preg_replace('/\.[a-z0-9]{2,4}$/i', '', basename(str_replace('\\', '/', $name)));
+        $label = trim((string) preg_replace('/[\x00-\x1f<>"\s]+/u', ' ', $label));
+        $label = mb_substr($label !== '' ? $label : t('notify.own_sound_name'), 0, 60);
+        $id = DB::insert('user_sounds', ['user_id' => $userId, 'label' => $label, 'file' => $file, 'created_at' => time()]);
+        return ['id' => $id, 'label' => $label];
     }
 
-    /** Path and type of a person's own sound, or null. */
-    public static function soundFile(array $user, string $kind): ?array
+    /** Path and type of one of a person's own sounds, or null. */
+    public static function soundFile(int $userId, int $id): ?array
     {
-        $name = (string) ($user['prefs']['sound_file_' . $kind] ?? '');
-        if (!in_array($kind, self::KINDS, true) || !preg_match('/^(\d+)-(new|reminder)-[0-9a-f]{12}\.(mp3|ogg|wav)$/', $name, $m) || (int) $m[1] !== (int) $user['id']) {
+        $row = DB::one('SELECT file FROM user_sounds WHERE id = :id AND user_id = :u', ['id' => $id, 'u' => $userId]);
+        if (!$row || !preg_match('/^\d+-(?:(?:new|reminder)-)?[0-9a-f]{12}\.(mp3|ogg|wav)$/', (string) $row['file'], $m)) {
             return null;
         }
-        $path = self::dir() . '/' . $name;
-        return is_file($path) ? ['path' => $path, 'mime' => ['mp3' => 'audio/mpeg', 'ogg' => 'audio/ogg', 'wav' => 'audio/wav'][$m[3]], 'name' => $name] : null;
+        $path = self::dir() . '/' . $row['file'];
+        return is_file($path) ? ['path' => $path, 'mime' => ['mp3' => 'audio/mpeg', 'ogg' => 'audio/ogg', 'wav' => 'audio/wav'][$m[1]], 'ext' => $m[1]] : null;
     }
 
-    public static function deleteSound(int $userId, string $kind): void
+    /** Removed: alerts that used it go back to the classic sound. */
+    public static function deleteSound(int $userId, int $id): bool
     {
-        $u = Users::find($userId);
-        if ($u && ($f = self::soundFile($u, $kind))) {
+        $f = self::soundFile($userId, $id);
+        if (!DB::delete('user_sounds', 'id = :id AND user_id = :u', ['id' => $id, 'u' => $userId])) {
+            return false;
+        }
+        if ($f) {
             @unlink($f['path']);
         }
-        Users::savePrefs($userId, ['sound_file_' . $kind => '', 'sound_' . $kind => $kind === 'new' ? 'ding' : 'chime']);
+        $u = Users::find($userId);
+        $reset = [];
+        foreach (self::KINDS as $k) {
+            if (($u['prefs']['sound_' . $k] ?? '') === 'own:' . $id) {
+                $reset['sound_' . $k] = self::defaultSound($k);
+            }
+        }
+        if ($reset) {
+            Users::savePrefs($userId, $reset);
+        }
+        return true;
+    }
+
+    /** All of a person's sounds (account deleted). */
+    public static function deleteUser(int $userId): void
+    {
+        foreach (DB::all('SELECT id FROM user_sounds WHERE user_id = :u', ['u' => $userId]) as $r) {
+            self::deleteSound($userId, (int) $r['id']);
+        }
     }
 
     // ---------------------------------------------------------- reminders

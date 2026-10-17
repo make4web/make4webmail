@@ -962,5 +962,36 @@ static function (): void {
 ) {OPT}",
 // External account added by a person: how often it is checked (minutes; 0 = the administrator's setting).
 "ALTER TABLE fetch_accounts ADD COLUMN interval_min INTEGER NOT NULL DEFAULT 0",
+],36 => [
+// A person's own notification sounds, offered for every kind of alert.
+"CREATE TABLE user_sounds (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  label VARCHAR(100) NOT NULL DEFAULT '',
+  file VARCHAR(100) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX user_sounds_user ON user_sounds(user_id)",
+// The sound sent with the previous version (one per kind of alert) joins the person's sounds.
+static function (): void {
+    $DB = \M4W\Core\Database::class;
+    foreach ($DB::all("SELECT id, prefs FROM users WHERE prefs LIKE '%sound_file_%'") as $u) {
+        $p = json_decode((string) $u['prefs'], true) ?: [];
+        foreach (['new', 'reminder'] as $k) {
+            $file = (string) ($p['sound_file_' . $k] ?? '');
+            $chosen = ($p['sound_' . $k] ?? '') === 'custom';
+            if ($file !== '' && preg_match('/^\d+-(new|reminder)-[0-9a-f]{12}\.(mp3|ogg|wav)$/', $file)) {
+                $id = $DB::insert('user_sounds', ['user_id' => $u['id'], 'label' => $k === 'new' ? 'Mon son' : 'Mon son (relance)', 'file' => $file, 'created_at' => time()]);
+                if ($chosen) {
+                    $p['sound_' . $k] = 'own:' . $id;
+                }
+            } elseif ($chosen) {
+                $p['sound_' . $k] = $k === 'new' ? 'ding' : 'chime';
+            }
+            unset($p['sound_file_' . $k]);
+        }
+        $DB::update('users', ['prefs' => json_encode($p)], 'id = :id', ['id' => $u['id']]);
+    }
+},
 ],
 ];
