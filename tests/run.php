@@ -2466,6 +2466,45 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     eq((int) DB::value('SELECT COUNT(*) FROM provider_copies'), 0);
 });
 
+test('delivery reports: asked when sending, delivered / delayed / refused shown with the message sent', function () use ($paul, $wmSmtp) {
+    Settings::set('mail.mode', 'server');
+    $uid = (int) $paul['id'];
+    $n = count($wmSmtp());
+    Composer::send(Users::find($uid), ['to' => 'suivi@ext.com, autre@ext.com', 'subject' => 'Suivi de remise', 'html' => '<p>x</p>']);
+    $log = array_slice($wmSmtp(), $n);
+    eq(count($log), 1);
+    $sent = DB::one("SELECT m.* FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'sent' AND m.subject = 'Suivi de remise'", ['u' => $uid]);
+    $mid = (string) $sent['message_id'];
+    ok(str_contains($log[0]['mail_params'], 'RET=HDRS ENVID=' . M4W\Service\DeliveryReports::xtext($mid)), 'reports asked, tied to the Message-ID: ' . $log[0]['mail_params']);
+    ok(str_contains($log[0]['rcpt_params'][0], 'NOTIFY=SUCCESS,FAILURE,DELAY') && str_contains($log[0]['rcpt_params'][0], 'ORCPT=rfc822;suivi@ext.com'), 'for each recipient');
+    $states = static fn() => array_column(M4W\Service\DeliveryReports::forMessage($uid, $mid), 'state', 'recipient');
+    eq($states(), ['autre@ext.com' => 'handed', 'suivi@ext.com' => 'handed'], 'handed to the sending server');
+    $dsn = static function (string $rcpt, string $action, string $status, string $diag = '') use ($mid): string {
+        return "From: Mail Delivery System <MAILER-DAEMON@mx.ovh.net>\r\nTo: paul@test.local\r\nSubject: Delivery Status Notification\r\nMessage-ID: <dsn-" . uniqid() . "@ovh.net>\r\nDate: " . date('r') . "\r\n"
+            . "MIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=\"b1\"\r\n\r\n--b1\r\nContent-Type: text/plain\r\n\r\nReport\r\n"
+            . "--b1\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mo1.mail-out.ovh.net\r\nOriginal-Envelope-Id: " . M4W\Service\DeliveryReports::xtext($mid) . "\r\n\r\n"
+            . "Final-Recipient: rfc822; $rcpt\r\nOriginal-Recipient: rfc822;$rcpt\r\nAction: $action\r\nStatus: $status\r\nRemote-MTA: dns; mx.ext.com\r\n" . ($diag !== '' ? "Diagnostic-Code: smtp; $diag\r\n" : '')
+            . "\r\n--b1\r\nContent-Type: text/rfc822-headers\r\n\r\nMessage-ID: <$mid>\r\nSubject: Suivi de remise\r\n\r\n--b1--\r\n";
+    };
+    $inbox = static fn() => (int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'Delivery Status Notification'", ['u' => $uid]);
+    Delivery::deliver($dsn('suivi@ext.com', 'delayed', '4.7.1', '450 4.7.1 Greylisted, try again later'), '', ['paul@test.local']);
+    eq($states()['suivi@ext.com'], 'delayed', 'waiting at the receiver (greylisting)');
+    ok(str_contains(M4W\Service\DeliveryReports::forMessage($uid, $mid)[1]['detail'], 'Greylisted'), 'with the reason');
+    Delivery::deliver($dsn('suivi@ext.com', 'delivered', '2.0.0'), '', ['paul@test.local']);
+    eq($states()['suivi@ext.com'], 'delivered', 'then delivered');
+    eq($inbox(), 0, 'good news is not filed in the mailbox');
+    Delivery::deliver($dsn('suivi@ext.com', 'delayed', '4.4.1'), '', ['paul@test.local']);
+    eq($states()['suivi@ext.com'], 'delivered', 'a late "delayed" does not undo a delivery');
+    Delivery::deliver($dsn('autre@ext.com', 'failed', '5.7.1', '554 5.7.1 Rejected: SPF fail'), '', ['paul@test.local']);
+    eq($states()['autre@ext.com'], 'failed', 'refused');
+    eq($inbox(), 1, 'a refusal is filed: the person must see it');
+    // A report about something else (not followed here) is ordinary mail.
+    $other = str_replace(M4W\Service\DeliveryReports::xtext($mid), 'inconnu@nulle.part', $dsn('x@ext.com', 'delivered', '2.0.0'));
+    $other = str_replace("Message-ID: <$mid>", 'Message-ID: <inconnu@nulle.part>', $other);
+    eq(M4W\Service\DeliveryReports::consume($uid, M4W\Mail\MimeParser::parse($other)), null, 'not about a message followed here: ordinary mail');
+    eq($states(), ['autre@ext.com' => 'failed', 'suivi@ext.com' => 'delivered'], 'nothing changed');
+    Settings::set('mail.mode', 'collector');
+});
 test('own mailbox imposed in server mode', function () use ($paul, $wmSmtp) {
     Settings::set('mail.mode', 'server');
     $n = count($wmSmtp());
@@ -4185,6 +4224,64 @@ test('phishing report: removed from every mailbox, sender marked, administrators
 });
 
 echo "\nMonitoring, DMARC reports\n";
+test('domain health: SPF judged for the real senders, DKIM keys found, reverse DNS, blocklists', function () {
+    $dns = [
+        'TXT sante.test' => ['v=spf1 include:_spf.prov.test -all'],
+        'TXT _spf.prov.test' => ['v=spf1 ip4:192.0.2.0/24 ip6:2001:db8::/32 ~all'],
+        'MX sante.test' => ['mx1.prov.test'],
+        'A mx1.prov.test' => ['192.0.2.10'],
+        'TXT _dmarc.sante.test' => ['v=DMARC1; p=quarantine'],
+        'A smtp.prov.test' => ['192.0.2.25', '198.51.100.7'],
+        'PTR 25.2.0.192.in-addr.arpa' => ['out.prov.test'],
+        'A out.prov.test' => ['192.0.2.25'],
+        'PTR 7.100.51.198.in-addr.arpa' => ['host.elsewhere.test'],
+        'A 7.100.51.198.bl.spamcop.net' => ['127.0.0.2'],
+        'A 25.2.0.192.zen.spamhaus.org' => ['127.255.255.254'],
+    ];
+    $H = M4W\Service\DomainHealth::class;
+    $H::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
+    try {
+        $n = 0;
+        eq($H::spfCheck('192.0.2.25', 'sante.test', $n), 'pass', 'through the include');
+        eq($H::spfCheck('2001:db8::5', 'sante.test'), 'pass', 'IPv6 range');
+        eq($H::spfCheck('198.51.100.7', 'sante.test'), 'fail', 'not allowed: -all');
+        eq($H::spfLookups('sante.test'), 1);
+        $dns['TXT loop.test'] = ['v=spf1 ' . implode(' ', array_map(static fn($i) => "include:l$i.test", range(1, 11))) . ' -all'];
+        eq($H::spfCheck('192.0.2.1', 'loop.test'), 'permerror', 'past 10 lookups');
+        eq($H::ptr('192.0.2.25'), ['name' => 'out.prov.test', 'confirmed' => true]);
+        eq($H::ptr('198.51.100.7'), ['name' => 'host.elsewhere.test', 'confirmed' => false], 'name not pointing back');
+        eq($H::listed('7.100.51.198', 'bl.spamcop.net')['state'], 'listed');
+        eq($H::listed('25.2.0.192', 'zen.spamhaus.org')['state'], 'unknown', 'refused answer (public resolver), not a listing');
+        eq($H::listed('25.2.0.192', 'b.barracudacentral.org')['state'], 'clean');
+        // The whole report, with a relay sending for the domain.
+        Settings::setMany(['mail.mode' => 'relay', 'smtp.host' => 'smtp.prov.test']);
+        $H::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
+        $r = $H::report('sante.test', true);
+        $by = array_column($r['checks'], null, 'key');
+        eq([$by['mx']['state'], $by['spf']['state'], $by['dmarc']['state']], ['ok', 'ok', 'ok']);
+        eq($by['spf_senders']['state'], 'fail', 'a sender the SPF does not allow');
+        ok(str_contains($by['spf_senders']['detail'], '198.51.100.7'));
+        eq($by['dkim']['state'], 'fail', 'no DKIM key');
+        eq($by['alignment']['state'], 'fail', 'quarantine without DKIM and with an SPF failure: legitimate mail at risk');
+        eq([$by['ptr:192.0.2.25']['state'], $by['ptr:198.51.100.7']['state']], ['ok', 'warn']);
+        eq($by['blocklists']['state'], 'fail');
+        ok(str_contains($by['blocklists']['detail'], 'SpamCop'));
+        eq($r['state'], 'fail');
+        eq($H::cachedState('sante.test'), 'fail', 'kept for the list of domains');
+        // A DKIM key published: found under a usual selector.
+        $k = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $pub = preg_replace('/-----[^-]+-----|\s/', '', openssl_pkey_get_details($k)['key']);
+        $dns['TXT default._domainkey.sante.test'] = ['v=DKIM1; k=rsa; p=' . $pub];
+        $H::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
+        $by = array_column($H::report('sante.test', true)['checks'], null, 'key');
+        eq($by['dkim']['state'], 'ok');
+        ok(str_contains($by['dkim']['detail'], 'default (2048 bits)'));
+        ok(!isset($by['alignment']), 'aligned through DKIM');
+    } finally {
+        $H::$resolver = null;
+        Settings::setMany(['mail.mode' => 'collector', 'smtp.host' => '']);
+    }
+});
 test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {
     $dns = ['MX test.local' => [], 'TXT test.local' => ['v=spf1 mx ~all'], 'TXT _dmarc.test.local' => ['v=DMARC1; p=none']];
     M4W\Service\Health::$resolver = static fn(string $type, string $name) => $dns[$type . ' ' . $name] ?? [];

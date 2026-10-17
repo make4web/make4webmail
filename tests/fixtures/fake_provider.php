@@ -236,6 +236,7 @@ while (true) {
                 if ($u === 'EHLO' || $u === 'HELO') {
                     $out('250-fake');
                     $out('250-AUTH PLAIN LOGIN');
+                    $out('250-DSN');
                     $out('250 SIZE 10000000');
                 } elseif ($u === 'AUTH') {
                     $parts = explode("\0", base64_decode(substr($l, 11)));
@@ -259,12 +260,13 @@ while (true) {
                     } elseif (strcasecmp($from, $authed) !== 0) {
                         $out('553 5.7.1 sender not allowed');
                     } else {
-                        $sess = ['auth' => $authed, 'from' => $from, 'rcpt' => [], 'data' => ''];
+                        $sess = ['auth' => $authed, 'from' => $from, 'rcpt' => [], 'data' => '', 'mail_params' => trim((string) preg_replace('/^MAIL FROM:\s*<[^>]*>/i', '', $l)), 'rcpt_params' => []];
                         $out('250 OK');
                     }
                 } elseif ($u === 'RCPT') {
                     preg_match('/<([^>]*)>/', $l, $m);
                     $sess['rcpt'][] = $m[1] ?? '';
+                    $sess['rcpt_params'][] = trim((string) preg_replace('/^RCPT TO:\s*<[^>]*>/i', '', $l));
                     $out('250 OK');
                 } elseif ($u === 'DATA') {
                     $out('354 go');

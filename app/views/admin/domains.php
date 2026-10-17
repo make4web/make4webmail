@@ -7,6 +7,8 @@
         <?php foreach ($domains as $d): ?>
         <li class="list-group-item d-flex align-items-center gap-3">
           <div class="flex-grow-1"><div class="fw-medium"><?= e($d['name']) ?></div><div class="small text-muted"><?= te('admin.n_users', ['n' => (int) $d['users']]) ?></div></div>
+          <?php $hs = M4W\Service\DomainHealth::cachedState((string) $d['name']); ?>
+          <a class="btn btn-light btn-sm text-nowrap" href="<?= e(url('admin/domains/' . (int) $d['id'] . '/health')) ?>"><i class="bi bi-<?= ['ok' => 'heart-pulse-fill text-success', 'warn' => 'heart-pulse-fill text-warning', 'fail' => 'heart-pulse-fill text-danger'][$hs] ?? 'heart-pulse' ?> me-1"></i><?= te('dh.button') ?></a>
           <form method="post" action="<?= e(url('admin/domains/save')) ?>" class="form-check form-switch m-0"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $d['id'] ?>"><input type="hidden" name="name" value="<?= e($d['name']) ?>"><input class="form-check-input" type="checkbox" name="active" value="1" <?= $d['active'] ? 'checked' : '' ?> data-autosubmit title="<?= te('common.enabled') ?>"></form>
           <form method="post" action="<?= e(url('admin/domains/delete')) ?>" data-confirm="<?= te('admin.confirm_delete_domain', ['name' => $d['name']]) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $d['id'] ?>"><button class="btn btn-ghost btn-icon btn-sm text-danger" <?= $d['users'] ? 'disabled' : '' ?>><i class="bi bi-trash3"></i></button></form>
         </li>

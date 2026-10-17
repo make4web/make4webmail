@@ -263,6 +263,8 @@ final class MailController extends Controller
             'text'        => mb_substr($parsed->text(), 0, 50000),
             'bimi'        => (string) ($m['bimi'] ?? ''),
             'bimi_vmc'    => ($m['bimi'] ?? '') !== '' && \M4W\Service\Bimi::verified((string) $m['bimi']),
+            // Sent by this mailbox: what became of it, recipient by recipient.
+            'delivery'    => \M4W\Service\DeliveryReports::forMessage((int) $m['user_id'], (string) $m['message_id']),
         ];
     }
 

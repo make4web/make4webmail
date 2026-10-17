@@ -465,6 +465,8 @@ final class App
         $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $admin);
         $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $admin);
         $r->post('/admin/domains/delete', [Controller\AdminController::class, 'deleteDomain'], $admin);
+        $r->get('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $admin);
+        $r->post('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $admin);
         $r->post('/admin/aliases/save', [Controller\AdminController::class, 'saveAlias'], $admin);
         $r->post('/admin/aliases/delete', [Controller\AdminController::class, 'deleteAlias'], $admin);
         $r->get('/admin/signatures', [Controller\AdminController::class, 'signatures'], $admin);
