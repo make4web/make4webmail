@@ -1008,4 +1008,20 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX push_pending_sub ON push_pending(subscription_id)",
 ],
+38 => [
+// One's own folders at the provider too (ProviderFolders): which local folder is which path there.
+"CREATE TABLE remote_folders (
+  id {PK},
+  account_id INTEGER NOT NULL,
+  folder_id INTEGER NOT NULL,
+  path VARCHAR(255) NOT NULL DEFAULT '',
+  validity INTEGER NOT NULL DEFAULT 0,
+  last_uid INTEGER NOT NULL DEFAULT 0,
+  history_uid INTEGER NOT NULL DEFAULT 0,
+  missing INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX remote_folders_folder ON remote_folders(account_id, folder_id)",
+"ALTER TABLE remote_accounts ADD COLUMN sync_folders INTEGER NOT NULL DEFAULT 1",
+],
 ];

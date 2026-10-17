@@ -51,6 +51,7 @@ use M4W\Service\Delivery;
 use M4W\Storage\Storage;
 use M4W\Service\Search;
 use M4W\Service\Folders;
+use M4W\Service\ProviderFolders;
 use M4W\Service\Forwarding;
 use M4W\Service\Installer;
 use M4W\Service\Mailbox;
@@ -2169,7 +2170,7 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
         $st['boxes']['paul@test.local']['Corbeille'] = ['validity' => 1, 'msgs' => []];
         $st['boxes']['paul@test.local']['Archives'] = ['validity' => 1, 'msgs' => []];
         $st['special']['paul@test.local'] = ['Corbeille' => '\\Trash', 'Archives' => '\\Archive'];
-        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch', 'tw-mark'] as $k => $id) {
+        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch', 'tw-mark', 'tw-own-read', 'tw-fail'] as $k => $id) {
             $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 3000 + $k, 'raw' => $colMsg("To: paul@test.local\r\n", "Deux sens $id", $id), 'flags' => []];
         }
     });
@@ -2210,9 +2211,29 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     ok(!$has('INBOX', 'tw-here-arch') && $has('Archives', 'tw-here-arch'), 'archived here → provider Archives');
     $flag = array_values(array_filter($box('INBOX'), static fn($m) => str_contains($m['raw'], '<tw-here-flag@')))[0];
     ok(in_array('\\Flagged', $flag['flags'], true), 'flagged here → flagged there');
+    // Filed here in a folder of one's own (by hand or by a rule), then read: read there too.
+    Mailbox::move($uid, [(int) $local('tw-own-read')['id']], $own);
+    Mailbox::setFlags($uid, [(int) $local('tw-own-read')['id']], ['is_read' => 1]);
+    eq($sync(), '');
+    $or = array_values(array_filter($box('Clients deux sens'), static fn($m) => str_contains($m['raw'], '<tw-own-read@')));
+    ok(!$has('INBOX', 'tw-own-read') && $or && in_array('\\Seen', $or[0]['flags'], true), 'filed in a folder of one\'s own → in the same folder there, read');
+    // The provider refuses the move: not lost, shown on the account, done at a later pass.
+    $accId = (int) RemoteMailbox::find($uid)['id'];
+    DB::update('remote_accounts', ['trash_folder' => 'Introuvable'], 'id = :id', ['id' => $accId]);
+    Mailbox::setFlags($uid, [(int) $local('tw-fail')['id']], ['is_read' => 1]);
+    Mailbox::move($uid, [(int) $local('tw-fail')['id']], (int) Folders::byRole($uid, 'trash')['id']);
+    eq($sync(), '');
+    $rep = RemoteMailbox::twoWayReport(RemoteMailbox::find($uid));
+    ok($rep['failed'] === 1 && str_contains($rep['error'], 'Introuvable'), 'the failure is reported: ' . json_encode($rep));
+    ok($has('INBOX', 'tw-fail'), 'still in the provider inbox');
+    DB::update('remote_accounts', ['trash_folder' => 'Corbeille'], 'id = :id', ['id' => $accId]);
+    eq($sync(), '');
+    $tf = array_values(array_filter($box('Corbeille'), static fn($m) => str_contains($m['raw'], '<tw-fail@')));
+    ok(!$has('INBOX', 'tw-fail') && $tf && in_array('\\Seen', $tf[0]['flags'], true), 'moved at the next pass, read as here');
+    eq(RemoteMailbox::twoWayReport(RemoteMailbox::find($uid))['failed'], 0);
     // Nothing comes back, nothing is imported twice, and a further pass changes nothing.
     eq($sync(), '');
-    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %' AND subject <> 'Deux sens renum'", ['u' => $uid]), 7, 'no duplicate');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %' AND subject <> 'Deux sens renum'", ['u' => $uid]), 9, 'no duplicate');
     eq([$local('tw-del')['role'], $local('tw-here-del')['role']], ['trash', 'trash']);
     // Same message under another number at the provider (redirection, filter): nothing deleted.
     $colState(static function (array &$st) use ($colMsg) {
@@ -2245,6 +2266,110 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     eq($sync(), '');
     eq($local('tw-here-flag')['role'], 'inbox', 'cleaned up at the provider by us: kept in the inbox here');
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => -1, 'save_sent' => 1], 1);
+});
+test('own folders: the same tree here and at the provider, messages filed alike both ways', function () use ($paul, $colState, $colMsg, $wm) {
+    $uid = (int) $paul['id'];
+    $boxes = static fn() => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'];
+    $in = static fn(string $f, string $id) => (bool) array_filter($boxes()[$f]['msgs'] ?? [], static fn($m) => str_contains($m['raw'], "<$id@ext.com>"));
+    $local = static fn(string $id) => DB::one('SELECT m.*, f.name AS fname, f.role FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND m.message_id = :m', ['u' => $uid, 'm' => "$id@ext.com"]);
+    $sync = static function () use ($uid) { DB::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u', ['u' => $uid]); return RemoteMailbox::sync(RemoteMailbox::find($uid))['error']; };
+    $folder = static fn(string $name) => DB::one('SELECT * FROM folders WHERE user_id = :u AND name = :n', ['u' => $uid, 'n' => $name]);
+    ok(ProviderFolders::enabled(RemoteMailbox::find($uid)), 'an own mailbox');
+    ok(!ProviderFolders::enabled(['user_id' => M4W\Service\Collector::ACCOUNT, 'two_way' => 1, 'sync_folders' => 1, 'forced' => 1]), 'never the collector');
+
+    // Created here (with a sub-folder, an accented name): created there.
+    $proj = Folders::create($uid, 'Projets');
+    $lune = Folders::create($uid, 'Lune', $proj);
+    Folders::create($uid, 'Réunions');
+    $colState(static function (array &$st) use ($colMsg) {
+        foreach (['pf-1', 'pf-2', 'pf-3'] as $k => $id) {
+            $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 5000 + $k, 'raw' => $colMsg("To: paul@test.local\r\n", "Dossiers $id", $id), 'flags' => []];
+        }
+    });
+    eq($sync(), '');
+    ok(isset($boxes()['Projets'], $boxes()['Projets/Lune'], $boxes()['R&AOk-unions']), 'folders created at the provider: ' . implode(', ', array_keys($boxes())));
+    // Filed here: filed there; nothing moves back at the next pass.
+    Mailbox::move($uid, [(int) $local('pf-1')['id']], $lune);
+    eq($sync(), '');
+    ok($in('Projets/Lune', 'pf-1') && !$in('INBOX', 'pf-1'), 'filed here → filed there');
+    eq($sync(), '');
+    eq([(int) $local('pf-1')['folder_id'], $in('Projets/Lune', 'pf-1')], [$lune, true], 'and stays so');
+    // A rule of this webmail files new mail: at the provider too.
+    $rid = DB::insert('rules', RuleEngine::normalize($uid, ['name' => 'projets', 'enabled' => 1, 'conditions' => [['field' => 'subject', 'op' => 'contains', 'value' => 'chantier']],
+        'actions' => [['type' => 'move', 'folder' => $proj]]]) + ['user_id' => $uid, 'sort' => 1, 'created_at' => time(), 'updated_at' => time()]);
+    $colState(static function (array &$st) use ($colMsg) {
+        $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 5010, 'raw' => $colMsg("To: paul@test.local\r\n", 'Le chantier avance', 'pf-rule'), 'flags' => []];
+    });
+    eq($sync(), '');
+    eq($sync(), '');
+    ok($local('pf-rule')['fname'] === 'Projets' && $in('Projets', 'pf-rule') && !$in('INBOX', 'pf-rule'), 'filed by a rule here → in the same folder there');
+    DB::delete('rules', 'id = :id', ['id' => $rid]);
+
+    // On the phone: a new folder, a message filed in it; another taken back to the inbox.
+    $colState(static function (array &$st) {
+        $b = &$st['boxes']['paul@test.local'];
+        $b['Devis'] = ['validity' => 77, 'next' => 1, 'msgs' => []];
+        foreach ($b['INBOX']['msgs'] as $k => $m) {
+            if (str_contains($m['raw'], '<pf-2@')) { $b['Devis']['msgs'][] = ['uid' => $b['Devis']['next']++] + $m; unset($b['INBOX']['msgs'][$k]); }
+        }
+        foreach ($b['Projets/Lune']['msgs'] as $k => $m) {
+            if (str_contains($m['raw'], '<pf-1@')) { $b['INBOX']['msgs'][] = ['uid' => 6000] + $m; unset($b['Projets/Lune']['msgs'][$k]); }
+        }
+        $b['INBOX']['msgs'] = array_values($b['INBOX']['msgs']);
+        $b['Projets/Lune']['msgs'] = array_values($b['Projets/Lune']['msgs']);
+    });
+    eq($sync(), '');
+    ok($folder('Devis') && $local('pf-2')['fname'] === 'Devis', 'folder made on the phone → here, with its message');
+    eq($local('pf-1')['role'], 'inbox', 'taken back to the inbox on the phone → inbox here');
+    ok(!$in('Projets/Lune', 'pf-1') && $in('INBOX', 'pf-1'), 'and not moved back there');
+    // Mail filed by the provider's own filter straight into a folder: brought here.
+    $colState(static function (array &$st) use ($colMsg) {
+        $st['boxes']['paul@test.local']['Devis']['msgs'][] = ['uid' => 50, 'raw' => $colMsg("To: paul@test.local\r\n", 'Devis filtre', 'pf-filter'), 'flags' => []];
+    });
+    eq($sync(), '');
+    eq($local('pf-filter')['fname'] ?? null, 'Devis', 'filed by the provider → here in the same folder');
+
+    // Renamed here: renamed there, with what it holds and the folders under it.
+    Folders::rename($uid, $proj, 'Projets 2026');
+    eq($sync(), '');
+    ok(isset($boxes()['Projets 2026'], $boxes()['Projets 2026/Lune']) && !isset($boxes()['Projets']) && $in('Projets 2026', 'pf-rule'), 'renamed there');
+    eq($local('pf-rule')['fname'], 'Projets 2026');
+    // Renamed on the phone: the same folder here under its new name (seen twice before acting).
+    $colState(static function (array &$st) {
+        $b = &$st['boxes']['paul@test.local'];
+        $b['Compta'] = $b['Devis'];
+        unset($b['Devis']);
+    });
+    eq($sync(), '');
+    eq($sync(), '');
+    ok(!$folder('Devis') && $folder('Compta') && $local('pf-2')['fname'] === 'Compta' && $local('pf-filter')['fname'] === 'Compta', 'renamed on the phone → renamed here');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id IN ('pf-2@ext.com', 'pf-filter@ext.com')", ['u' => $uid]), 2, 'nothing duplicated, nothing trashed');
+
+    // Deleted here: its messages to the provider Trash, then the folder there.
+    Mailbox::move($uid, [(int) $local('pf-3')['id']], $lune);
+    eq($sync(), '');
+    ok($in('Projets 2026/Lune', 'pf-3'), 'filed');
+    Folders::delete($uid, $lune);
+    eq($sync(), '');
+    eq($sync(), '');
+    ok(!isset($boxes()['Projets 2026/Lune']) && $in('Corbeille', 'pf-3'), 'deleted here → its messages in the provider Trash, the folder gone');
+    // Deleted on the phone (its messages first to its Trash): gone here too.
+    $colState(static function (array &$st) {
+        $b = &$st['boxes']['paul@test.local'];
+        foreach ($b['Compta']['msgs'] as $m) { $b['Corbeille']['msgs'][] = ['uid' => 900 + count($b['Corbeille']['msgs'])] + $m; }
+        unset($b['Compta']);
+    });
+    eq($sync(), '');
+    eq($sync(), '');
+    ok(!$folder('Compta') && $local('pf-2')['role'] === 'trash', 'deleted on the phone → messages to the Trash here, folder gone');
+    eq($sync(), '');
+    ok(!isset($boxes()['Compta']), 'not created again');
+    // Switched off: the folders stay as they are on both sides.
+    DB::run('UPDATE remote_accounts SET sync_folders = 0 WHERE user_id = :u', ['u' => $uid]);
+    Folders::create($uid, 'Local seulement');
+    eq($sync(), '');
+    ok(!isset($boxes()['Local seulement']), 'not created there when switched off');
+    DB::run('UPDATE remote_accounts SET sync_folders = 1 WHERE user_id = :u', ['u' => $uid]);
 });
 test('own mailbox: mail delivered here directly (a colleague of the server) is copied to the provider inbox', function () use ($paul, $wm) {
     $uid = (int) $paul['id'];

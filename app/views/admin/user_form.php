@@ -47,6 +47,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
           <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="remote_enabled" value="1" id="rm-en" <?= (int) $rm['enabled'] ? 'checked' : '' ?>><label class="form-check-label" for="rm-en"><?= te('wm.enabled') ?></label></div>
           <?php endif; ?>
           <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="remote_two_way" value="1" id="rm-two" <?= !$rm || (int) ($rm['two_way'] ?? 1) ? 'checked' : '' ?>><label class="form-check-label" for="rm-two"><?= te('wm.two_way') ?></label><div class="form-text"><?= te('wm.two_way_hint') ?></div></div>
+          <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="remote_sync_folders" value="1" id="rm-folders" <?= !$rm || (int) ($rm['sync_folders'] ?? 1) ? 'checked' : '' ?>><label class="form-check-label" for="rm-folders"><?= te('wm.sync_folders') ?></label><div class="form-text"><?= te('wm.sync_folders_hint') ?></div></div>
           <details class="mt-3"<?= !$wm && M4W\Core\Settings::get('webmail.imap_host', '') === '' ? ' open' : '' ?>><summary class="small fw-semibold"><?= te('wm.override') ?></summary>
             <p class="small text-muted mt-2"><?= te($wm || M4W\Core\Settings::get('webmail.imap_host', '') !== '' ? 'wm.override_hint' : 'own.servers_hint') ?></p>
             <div class="row g-2">
@@ -74,6 +75,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
             <?php $tw = (int) ($rm['two_way'] ?? 1) ? M4W\Service\RemoteMailbox::twoWayReport($rm) : null; if ($tw): ?>
             <div class="mt-1"><i class="bi bi-arrow-left-right me-1"></i><?= te('wm.tw_report', ['time' => date('d/m/Y H:i', (int) $tw['at']), 'followed' => $tw['followed'], 'provider' => $tw['provider'], 'trashed' => $tw['trashed'], 'archived' => $tw['archived'], 'moved' => $tw['moved'], 'flags' => $tw['flags']]) ?>
               <?php if ($tw['other_way'] > 0): ?><div class="text-muted"><?= te('wm.tw_other_way', ['n' => $tw['other_way']]) ?></div><?php endif; ?>
+              <?php if (!empty($tw['failed'])): ?><div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i><?= te('wm.tw_failed', ['n' => (int) $tw['failed'], 'error' => (string) ($tw['error'] ?? '')]) ?></div><?php endif; ?>
               <?php if (!empty($tw['waiting_empty'])): ?><div class="text-warning-emphasis"><?= te('wm.tw_waiting_empty') ?></div><?php endif; ?></div>
             <?php endif; ?>
             <?php $col = M4W\Service\Collector::account(); if ($col && M4W\Service\RemoteMailbox::sharedWithOwn($col) && mb_strtolower((string) M4W\Service\RemoteMailbox::effective($col)['login']) === mb_strtolower((string) $eff['login'])): ?>
