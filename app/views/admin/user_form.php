@@ -74,6 +74,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
             <?php $tw = (int) ($rm['two_way'] ?? 1) ? M4W\Service\RemoteMailbox::twoWayReport($rm) : null; if ($tw): ?>
             <div class="mt-1"><i class="bi bi-arrow-left-right me-1"></i><?= te('wm.tw_report', ['time' => date('d/m/Y H:i', (int) $tw['at']), 'followed' => $tw['followed'], 'provider' => $tw['provider'], 'trashed' => $tw['trashed'], 'archived' => $tw['archived'], 'moved' => $tw['moved'], 'flags' => $tw['flags']]) ?>
               <?php if ($tw['other_way'] > 0): ?><div class="text-muted"><?= te('wm.tw_other_way', ['n' => $tw['other_way']]) ?></div><?php endif; ?>
+              <?php if (!empty($tw['failed'])): ?><div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i><?= te('wm.tw_failed', ['n' => (int) $tw['failed'], 'error' => (string) ($tw['error'] ?? '')]) ?></div><?php endif; ?>
               <?php if (!empty($tw['waiting_empty'])): ?><div class="text-warning-emphasis"><?= te('wm.tw_waiting_empty') ?></div><?php endif; ?></div>
             <?php endif; ?>
             <?php $col = M4W\Service\Collector::account(); if ($col && M4W\Service\RemoteMailbox::sharedWithOwn($col) && mb_strtolower((string) M4W\Service\RemoteMailbox::effective($col)['login']) === mb_strtolower((string) $eff['login'])): ?>

@@ -2386,4 +2386,5 @@ Acceptez ou refusez depuis Agenda › Salles et réservations.',
     'js.notif_listen' => 'Écouter',
     'js.notif_sound_delete' => 'Supprimer le son « :name » ?',
     'js.notif_sound_unreadable' => 'Ce fichier ne peut pas être lu par le navigateur : il n\'a pas été gardé.',
+    'wm.tw_failed' => ':n changement(s) fait(s) ici n\'ont pas pu être reportés chez le fournisseur (nouvel essai à chaque relève) : :error',
 ];

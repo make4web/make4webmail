@@ -2169,7 +2169,7 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
         $st['boxes']['paul@test.local']['Corbeille'] = ['validity' => 1, 'msgs' => []];
         $st['boxes']['paul@test.local']['Archives'] = ['validity' => 1, 'msgs' => []];
         $st['special']['paul@test.local'] = ['Corbeille' => '\\Trash', 'Archives' => '\\Archive'];
-        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch', 'tw-mark'] as $k => $id) {
+        foreach (['tw-del', 'tw-arch', 'tw-read', 'tw-here-del', 'tw-here-flag', 'tw-here-arch', 'tw-mark', 'tw-own-read', 'tw-fail'] as $k => $id) {
             $st['boxes']['paul@test.local']['INBOX']['msgs'][] = ['uid' => 3000 + $k, 'raw' => $colMsg("To: paul@test.local\r\n", "Deux sens $id", $id), 'flags' => []];
         }
     });
@@ -2210,9 +2210,29 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     ok(!$has('INBOX', 'tw-here-arch') && $has('Archives', 'tw-here-arch'), 'archived here → provider Archives');
     $flag = array_values(array_filter($box('INBOX'), static fn($m) => str_contains($m['raw'], '<tw-here-flag@')))[0];
     ok(in_array('\\Flagged', $flag['flags'], true), 'flagged here → flagged there');
+    // Filed here in a folder of one's own (by hand or by a rule), then read: read there too.
+    Mailbox::move($uid, [(int) $local('tw-own-read')['id']], $own);
+    Mailbox::setFlags($uid, [(int) $local('tw-own-read')['id']], ['is_read' => 1]);
+    eq($sync(), '');
+    $or = array_values(array_filter($box('INBOX'), static fn($m) => str_contains($m['raw'], '<tw-own-read@')))[0];
+    ok(in_array('\\Seen', $or['flags'], true), 'read in a folder of one\'s own → read in the provider inbox');
+    // The provider refuses the move: not lost, shown on the account, done at a later pass.
+    $accId = (int) RemoteMailbox::find($uid)['id'];
+    DB::update('remote_accounts', ['trash_folder' => 'Introuvable'], 'id = :id', ['id' => $accId]);
+    Mailbox::setFlags($uid, [(int) $local('tw-fail')['id']], ['is_read' => 1]);
+    Mailbox::move($uid, [(int) $local('tw-fail')['id']], (int) Folders::byRole($uid, 'trash')['id']);
+    eq($sync(), '');
+    $rep = RemoteMailbox::twoWayReport(RemoteMailbox::find($uid));
+    ok($rep['failed'] === 1 && str_contains($rep['error'], 'Introuvable'), 'the failure is reported: ' . json_encode($rep));
+    ok($has('INBOX', 'tw-fail'), 'still in the provider inbox');
+    DB::update('remote_accounts', ['trash_folder' => 'Corbeille'], 'id = :id', ['id' => $accId]);
+    eq($sync(), '');
+    $tf = array_values(array_filter($box('Corbeille'), static fn($m) => str_contains($m['raw'], '<tw-fail@')));
+    ok(!$has('INBOX', 'tw-fail') && $tf && in_array('\\Seen', $tf[0]['flags'], true), 'moved at the next pass, read as here');
+    eq(RemoteMailbox::twoWayReport(RemoteMailbox::find($uid))['failed'], 0);
     // Nothing comes back, nothing is imported twice, and a further pass changes nothing.
     eq($sync(), '');
-    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %' AND subject <> 'Deux sens renum'", ['u' => $uid]), 7, 'no duplicate');
+    eq((int) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE 'Deux sens %' AND subject <> 'Deux sens renum'", ['u' => $uid]), 9, 'no duplicate');
     eq([$local('tw-del')['role'], $local('tw-here-del')['role']], ['trash', 'trash']);
     // Same message under another number at the provider (redirection, filter): nothing deleted.
     $colState(static function (array &$st) use ($colMsg) {

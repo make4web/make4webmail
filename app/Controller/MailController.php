@@ -741,9 +741,12 @@ final class MailController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
-        // Followed both ways with the provider: the phone sees it at the next minute.
-        if (in_array($action, ['read', 'unread', 'flag', 'unflag', 'move', 'archive', 'spam', 'not_spam', 'inbox', 'delete', 'purge'], true)) {
-            \M4W\Core\Database::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u AND two_way = 1 AND enabled = 1', ['u' => $uid]);
+        // Followed both ways with the provider: told at once, right after this answer (the
+        // phone and the other mail apps see it within seconds), else at the next check.
+        if (in_array($action, ['read', 'unread', 'flag', 'unflag', 'move', 'archive', 'spam', 'not_spam', 'inbox', 'delete', 'purge'], true)
+            && DB::value('SELECT COUNT(*) FROM remote_accounts WHERE user_id = :u AND two_way = 1 AND enabled = 1', ['u' => $uid])) {
+            DB::run('UPDATE remote_accounts SET last_sync_at = 0 WHERE user_id = :u AND two_way = 1 AND enabled = 1', ['u' => $uid]);
+            \M4W\Core\App::later(static fn() => \M4W\Service\RemoteMailbox::syncIfDue($uid, 0));
         }
         return $this->ok(['count' => $n, 'ids' => $ids, 'folders' => Folders::listWithCounts($uid)] + ($extra ?? []));
     }

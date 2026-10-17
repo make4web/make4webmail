@@ -2313,4 +2313,5 @@ Approve or decline in Calendar › Rooms and bookings.',
     'js.notif_listen' => 'Listen',
     'js.notif_sound_delete' => 'Delete the sound ":name"?',
     'js.notif_sound_unreadable' => 'The browser cannot read this file: it was not kept.',
+    'wm.tw_failed' => ':n change(s) made here could not be applied at the provider (tried again at each check): :error',
 ];

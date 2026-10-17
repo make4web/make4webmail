@@ -811,7 +811,10 @@ final class RemoteMailbox
         $spamRemote = trim((string) Settings::get('webmail.spam_folder', ''));
         $actions = 0;
         // What this pass saw and did, shown on the user form (to tell why something did not follow).
-        $report = ['at' => time(), 'followed' => 0, 'provider' => 0, 'trashed' => 0, 'archived' => 0, 'moved' => 0, 'flags' => 0, 'other_way' => 0, 'waiting_empty' => 0];
+        $report = ['at' => time(), 'followed' => 0, 'provider' => 0, 'trashed' => 0, 'archived' => 0, 'moved' => 0, 'flags' => 0, 'other_way' => 0, 'waiting_empty' => 0, 'failed' => 0, 'error' => ''];
+        // One's own folders: messages filed there (by hand or by a rule) stay in the provider inbox,
+        // their read / flagged state still follows.
+        $ownFolders = array_flip(array_map('intval', array_column(DB::all('SELECT id FROM folders WHERE user_id = :u AND role IS NULL', ['u' => $uid]), 'id')));
         $save = static function () use (&$report, $acc): void {
             Settings::set('webmail.twoway.' . (int) $acc['id'], json_encode($report));
         };
@@ -951,6 +954,11 @@ final class RemoteMailbox
                 }
                 if ($target !== null) {
                     try {
+                        // Read here: read there too (an unread message in the provider Trash would
+                        // still count as new in the other mail apps).
+                        if ($m && (int) $m['is_read'] && !in_array('\\seen', $index[$ruid]['flags'], true)) {
+                            $client->storeFlags($ruid, true, ['\\Seen']);
+                        }
                         if ($target === '') {
                             // No Trash folder at the provider: marked deleted, as a mail app would.
                             $client->markDeleted($ruid);
@@ -963,12 +971,15 @@ final class RemoteMailbox
                         Audit::log('sync.moved_there', mb_substr((string) ($m ? DB::value('SELECT subject FROM messages WHERE id = :id', ['id' => $m['id']]) : $msgid), 0, 150), ['box' => (string) $acc['login'], 'to' => $target !== '' ? $target : 'deleted'], $uid);
                         $actions++;
                     } catch (\RuntimeException $e) {
+                        // Tried again at the next pass; shown on the account (not only in a log).
                         error_log('[m4w] two-way move: ' . $e->getMessage());
+                        $report['failed']++;
+                        $report['error'] = mb_substr(($target !== '' ? $target . ' : ' : '') . $e->getMessage(), 0, 300);
                     }
                     continue;
                 }
-                if (!$m || $where !== $roles[$local]) {
-                    continue; // moved to one of the person's own folders: left alone at the provider
+                if (!$m || ($where !== $roles[$local] && !isset($ownFolders[$where]))) {
+                    continue; // elsewhere here (Sent…): left alone at the provider
                 }
                 // 3. Read / flagged: the side that changed since they last agreed wins.
                 $pf = $index[$ruid]['flags'];

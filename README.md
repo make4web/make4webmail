@@ -151,6 +151,13 @@ En mode boîte collectrice :
 **Boîte personnelle imposée** (fiche utilisateur, dans tous les modes) : l'administrateur peut imposer à un compte sa propre boîte IMAP/SMTP chez le fournisseur. Son courrier y est relevé et part par son SMTP, sans signature DKIM locale et avec réécriture des transferts, comme en mode webmail. Une copie reçue aussi par un autre chemin n'est importée qu'une fois.
 - En mode boîte collectrice, ses adresses ne sont plus à rediriger.
 - Sa boîte a sa propre limite horaire. Une fois atteinte, ou si le fournisseur refuse pour dépassement, les envois **débordent sur la boîte collectrice** (option) : les deux limites s'additionnent. Sans débordement, les messages attendent sa boîte.
+- **Dans les deux sens** (boîte imposée et mode webmail), pour que le téléphone, Roundcube et Make4WebMail montrent la même chose :
+  - **supprimé, archivé ou classé indésirable ici** → déplacé de même chez le fournisseur (dans sa Corbeille, jamais effacé), et marqué lu s'il l'était ici ;
+  - **lu ou suivi ici** → lu ou suivi chez le fournisseur, y compris pour un message rangé ici dans un dossier perso (à la main ou par une règle), qui reste dans la boîte de réception du fournisseur ;
+  - **supprimé, archivé ou lu sur le téléphone** → de même ici ;
+  - ce qui est fait ici est reporté **aussitôt** après l'action (sous PHP-FPM), sinon à la vérification suivante ;
+  - si le fournisseur refuse un déplacement (dossier introuvable…), le changement est réessayé à chaque relève, et l'erreur est affichée dans la fiche utilisateur ;
+  - un message arrivé par un autre chemin (boîte collectrice, redirection) ne suit pas cette boîte. La fiche utilisateur en donne le nombre.
 
 ### Application mobile et notifications push
 - Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.

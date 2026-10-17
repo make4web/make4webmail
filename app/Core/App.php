@@ -42,6 +42,29 @@ final class App
         self::afterResponse();
     }
 
+    /** @var callable[] work to do once the response is sent (see later()) */
+    private static array $later = [];
+
+    /**
+     * Work done right after the response, the person not waiting for it (e.g. the provider
+     * mailbox told at once of what was just done here). Only where the response can be
+     * detached (PHP-FPM / LiteSpeed); elsewhere the scheduled task does it a little later.
+     */
+    public static function later(callable $fn): void
+    {
+        self::$later[] = $fn;
+    }
+
+    private static function detach(): void
+    {
+        Session::close();
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            litespeed_finish_request();
+        }
+    }
+
     /**
      * Autonomy without cron: once the response is flushed, process due outgoing
      * mail (forwards, auto-replies, retries) if the scheduler has not run recently.
@@ -54,6 +77,16 @@ final class App
         if (!Config::installed() || !$canDetach) {
             return;
         }
+        if (self::$later) {
+            self::detach();
+            foreach (self::$later as $fn) {
+                try {
+                    $fn();
+                } catch (\Throwable $e) {
+                    error_log('[m4w] after response: ' . $e->getMessage());
+                }
+            }
+        }
         try {
             if ((int) Settings::get('system.cron_last', 0) > time() - 120) {
                 return;
@@ -63,11 +96,8 @@ final class App
             if ($due === 0 && $scheduled === 0) {
                 return;
             }
-            Session::close();
-            if (function_exists('fastcgi_finish_request')) {
-                fastcgi_finish_request();
-            } else {
-                litespeed_finish_request();
+            if (!self::$later) {
+                self::detach();
             }
             \M4W\Service\Composer::processScheduled(10);
             \M4W\Service\Transport::processQueue(10);
