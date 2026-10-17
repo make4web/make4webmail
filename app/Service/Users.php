@@ -31,6 +31,18 @@ final class Users
         'meet_zoom'      => '',
         'swipe_left'     => 'delete',    // touch screens: action of a row swiped to the left…
         'swipe_right'    => 'read',      // …and to the right (see SWIPE_ACTIONS)
+        // Notifications (see Notify): what, when, how.
+        'notify_new'          => 1,      // each new message
+        'notify_reminder'     => 0,      // "3 unread messages", again while they stay unread
+        'reminder_minutes'    => 30,
+        'notify_period'       => 'always', // always | custom (weekly hours below)
+        'notify_hours'        => '08:00-19:00,08:00-19:00,08:00-19:00,08:00-19:00,08:00-19:00,,',
+        'sound_new'           => 'ding',
+        'sound_reminder'      => 'chime',
+        'sound_volume'        => 70,
+        'sound_file_new'      => '',     // own sounds (Notify::storeSound)
+        'sound_file_reminder' => '',
+        'vibrate'             => 'short',
     ];
 
     /** What a swipe on a message row can do (touch screens). */
@@ -48,7 +60,11 @@ final class Users
             'zoom' => [80, 90, 100, 110, 120],
             'compose_font' => array_keys(\M4W\Controller\SettingsController::fonts()),
             'compose_size' => ['12px', '13px', '14px', '16px', '18px'],
-            'conversations', 'show_images', 'shortcuts', 'undo_send', 'notifications' => [0, 1],
+            'conversations', 'show_images', 'shortcuts', 'undo_send', 'notifications', 'notify_new', 'notify_reminder' => [0, 1],
+            'reminder_minutes' => Notify::REMINDER_MINUTES,
+            'notify_period' => ['always', 'custom'],
+            'sound_new', 'sound_reminder' => Notify::SOUNDS,
+            'vibrate' => array_keys(Notify::VIBRATIONS),
             default => null,
         };
     }
@@ -173,6 +189,9 @@ final class Users
                     'accent' => preg_match('/^#[0-9a-f]{6}$/i', (string) $v) ? (string) $v : '',
                     'avatar' => '',
                     'meet_teams', 'meet_meet', 'meet_zoom' => \M4W\Service\Meetings::validPersonal(substr($k, 5), trim((string) $v)) ? trim((string) $v) : '',
+                    'notify_hours' => Notify::formatHours(Notify::parseHours((string) $v)),
+                    'sound_volume' => max(0, min(100, (int) $v)),
+                    'sound_file_new', 'sound_file_reminder' => preg_match('/^\d+-(new|reminder)-[0-9a-f]{12}\.(mp3|ogg|wav)$/', (string) $v) ? (string) $v : '',
                     default => $v,
                 };
                 $allowed = self::prefChoices($k);

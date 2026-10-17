@@ -3095,7 +3095,8 @@ test('push: new inbox mail reaches the devices; expired ones are forgotten', fun
         $dev = $devices[$ep];
         $msg = json_decode($pushDecrypt($body, $dev[0], $dev[1], $dev[2]), true);
         eq($msg['title'], t('push.title_from', ['name' => 'Client Ext']), 'who it is from, said plainly');
-        eq($msg['body'], 'Devis à valider');
+        eq($msg['body'], "claire@client.fr\nDevis à valider", 'the address and the subject');
+        eq([$msg['kind'], $msg['vibrate'], $msg['silent']], ['new', [200], false], 'kind, vibration of the phone, sound');
         ok(isset($msg['icon']) && is_int($msg['count']), 'the app icon and the unread total (badge)');
         ok((bool) preg_match('~^mail#f/\d+/m/\d+$~', $msg['url']), 'opens the message: ' . $msg['url']);
         eq(count(M4W\Service\WebPush::devices((int) $bob['id'])), 1, 'expired subscription removed');
@@ -3154,6 +3155,136 @@ test('push: a device moves to whoever signs in on it, and leaves with a deleted 
     eq(count(M4W\Service\WebPush::devices($tmpId)), 1, 'cannot remove someone else\'s device');
     Users::delete($tmpId);
     eq((int) DB::value('SELECT COUNT(*) FROM push_subscriptions'), 0);
+});
+
+test('notifications: hours, own sounds, quiet new mail, reminders', function () use ($bob, $pushDecrypt, $sendTo) {
+    $N = M4W\Service\Notify::class;
+    // Weekly hours as for the rooms (Monday first); always by default.
+    eq($N::parseHours('08:00-19:00,,9:00-10:00,10:00-09:00,00:00-23:59,,')[1], ['08:00', '19:00']);
+    eq([$N::parseHours('08:00-19:00,,')[2], $N::parseHours(',,9:00-10:00')[3], $N::parseHours(',,,10:00-09:00')[4]], [null, null, null], 'off, malformed, backwards');
+    eq($N::formatHours($N::parseHours('08:00-12:00,,,,,,10:00-23:59')), '08:00-12:00,,,,,,10:00-23:59');
+    $mon10 = strtotime('2026-10-12 10:00'); $mon20 = strtotime('2026-10-12 20:00'); $sun = strtotime('2026-10-18 23:59');
+    ok($N::inPeriod([], $mon20) && $N::inPeriod(['notify_period' => 'always'], $sun), 'always by default');
+    $p = ['notify_period' => 'custom', 'notify_hours' => '08:00-19:00,,,,,,00:00-23:59'];
+    ok($N::inPeriod($p, $mon10) && !$N::inPeriod($p, $mon20) && !$N::inPeriod($p, strtotime('2026-10-13 10:00')), 'within the hours, not after, not on a day off');
+    ok($N::inPeriod($p, $sun), 'until 23:59 included');
+    eq($N::vibration(['vibrate' => 'pulse']), [200, 100, 200, 100, 200]);
+    eq($N::vibration(['vibrate' => 'none']), []);
+    ok($N::silent(['sound_reminder' => 'none'], 'reminder') && !$N::silent(['sound_reminder' => 'chime'], 'reminder'), 'no sound for the reminder: a silent notification');
+    // Saved preferences are checked.
+    Users::savePrefs((int) $bob['id'], ['sound_new' => 'trumpet', 'notify_hours' => 'n\'importe quoi', 'sound_volume' => 300, 'reminder_minutes' => 7, 'sound_file_new' => '../../etc/passwd']);
+    $pr = Users::find((int) $bob['id'])['prefs'];
+    eq([$pr['sound_new'], $pr['notify_hours'], $pr['sound_volume'], $pr['reminder_minutes'], $pr['sound_file_new']], ['ding', ',,,,,,', 100, 30, ''], 'unknown values refused');
+
+    // Own sound: the content decides (not the name), 1 MB at most, the old one replaced.
+    $tmpf = tempnam(sys_get_temp_dir(), 'snd');
+    file_put_contents($tmpf, '<?php echo 1;');
+    $err = '';
+    try { $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 13); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
+    eq($err, t('notify.sound_not_audio'), 'not a sound');
+    $err = '';
+    try { $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 2 * 1048576); } catch (\InvalidArgumentException $e) { $err = $e->getMessage(); }
+    eq($err, t('notify.sound_too_big'));
+    file_put_contents($tmpf, 'ID3' . str_repeat("\0", 200));
+    $first = $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 203);
+    file_put_contents($tmpf, "RIFF\x10\0\0\0WAVEfmt " . str_repeat("\0", 64));
+    $second = $N::storeSoundFile((int) $bob['id'], 'new', $tmpf, 80);
+    $u = Users::find((int) $bob['id']);
+    eq([$u['prefs']['sound_new'], $u['prefs']['sound_file_new']], ['custom', $second]);
+    $f = $N::soundFile($u, 'new');
+    ok($f && $f['mime'] === 'audio/wav' && is_file($f['path']), 'served to its owner');
+    ok(!is_file(dirname($f['path']) . '/' . $first), 'the previous sound deleted');
+    eq($N::soundFile(['id' => 999] + $u, 'new'), null, 'not to someone else');
+    $N::deleteSound((int) $bob['id'], 'new');
+    ok(!is_file($f['path']) && Users::find((int) $bob['id'])['prefs']['sound_new'] === 'ding', 'removed');
+    @unlink($tmpf);
+
+    // New mail: not outside the hours, not when turned off; the chosen vibration and silence.
+    $sent = [];
+    M4W\Service\WebPush::$transport = function (string $ep, array $h, string $body) use (&$sent) { $sent[] = [$ep, $h, $body]; return 201; };
+    try {
+        DB::delete('push_subscriptions', 'user_id = :u', ['u' => $bob['id']]);
+        $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+        $d = openssl_pkey_get_details($k)['ec'];
+        $pub = "\x04" . str_pad($d['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['y'], 32, "\0", STR_PAD_LEFT);
+        $auth = random_bytes(16);
+        M4W\Service\WebPush::subscribe((int) $bob['id'], 'https://fcm.googleapis.com/fcm/send/notif', M4W\Service\WebPush::b64u($pub), M4W\Service\WebPush::b64u($auth), 'Android');
+        $read = static function (int $i) use (&$sent, $pushDecrypt, $k, $pub, $auth) { return json_decode($pushDecrypt($sent[$i][2], $k, $pub, $auth), true); };
+        $never = ',,,,,,';
+        Users::savePrefs((int) $bob['id'], ['notify_period' => 'custom', 'notify_hours' => $never]);
+        Delivery::deliver($sendTo('bob@test.local', 'La nuit', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'outside the hours: no alert');
+        ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject = 'La nuit'", ['u' => $bob['id']]), 'the mail still arrives');
+        Users::savePrefs((int) $bob['id'], ['notify_period' => 'always', 'notify_new' => 0]);
+        Delivery::deliver($sendTo('bob@test.local', 'Sans alerte', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 0, 'new mail alerts turned off');
+        Users::savePrefs((int) $bob['id'], ['notify_new' => 1, 'vibrate' => 'long', 'sound_new' => 'none']);
+        Delivery::deliver($sendTo('bob@test.local', 'Avec alerte', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        eq(count($sent), 1);
+        $m = $read(0);
+        eq([$m['vibrate'], $m['silent'], $m['kind']], [[600], true, 'new'], 'the vibration chosen, silent with no sound');
+        ok($m['id'] > 0, 'the message (one sound when the open app also sees it)');
+        Users::savePrefs((int) $bob['id'], ['vibrate' => 'short', 'sound_new' => 'ding']);
+
+        // Reminders: only when asked, after the delay, again every N minutes, within the hours.
+        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u', ['u' => $bob['id']]);
+        DB::delete('notify_reminders', '1 = 1');
+        $now = time();
+        foreach (['Relance A' => 'Alice Martin', 'Relance B' => 'Paul'] as $subj => $who) {
+            Delivery::deliver($sendTo('bob@test.local', $subj, 'r@ext.com'), 'r@ext.com', ['bob@test.local']);
+        }
+        DB::run("UPDATE messages SET date_received = :t, from_name = CASE WHEN subject = 'Relance A' THEN 'Alice Martin' ELSE 'Paul' END WHERE user_id = :u AND subject LIKE 'Relance%'", ['t' => $now - 40 * 60, 'u' => $bob['id']]);
+        $sent = [];
+        eq($N::reminders($now), 0, 'not asked for');
+        Users::savePrefs((int) $bob['id'], ['notify_reminder' => 1, 'reminder_minutes' => 60, 'sound_reminder' => 'none']);
+        eq($N::reminders($now), 0, 'not unread long enough');
+        Users::savePrefs((int) $bob['id'], ['reminder_minutes' => 30]);
+        eq($N::reminders($now), 1, 'reminded');
+        $m = $read(0);
+        eq($m['title'], t('notify.reminder_title_n', ['n' => 2]));
+        ok(str_contains($m['body'], 'Alice Martin') && str_contains($m['body'], 'Paul') && str_contains($m['body'], '40'), 'since when, from whom: ' . $m['body']);
+        eq([$m['kind'], $m['tag'], $m['renotify'], $m['silent']], ['reminder', 'm4w-reminder', true, true], 'replaces the previous one, silent when no sound is chosen');
+        eq($N::reminders($now + 60), 0, 'not again a minute later');
+        eq($N::reminders($now + 31 * 60), 1, 'again after the interval, in a loop');
+        Users::savePrefs((int) $bob['id'], ['notify_period' => 'custom', 'notify_hours' => $never]);
+        eq($N::reminders($now + 62 * 60), 0, 'not outside the hours');
+        Users::savePrefs((int) $bob['id'], ['notify_period' => 'always']);
+        DB::run('UPDATE messages SET is_read = 1 WHERE user_id = :u', ['u' => $bob['id']]);
+        eq($N::reminders($now + 93 * 60), 0, 'all read: no more reminder');
+        eq((int) DB::value('SELECT COUNT(*) FROM notify_reminders'), 0, 'and it starts again from zero');
+        Users::savePrefs((int) $bob['id'], ['notify_reminder' => 0, 'sound_reminder' => 'chime']);
+    } finally {
+        M4W\Service\WebPush::$transport = null;
+    }
+});
+
+test('checks: providers every 1 to 15 minutes, each external account at its own pace', function () use ($bob) {
+    Settings::set('webmail.interval', 60);
+    eq(M4W\Service\RemoteMailbox::interval(), 15, '15 minutes at least');
+    Settings::set('webmail.interval', 0);
+    eq(M4W\Service\RemoteMailbox::interval(), 1, 'every minute at most');
+    Settings::set('webmail.interval', 5);
+    $now = time();
+    $mk = static fn(int $every, int $ago) => DB::insert('fetch_accounts', ['user_id' => $bob['id'], 'label' => 'pace ' . $every . '/' . $ago, 'protocol' => 'imap', 'host' => '127.0.0.1', 'port' => 1,
+        'security' => 'none', 'username' => 'x', 'password_enc' => M4W\Core\Crypto::encrypt('x'), 'remote_folder' => 'INBOX', 'enabled' => 1, 'interval_min' => $every,
+        'last_run_at' => $now - $ago, 'created_at' => $now]);
+    $ids = ['own1' => $mk(1, 61), 'default' => $mk(0, 3 * 60), 'default_due' => $mk(0, 5 * 60), 'own15' => $mk(15, 10 * 60)];
+    Settings::set('features.fetch_allow_private', 1);
+    M4W\Service\Fetcher::runAll($now);
+    Settings::set('features.fetch_allow_private', 0);
+    $ran = [];
+    foreach ($ids as $k => $id) {
+        if ((int) DB::value('SELECT last_run_at FROM fetch_accounts WHERE id = :id', ['id' => $id]) >= $now) {
+            $ran[] = $k;
+        }
+    }
+    eq($ran, ['own1', 'default_due'], 'the account checked every minute, the one due at the default pace');
+    Settings::set('features.fetch_allow_private', 1);
+    $id = M4W\Service\Fetcher::save((int) $bob['id'], ['host' => '127.0.0.1', 'security' => 'ssl', 'username' => 'u', 'password' => 'p', 'interval_min' => 7, 'enabled' => 1]);
+    Settings::set('features.fetch_allow_private', 0);
+    eq((int) DB::value('SELECT interval_min FROM fetch_accounts WHERE id = :id', ['id' => $id]), 0, 'only the choices offered');
+    DB::run('DELETE FROM fetch_accounts WHERE user_id = :u', ['u' => $bob['id']]);
+    Settings::set('webmail.interval', 1);
 });
 
 // ------------------------------------------------------------------ built-in spreadsheet

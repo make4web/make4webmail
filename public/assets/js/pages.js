@@ -168,7 +168,7 @@
     $('#acc-modal').on('show.bs.modal', function (e) {
       var d = $(e.relatedTarget).data('account') || {}, $f = $(this).find('form');
       $f[0].reset();
-      ['id', 'label', 'host', 'port', 'security', 'username', 'remote_folder'].forEach(function (k) { if (d[k] !== undefined) $f.find('[name=' + k + ']').val(d[k]); });
+      ['id', 'label', 'host', 'port', 'security', 'username', 'remote_folder', 'interval_min'].forEach(function (k) { if (d[k] !== undefined) $f.find('[name=' + k + ']').val(d[k]); });
       if (!d.id) { $f.find('[name=port]').val(993); $f.find('[name=remote_folder]').val('INBOX'); }
       ['enabled', 'apply_rules', 'delete_remote'].forEach(function (k) { if (d[k] !== undefined) $f.find('[name=' + k + ']').prop('checked', !!+d[k]); });
     });

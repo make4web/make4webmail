@@ -671,7 +671,7 @@ final class AdminController extends Controller
             'webmail.preset' => array_key_exists($r->str('wm_preset'), \M4W\Service\RemoteMailbox::PRESETS) ? $r->str('wm_preset') : 'custom',
             'webmail.imap_host' => $host($r->str('wm_imap_host')), 'webmail.imap_port' => max(1, min(65535, $r->int('wm_imap_port', 993))), 'webmail.imap_security' => $sec($r->str('wm_imap_security')),
             'webmail.smtp_host' => $host($r->str('wm_smtp_host')), 'webmail.smtp_port' => max(1, min(65535, $r->int('wm_smtp_port', 465))), 'webmail.smtp_security' => $sec($r->str('wm_smtp_security')),
-            'webmail.interval' => max(1, min(60, $r->int('wm_interval', 2))),
+            'webmail.interval' => max(1, min(15, $r->int('wm_interval', 1))),
             'webmail.leave_days' => in_array($r->int('wm_leave_days', -1), [-1, 0, 7, 30, 90], true) ? $r->int('wm_leave_days', -1) : -1,
             'webmail.spam_folder' => mb_substr(preg_replace('/[\r\n\x00"\\\\]/', '', $r->str('wm_spam_folder')) ?? '', 0, 100),
             'webmail.verify_peer' => $r->bool('wm_verify_peer') ? 1 : 0,

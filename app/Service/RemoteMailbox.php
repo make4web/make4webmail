@@ -1080,10 +1080,16 @@ final class RemoteMailbox
         return false;
     }
 
+    /** How often mailboxes at a provider are checked (minutes): every minute at most, 15 at least. */
+    public static function interval(): int
+    {
+        return max(1, min(15, (int) Settings::get('webmail.interval', 1)));
+    }
+
     /** Scheduler: every enabled account whose last run is older than the interval. */
     public static function syncAll(): int
     {
-        $interval = max(1, (int) Settings::get('webmail.interval', 2)) * 60 - 5;
+        $interval = self::interval() * 60 - 5;
         $n = 0;
         // The accounts of the current mode (the collector, or every user's mailbox), plus the
         // own mailboxes imposed by the administrator, in any mode.
