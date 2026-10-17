@@ -144,9 +144,9 @@ self.addEventListener('push', function (event) {
   var kind = data.kind === 'reminder' ? 'reminder' : 'new';
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
     var mine = list.filter(function (c) { return c.url.indexOf(base) === 0; });
-    // The app is on screen (the server thought it closed: a missed check): no system
+    // The app is in front (the server thought it closed: a missed check): no system
     // notification, the page checks at once and announces it itself, with the person's sound.
-    if (data.kind && mine.some(function (c) { return c.visibilityState === 'visible'; })) {
+    if (data.kind && mine.some(function (c) { return c.focused; })) {
       mine.forEach(function (c) { c.postMessage({ type: 'm4w-push', kind: kind, id: data.id || 0 }); });
       return;
     }

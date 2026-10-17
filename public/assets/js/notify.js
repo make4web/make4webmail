@@ -66,18 +66,41 @@
    * New mail or a reminder seen by the open app: its sound (and vibration on a phone), once per
    * message even when both the server's push and the page's own check bring it.
    */
+  /** @returns {Promise<boolean|null>} whether the sound played (null: nothing to announce) */
   function alert(kind, id, fromPush) {
-    if (!cfg.on) return;
-    if (kind === 'new' && !cfg.notify_new) return;
-    if (kind === 'reminder' && !cfg.notify_reminder) return;
-    if (!inPeriod()) return;
+    if (!cfg.on) return Promise.resolve(null);
+    if (kind === 'new' && !cfg.notify_new) return Promise.resolve(null);
+    if (kind === 'reminder' && !cfg.notify_reminder) return Promise.resolve(null);
+    if (!inPeriod()) return Promise.resolve(null);
     var key = kind + ':' + (id || Math.floor(Date.now() / 20000));
-    if (played[key]) return;
+    if (played[key]) return Promise.resolve(null);
     played[key] = Date.now();
     // Already announced by the system (its notification, sound and vibration): not twice.
-    if (fromPush) return;
-    play(kind === 'reminder' ? cfg.sound_reminder : cfg.sound_new).catch(function () { /* not allowed yet: no sound */ });
+    if (fromPush) return Promise.resolve(null);
     vibrate();
+    var name = kind === 'reminder' ? cfg.sound_reminder : cfg.sound_new;
+    if (!name || name === 'none') return Promise.resolve(true); // silence chosen: nothing to make up for
+    return play(name).then(function () { return true; }, function () { return false; /* not allowed yet (no touch since loading) */ });
+  }
+
+  /**
+   * New mail seen by the page: its sound, and, when the person is looking elsewhere (another
+   * window, even beside this one; a hidden tab), the app's own notification, since the server
+   * sends no system one to a device where the app is open. Silent if our sound played, with the
+   * system's sound otherwise (the browser refused ours: no touch on the page since it loaded).
+   * @param {{id:number,from_name:string,from_email:string,subject:string}} n
+   * @param {function()} open what clicking it does
+   */
+  function announce(n, open) {
+    alert('new', +n.id).then(function (sounded) {
+      if (sounded === null || document.hasFocus() || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        var no = new Notification(M4W.t('notif_from', { name: n.from_name || n.from_email }), {
+          body: n.subject || M4W.t('no_subject'), tag: 'm4w-' + n.id, silent: !!sounded, icon: $('link[rel=apple-touch-icon]').attr('href')
+        });
+        no.onclick = function () { window.focus(); open(); no.close(); };
+      } catch (e) { /* not allowed here */ }
+    });
   }
 
   // ------------------------------------------------------------- heartbeat
@@ -122,10 +145,10 @@
     if (Date.now() - pushSeen < every) return; // a system notification came meanwhile
     if (Date.now() - unreadSince < every || Date.now() - lastReminder < every || !inPeriod()) return;
     lastReminder = Date.now();
-    alert('reminder', 'r' + lastReminder);
-    if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-      try { new Notification(M4W.t(unread > 1 ? 'notif_reminder_n' : 'notif_reminder_1', { n: unread }), { tag: 'm4w-reminder', renotify: true, icon: $('link[rel=apple-touch-icon]').attr('href') }); } catch (e) { /* ignore */ }
-    }
+    alert('reminder', 'r' + lastReminder).then(function (sounded) {
+      if (sounded === null || document.hasFocus() || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try { new Notification(M4W.t(unread > 1 ? 'notif_reminder_n' : 'notif_reminder_1', { n: unread }), { tag: 'm4w-reminder', renotify: true, silent: !!sounded, icon: $('link[rel=apple-touch-icon]').attr('href') }); } catch (e) { /* ignore */ }
+    });
   }, 60000);
 
   // ---------------------------------------------------------------- badges
@@ -162,7 +185,7 @@
   }
 
   M4W.Notify = {
-    play: play, alert: alert, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg,
+    play: play, alert: alert, announce: announce, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg,
     /** The hash of this device's push subscription, sent with each check (heartbeat). */
     device: function () { return device; },
     refresh: function () { refresh(); }
@@ -204,14 +227,7 @@
           M4W.toast(M4W.t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || M4W.t('no_subject')), 'info', {
             action: { label: M4W.t('open'), fn: function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; } }
           });
-          alert('new', +n.id);
-          // In the background: also the app's own notification (the server sent none here).
-          if (cfg.on && cfg.notify_new && inPeriod() && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-              var no = new Notification(M4W.t('notif_from', { name: n.from_name || n.from_email }), { body: n.subject || M4W.t('no_subject'), tag: 'm4w-' + n.id, silent: true, icon: $('link[rel=apple-touch-icon]').attr('href') });
-              no.onclick = function () { window.focus(); location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; no.close(); };
-            } catch (e) { /* not allowed here */ }
-          }
+          announce(n, function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; });
         }
       });
     }

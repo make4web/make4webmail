@@ -3496,6 +3496,13 @@ test('notifications: no system notification where the app is open; held, sent if
         $sent = [];
         eq($W::flushPending(time() + 30), 0, 'not before the delay');
         eq($W::flushPending(time() + 50), 0, 'still open (checked in lately): kept');
+        DB::run('UPDATE push_subscriptions SET active_at = :t WHERE endpoint_hash = :h', ['t' => time() + 200, 'h' => $subs['pc']]);
+        $sent = [];
+        eq($W::flushPending(time() + $W::HOLD_MAX + 5), 1, 'open but the page never showed it: sent anyway, never lost');
+        DB::run('UPDATE push_subscriptions SET active_at = :t WHERE endpoint_hash = :h', ['t' => time(), 'h' => $subs['pc']]);
+        Delivery::deliver($sendTo('bob@test.local', 'Fermé entre deux bis', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        $W::presence((int) $bob['id'], $subs['pc'], false);
+        $sent = [];
         eq((int) DB::value('SELECT COUNT(*) FROM push_pending'), 1);
         eq($W::flushPending(time() + $W::PRESENCE + 15), 1, 'no check since: sent');
         eq(basename($sent[0][0]), 'pc');
