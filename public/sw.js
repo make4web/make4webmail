@@ -7,7 +7,7 @@
  * so that they become unreadable when the session ends. The kept pages hold no mail; they are
  * dropped all the same when the person signs out ("wipe").
  */
-var STATIC = 'm4w-static-v1', PAGES = 'm4w-pages-v1';
+var STATIC = 'm4w-static-v2', PAGES = 'm4w-pages-v1'; // v2: drops manifests kept by older versions
 var PAGE_NAMES = ['mail', 'calendar'];
 
 self.addEventListener('install', function () { self.skipWaiting(); });
@@ -22,7 +22,7 @@ function rel(url) {
   return url.indexOf(scope) === 0 ? url.slice(scope.length) : null;
 }
 function isStatic(path) {
-  return /^(assets\/|theme\.css|brand\/|app-icon\/|manifest\.webmanifest)/.test(path);
+  return /^(assets\/|theme\.css|brand\/|app-icon\/)/.test(path);
 }
 function pageName(path) {
   var p = path.split('?')[0].split('#')[0].replace(/\/$/, '');
@@ -44,6 +44,16 @@ self.addEventListener('fetch', function (event) {
         });
       });
     }));
+    return;
+  }
+  // The manifest keeps its address while the name or the icons change: always asked to the
+  // server (a kept copy made the installed app ask again and again to change its icon), the
+  // kept copy only without a connection.
+  if (/^manifest\.webmanifest/.test(path)) {
+    event.respondWith(fetch(req).then(function (res) {
+      if (res.ok && res.type === 'basic') { var copy = res.clone(); caches.open(STATIC).then(function (c) { c.put(req, copy); }); }
+      return res;
+    }).catch(function () { return caches.open(STATIC).then(function (c) { return c.match(req); }); }));
     return;
   }
   // Pages: the network first (always the latest), the kept copy without a connection.

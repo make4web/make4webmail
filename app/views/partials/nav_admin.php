@@ -1,10 +1,10 @@
 <?php
 // The customer's administrator sees what is theirs; the super administrator, everything (see is_admin()).
 $super = is_superadmin($currentUser ?? null);
-// 5th value: for the super administrator only.
+// 5th value: hidden unless super administrator.
 $items = [
     ['admin', 'speedometer2', 'admin.nav_dashboard', 'dashboard'],
-    ['admin/users', 'people', 'admin.nav_users', 'users', true],
+    ['admin/users', 'people', 'admin.nav_users', 'users', !can_manage_users($currentUser ?? null)],
     ['admin/domains', 'globe2', 'admin.nav_domains', 'domains', true],
     ['admin/signatures', 'vector-pen', 'admin.nav_signatures', 'signatures'],
     ['admin/branding', 'palette', 'admin.nav_branding', 'branding', true],

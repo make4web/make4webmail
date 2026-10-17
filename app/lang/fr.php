@@ -2656,4 +2656,7 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'audit.update.disconnected' => 'Compte GitHub déconnecté',
     'audit.update.applied' => 'Application mise à jour',
     'audit.update.rolled_back' => 'Mise à jour annulée',
+    'admin.admin_users' => 'Les administrateurs gèrent les comptes',
+    'admin.admin_users_desc' => 'Création, modification, désactivation et suppression des comptes (sauf ceux des super administrateurs, qu\'ils ne voient pas), et rôle utilisateur ou administrateur. Désactivé : seuls les super administrateurs gèrent les comptes.',
+    'admin.no_superadmin_role' => 'Seul un super administrateur peut donner ce rôle.',
 ];

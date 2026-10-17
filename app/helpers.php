@@ -148,3 +148,9 @@ function is_superadmin(?array $user): bool
 {
     return ($user['role'] ?? '') === 'superadmin';
 }
+
+/** Accounts are managed by the super administrator, and by administrators when allowed (Security). */
+function can_manage_users(?array $user): bool
+{
+    return is_superadmin($user) || (is_admin($user) && (int) \M4W\Core\Settings::get('roles.admin_users', 0) === 1);
+}
