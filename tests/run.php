@@ -4253,7 +4253,8 @@ test('domain health: SPF judged for the real senders, DKIM keys found, reverse D
         eq($H::listed('7.100.51.198', 'bl.spamcop.net')['state'], 'listed');
         eq($H::listed('25.2.0.192', 'zen.spamhaus.org')['state'], 'unknown', 'refused answer (public resolver), not a listing');
         eq($H::listed('25.2.0.192', 'b.barracudacentral.org')['state'], 'clean');
-        // The whole report, with a relay sending for the domain.
+        // The whole report, with a relay sending for the domain's people.
+        $ana = DB::insert('users', ['email' => 'ana@sante.test', 'password_hash' => 'x', 'first_name' => 'Ana', 'status' => 'active', 'created_at' => time(), 'updated_at' => time()]);
         Settings::setMany(['mail.mode' => 'relay', 'smtp.host' => 'smtp.prov.test']);
         $H::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
         $r = $H::report('sante.test', true);
@@ -4261,25 +4262,89 @@ test('domain health: SPF judged for the real senders, DKIM keys found, reverse D
         eq([$by['mx']['state'], $by['spf']['state'], $by['dmarc']['state']], ['ok', 'ok', 'ok']);
         eq($by['spf_senders']['state'], 'fail', 'a sender the SPF does not allow');
         ok(str_contains($by['spf_senders']['detail'], '198.51.100.7'));
-        eq($by['dkim']['state'], 'fail', 'no DKIM key');
+        eq($by['dkim_own']['state'], 'fail', 'we send through the relay without signing');
+        ok(!isset($by['dkim']), 'nobody else signs');
+        eq(array_column($r['routes'], 'kind'), ['relay', 'internal'], 'how mail leaves: the relay, colleagues served here');
         eq($by['alignment']['state'], 'fail', 'quarantine without DKIM and with an SPF failure: legitimate mail at risk');
         eq([$by['ptr:192.0.2.25']['state'], $by['ptr:198.51.100.7']['state']], ['ok', 'warn']);
         eq($by['blocklists']['state'], 'fail');
         ok(str_contains($by['blocklists']['detail'], 'SpamCop'));
         eq($r['state'], 'fail');
         eq($H::cachedState('sante.test'), 'fail', 'kept for the list of domains');
-        // A DKIM key published: found under a usual selector.
+        // Ana's own mailbox at the provider: the provider sends and signs, the relay is no longer a sender.
+        DB::insert('remote_accounts', ['user_id' => $ana, 'login' => 'ana@sante.test', 'password_enc' => 'x', 'smtp_host' => 'smtp.prov.test', 'enabled' => 1, 'forced' => 1, 'created_at' => time(), 'updated_at' => time()]);
+        $r = $H::report('sante.test', true);
+        $by = array_column($r['checks'], null, 'key');
+        eq(array_column($r['routes'], 'kind'), ['own', 'internal']);
+        ok(!isset($by['dkim_own']), 'we do not sign: nothing asked of us');
+        eq($by['dkim']['state'], 'warn', 'the provider signs, its selector is not known yet (not a failure)');
+        // The selector given (pasted whole), not published yet, then published.
+        $H::setSelectors('sante.test', 'ovhmo42-selector1._domainkey.sante.test, s&l!');
+        eq($H::givenSelectors('sante.test'), ['ovhmo42-selector1']);
+        $by = array_column($H::report('sante.test', true)['checks'], null, 'key');
+        eq($by['dkim']['state'], 'fail', 'given but no key in the DNS');
         $k = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
         $pub = preg_replace('/-----[^-]+-----|\s/', '', openssl_pkey_get_details($k)['key']);
-        $dns['TXT default._domainkey.sante.test'] = ['v=DKIM1; k=rsa; p=' . $pub];
-        $H::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
+        $dns['TXT ovhmo42-selector1._domainkey.sante.test'] = ['v=DKIM1; k=rsa; p=' . $pub];
         $by = array_column($H::report('sante.test', true)['checks'], null, 'key');
         eq($by['dkim']['state'], 'ok');
-        ok(str_contains($by['dkim']['detail'], 'default (2048 bits)'));
+        ok(str_contains($by['dkim']['detail'], 'ovhmo42-selector1 (2048 bits)'));
         ok(!isset($by['alignment']), 'aligned through DKIM');
+        // Selectors the receivers reported are found on their own.
+        $H::setSelectors('sante.test', '');
+        $rep = DB::insert('dmarc_reports', ['org' => 'g', 'report_id' => 'sante-1', 'domain' => 'sante.test', 'date_end' => time(), 'created_at' => time()]);
+        DB::insert('dmarc_records', ['report_id' => $rep, 'source_ip' => '192.0.2.25', 'messages' => 3, 'dkim' => 'pass', 'spf' => 'pass', 'header_from' => 'sante.test', 'dkim_selector' => 'ovhmo42-selector1']);
+        ok(str_contains(array_column($H::report('sante.test', true)['checks'], null, 'key')['dkim']['detail'], 'ovhmo42-selector1'));
     } finally {
         $H::$resolver = null;
         Settings::setMany(['mail.mode' => 'collector', 'smtp.host' => '']);
+        DB::run("DELETE FROM remote_accounts WHERE login = 'ana@sante.test'");
+        DB::run("DELETE FROM users WHERE email = 'ana@sante.test'");
+        DB::run("DELETE FROM dmarc_records WHERE header_from = 'sante.test'");
+        DB::run("DELETE FROM dmarc_reports WHERE domain = 'sante.test'");
+    }
+});
+test('sender padlock: internal mail, provider mail checked again (DKIM, the provider\'s own SPF line), forged lines ignored', function () {
+    $C = M4W\Service\SenderCheck::class;
+    // Written here by a colleague: marked on delivery, whatever the sender wrote.
+    $res = M4W\Service\Delivery::deliver("X-M4W-Auth: verdict=ok; dmarc=pass\nFrom: Bob <bob@test.local>\nTo: admin@test.local\nSubject: interne\nMessage-ID: <lock1@test.local>\n\nSalut\n", 'bob@test.local', ['admin@test.local'], 'local');
+    eq($res['admin@test.local'], 'ok');
+    $m = DB::one("SELECT * FROM messages WHERE message_id = 'lock1@test.local'");
+    eq($C::forMessage($m, M4W\Service\Mailbox::parsed($m))['state'], 'internal');
+    // Collected from the provider, signed by the sender's domain.
+    $k = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    openssl_pkey_export($k, $priv);
+    $pub = preg_replace('/-----[^-]+-----|\s/', '', openssl_pkey_get_details($k)['key']);
+    $dns = ['TXT s1._domainkey.client.test' => ['v=DKIM1; k=rsa; p=' . $pub], 'TXT _dmarc.client.test' => ['v=DMARC1; p=reject']];
+    M4W\Mail\MailAuth::$resolver = static function (string $type, string $name) use (&$dns) { return $dns[$type . ' ' . $name] ?? []; };
+    try {
+        $body = "From: Claire <claire@client.test>\r\nTo: admin@test.local\r\nSubject: devis\r\nMessage-ID: <lock2@client.test>\r\nDate: " . date('r') . "\r\n\r\nBonjour\r\n";
+        $signed = (new M4W\Mail\DkimSigner('client.test', 's1', $priv))->sign($body);
+        $trace = "X-M4W-Fetched: admin@test.local; inbox; INBOX; uid=1\r\n"
+            . "Authentication-Results: mx3.provider.test; spf=pass smtp.mailfrom=claire@client.test; dmarc=pass\r\n"
+            . "Received: from out.client.test by mx3.provider.test with ESMTPS; " . date('r') . "\r\n";
+        $raw = $trace . $signed;
+        $p = M4W\Mail\MimeParser::parse($raw);
+        $r = $C::collected($p, $raw, ['provider.test']);
+        eq([$r['state'], $r['spf'], $r['dmarc']], ['verified', 'pass', 'pass']);
+        ok(str_contains($r['dkim'], 'pass@client.test'));
+        // The same lines written by the sender (below the provider's Received) count for nothing.
+        $forged = "X-M4W-Fetched: admin@test.local; inbox; INBOX; uid=2\r\nReceived: from x by mx3.provider.test; " . date('r') . "\r\n"
+            . "Authentication-Results: mx3.provider.test; spf=pass smtp.mailfrom=claire@client.test; dmarc=pass\r\n"
+            . "From: Claire <claire@client.test>\r\nTo: admin@test.local\r\nSubject: devis\r\n\r\nBonjour\r\n";
+        $r = $C::collected(M4W\Mail\MimeParser::parse($forged), $forged, ['provider.test']);
+        ok($r['state'] !== 'verified', 'forged results ignored');
+        eq($r['spf'], '');
+        // Signature broken (body changed): DMARC reject fails.
+        $broken = str_replace('Bonjour', 'Payez ici', $raw);
+        $broken = str_replace(['spf=pass', 'dmarc=pass'], ['spf=fail', 'dmarc=fail'], $broken);
+        eq($C::collected(M4W\Mail\MimeParser::parse($broken), $broken, ['provider.test'])['state'], 'failed');
+        // Another domain signs (a mailing service): partly verified.
+        $dns['TXT s1._domainkey.mailer.test'] = $dns['TXT s1._domainkey.client.test'];
+        $other = "X-M4W-Fetched: x; inbox; INBOX; uid=3\r\n" . (new M4W\Mail\DkimSigner('mailer.test', 's1', $priv))->sign($body);
+        eq($C::collected(M4W\Mail\MimeParser::parse($other), $other, ['provider.test'])['state'], 'partial');
+    } finally {
+        M4W\Mail\MailAuth::$resolver = null;
     }
 });
 test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {

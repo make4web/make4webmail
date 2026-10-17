@@ -237,6 +237,8 @@ final class MailController extends Controller
             'bcc'         => json_decode((string) $m['bcc_list'], true) ?: [],
             'reply_to'    => $parsed->replyTo(),
             'auth'        => ($a = $parsed->header('X-M4W-Auth')) ? \M4W\Mail\MailAuth::parse($a) : null,
+            'sender_check' => $m['is_draft'] || in_array(Folders::find((int) $m['user_id'], (int) $m['folder_id'])['role'] ?? '', ['sent', 'drafts'], true)
+                ? null : \M4W\Service\SenderCheck::forMessage($m, $parsed, static fn() => Mailbox::raw($m)),
             'date'        => (int) ($m['date_sent'] ?: $m['date_received']),
             'received'    => (int) $m['date_received'],
             'size'        => (int) $m['size'],

@@ -191,8 +191,11 @@ final class DomainHealth
 
     // ---------------------------------------------------------------- DKIM
 
-    /** Selectors really used for the domain, read in the signatures of mail received from it. */
-    public static function seenSelectors(string $domain, int $max = 40): array
+    /**
+     * Selectors really used for the domain, read in the signatures of mail received from it (only
+     * mail that travelled: what colleagues send each other here is never signed).
+     */
+    public static function seenSelectors(string $domain, int $max = 150): array
     {
         $out = [];
         $rows = DB::all("SELECT * FROM messages WHERE LOWER(from_email) LIKE :d AND is_draft = 0 ORDER BY id DESC LIMIT $max", ['d' => '%@' . mb_strtolower($domain)]);
@@ -211,16 +214,68 @@ final class DomainHealth
                     }
                 }
             }
+            if (count($out) >= 4) {
+                break;
+            }
         }
         return array_keys($out);
     }
 
-    /** DKIM keys published: [selector => ['origin' => configured|seen|usual, 'key' => bool, 'bits' => int]]. */
+    /** Selectors the receivers saw signing for the domain (DMARC aggregate reports, 90 days). */
+    public static function reportedSelectors(string $domain): array
+    {
+        return array_values(array_filter(array_map('strval', array_column(DB::all("SELECT DISTINCT r.dkim_selector FROM dmarc_records r JOIN dmarc_reports p ON p.id = r.report_id
+            WHERE LOWER(r.header_from) = :d AND r.dkim_selector <> '' AND p.date_end > :t LIMIT 10", ['d' => mb_strtolower($domain), 't' => time() - 90 * 86400]), 'dkim_selector'))));
+    }
+
+    /** Selectors the administrator gave (the provider's, which cannot be guessed: OVH's carry the account number). */
+    public static function givenSelectors(string $domain): array
+    {
+        return self::cleanSelectors((string) Settings::get('domain.dkim.' . mb_strtolower($domain), ''));
+    }
+
+    public static function cleanSelectors(string $list): array
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', mb_strtolower($list)) ?: [] as $s) {
+            // "sel._domainkey.example.com" pasted whole: the selector is the first label.
+            $s = (string) preg_replace('/\._domainkey\..*$/', '', trim($s, " .\t"));
+            if (preg_match('/^[a-z0-9]([a-z0-9._-]{0,62})$/', $s)) {
+                $out[$s] = true;
+            }
+        }
+        return array_slice(array_keys($out), 0, 10);
+    }
+
+    public static function setSelectors(string $domain, string $list): void
+    {
+        Settings::set('domain.dkim.' . mb_strtolower($domain), implode(' ', self::cleanSelectors($list)));
+    }
+
+    /** Whether Make4WebMail signs itself for the domain (its own key, used when it sends without a provider). */
+    public static function ownKey(string $domain): string
+    {
+        $d = mb_strtolower(trim((string) Settings::get('smtp.dkim_domain', '')));
+        $domain = mb_strtolower($domain);
+        $sel = strtolower(trim((string) Settings::get('smtp.dkim_selector', '')));
+        return $sel !== '' && Settings::secret('smtp.dkim_private') !== '' && ($d === $domain || str_ends_with($domain, '.' . $d)) ? $sel : '';
+    }
+
+    /**
+     * DKIM keys published: [selector => ['origin' => configured|given|reported|seen|usual, 'key' => bool, 'bits' => int]].
+     * A selector found but whose key is missing is kept (it says what to publish).
+     */
     public static function dkim(string $domain): array
     {
         $candidates = [];
-        if (strcasecmp((string) Settings::get('smtp.dkim_domain', ''), $domain) === 0 && Settings::get('smtp.dkim_selector', '') !== '') {
-            $candidates[strtolower((string) Settings::get('smtp.dkim_selector'))] = 'configured';
+        if (($own = self::ownKey($domain)) !== '') {
+            $candidates[$own] = 'configured';
+        }
+        foreach (self::givenSelectors($domain) as $s) {
+            $candidates[$s] ??= 'given';
+        }
+        foreach (self::reportedSelectors($domain) as $s) {
+            $candidates[$s] ??= 'reported';
         }
         foreach (self::seenSelectors($domain) as $s) {
             $candidates[$s] ??= 'seen';
@@ -244,6 +299,50 @@ final class DomainHealth
         return $out;
     }
 
+    // ---------------------------------------------------------------- routes
+
+    /**
+     * How the domain's people send, given the configuration: [['kind', 'host', 'users', 'signer']].
+     *  - internal: to colleagues, delivered here (nothing travels: no SPF, no DKIM needed);
+     *  - own: through the person's own mailbox at the provider (the provider signs);
+     *  - collector / webmail: through the provider's account (the provider signs);
+     *  - relay: through the SMTP relay configured (we sign with our key if there is one);
+     *  - server: straight to the receivers from this server (we sign, our address must be in SPF).
+     */
+    public static function routes(string $domain): array
+    {
+        $mode = RemoteMailbox::mode();
+        $routes = [];
+        $add = static function (string $kind, string $host, string $signer) use (&$routes): void {
+            $k = $kind . '|' . $host;
+            $routes[$k] ??= ['kind' => $kind, 'host' => $host, 'users' => 0, 'signer' => $signer];
+            $routes[$k]['users']++;
+        };
+        $own = self::ownKey($domain) !== '' ? 'm4w' : 'none';
+        $collector = $mode === 'collector' ? Collector::account() : null;
+        $users = DB::all("SELECT id FROM users WHERE LOWER(email) LIKE :d AND status = 'active' LIMIT 2000", ['d' => '%@' . mb_strtolower($domain)]);
+        foreach ($users as $u) {
+            $uid = (int) $u['id'];
+            if ($mode === 'webmail') {
+                $acc = RemoteMailbox::find($uid);
+                $add('webmail', $acc ? (string) RemoteMailbox::effective($acc)['smtp_host'] : '', 'provider');
+            } elseif ($p = RemoteMailbox::personal($uid)) {
+                $add('own', (string) RemoteMailbox::effective($p)['smtp_host'], 'provider');
+            } elseif ($mode === 'collector') {
+                $add('collector', $collector ? (string) RemoteMailbox::effective($collector)['smtp_host'] : '', 'provider');
+            } elseif ($mode === 'relay') {
+                $add('relay', (string) Settings::get('smtp.host', ''), $own);
+            } else {
+                $add('server', (string) (Settings::get('smtp.helo', '') ?: gethostname()), $own);
+            }
+        }
+        $routes = array_values($routes);
+        if ($mode !== 'webmail' && $users) {
+            $routes[] = ['kind' => 'internal', 'host' => '', 'users' => count($users), 'signer' => 'none'];
+        }
+        return $routes;
+    }
+
     // ---------------------------------------------------------------- senders
 
     /**
@@ -253,24 +352,11 @@ final class DomainHealth
      */
     public static function sendingIps(string $domain, int $max = 8): array
     {
+        // Only the routes really used (a relay configured but used by nobody does not count).
         $hosts = [];
-        $mode = RemoteMailbox::mode();
-        if (in_array($mode, ['relay', ''], true) && Settings::get('smtp.host', '') !== '') {
-            $hosts[(string) Settings::get('smtp.host')] = 'relay';
-        }
-        if ($mode === 'server') {
-            $hosts[(string) (Settings::get('smtp.helo', '') ?: gethostname())] = 'server';
-        }
-        foreach (DB::all("SELECT r.* FROM remote_accounts r JOIN users u ON u.id = r.user_id WHERE r.enabled = 1 AND LOWER(u.email) LIKE :d LIMIT 50", ['d' => '%@' . mb_strtolower($domain)]) as $acc) {
-            $h = (string) RemoteMailbox::effective($acc)['smtp_host'];
-            if ($h !== '') {
-                $hosts[$h] = 'provider';
-            }
-        }
-        if ($mode === 'collector' && ($c = Collector::account())) {
-            $h = (string) RemoteMailbox::effective($c)['smtp_host'];
-            if ($h !== '') {
-                $hosts[$h] = 'provider';
+        foreach (self::routes($domain) as $r) {
+            if ($r['kind'] !== 'internal' && $r['host'] !== '') {
+                $hosts[$r['host']] = ['own' => 'provider', 'collector' => 'provider', 'webmail' => 'provider'][$r['kind']] ?? $r['kind'];
             }
         }
         $ips = [];
@@ -452,14 +538,37 @@ final class DomainHealth
             $bad = array_keys(array_filter($senders, static fn($s) => $s['spf'] !== 'pass'));
             $add('spf_senders', $bad ? 'fail' : 'ok', $bad ? t('dh.spf_senders_bad', ['ips' => implode(', ', $bad)]) : t('dh.spf_senders_ok', ['n' => count($senders)]), $bad ? t('dh.tip_spf_senders') : '');
         }
-        // DKIM
+        // DKIM, judged for who really signs: the provider (its selectors cannot be guessed, the
+        // administrator gives them or they are found in reports and messages), or us (our key).
+        $routes = self::routes($domain);
         $dkim = self::dkim($domain);
         $valid = array_filter($dkim, static fn($k) => $k['key']);
         $weak = array_filter($valid, static fn($k) => $k['bits'] > 0 && $k['bits'] < 1024);
-        if ($valid) {
-            $add('dkim', $weak ? 'warn' : 'ok', implode(', ', array_map(static fn($s, $k) => $s . ($k['bits'] ? ' (' . $k['bits'] . ' bits)' : '') . ' · ' . t('dh.dkim_origin_' . $k['origin']), array_keys($valid), $valid)), $weak ? t('dh.tip_dkim_weak') : '');
-        } else {
-            $add('dkim', 'fail', t('dh.dkim_none'), t('dh.tip_dkim_none'));
+        $byProvider = (bool) array_filter($routes, static fn($r) => $r['signer'] === 'provider');
+        $byUs = (bool) array_filter($routes, static fn($r) => $r['signer'] === 'm4w');
+        $unsigned = array_values(array_filter($routes, static fn($r) => $r['signer'] === 'none' && $r['kind'] !== 'internal'));
+        $label = static fn(array $keys) => implode(', ', array_map(static fn($s, $k) => $s . ($k['bits'] ? ' (' . $k['bits'] . ' bits)' : '') . ' · ' . t('dh.dkim_origin_' . $k['origin']), array_keys($keys), $keys));
+        $missing = array_keys(array_filter($dkim, static fn($k) => !$k['key'] && $k['origin'] !== 'usual'));
+        $providerKeys = array_filter($valid, static fn($k) => $k['origin'] !== 'configured');
+        if ($byProvider) {
+            if ($providerKeys) {
+                $add('dkim', $weak ? 'warn' : 'ok', t('dh.dkim_provider_ok') . ' ' . $label($providerKeys), $weak ? t('dh.tip_dkim_weak') : '');
+            } elseif ($missing) {
+                $add('dkim', 'fail', t('dh.dkim_missing', ['selectors' => implode(', ', $missing)]), t('dh.tip_dkim_missing'));
+            } else {
+                $add('dkim', 'warn', t('dh.dkim_provider_unknown'), t('dh.tip_dkim_provider'));
+            }
+        }
+        if ($byUs) {
+            $ours = self::ownKey($domain);
+            $ok = isset($valid[$ours]);
+            $add('dkim_own', $ok ? ($weak ? 'warn' : 'ok') : 'fail', $ok ? $label([$ours => $valid[$ours]]) : t('dh.dkim_own_unpublished', ['selector' => $ours, 'domain' => $domain]), $ok ? '' : t('dh.tip_dkim_own'));
+        }
+        if ($unsigned) {
+            $add('dkim_own', 'fail', t('dh.dkim_unsigned', ['n' => array_sum(array_column($unsigned, 'users'))]), t('dh.tip_dkim_none'));
+        }
+        if (!$byProvider && !$byUs && !$unsigned) {
+            $add('dkim', $valid ? 'ok' : 'warn', $valid ? $label($valid) : t('dh.dkim_none'));
         }
         // DMARC
         $dmarc = array_values(array_filter(self::lookup('TXT', '_dmarc.' . $domain), static fn($t) => stripos(trim($t), 'v=DMARC1') === 0));
@@ -512,6 +621,7 @@ final class DomainHealth
             }
         }
         return ['at' => time(), 'domain' => $domain, 'state' => $worst, 'checks' => $checks, 'senders' => $senders, 'dkim' => $dkim, 'domain_lists' => $domainLists,
+            'routes' => $routes, 'selectors' => self::givenSelectors($domain),
             'dmarc_reports' => array_values(array_filter(DmarcReports::summary(30)['domains'] ?? [], static fn($r) => strcasecmp((string) $r['domain'], $domain) === 0))];
     }
 }

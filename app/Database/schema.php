@@ -1057,4 +1057,10 @@ static function (): void {
 ) {OPT}",
 "CREATE INDEX delivery_status_msg ON delivery_status(user_id, message_id)",
 ],
+42 => [
+// DKIM selectors the receivers saw signing (DMARC reports), and the sender check of messages
+// collected from a provider, worked out once when first read.
+"ALTER TABLE dmarc_records ADD COLUMN dkim_selector VARCHAR(64) NOT NULL DEFAULT ''",
+"ALTER TABLE messages ADD COLUMN auth_cache VARCHAR(255) NOT NULL DEFAULT ''",
+],
 ];

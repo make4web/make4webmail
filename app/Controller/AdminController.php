@@ -456,6 +456,9 @@ final class AdminController extends Controller
             return Response::redirect('/admin/domains');
         }
         \M4W\Core\Session::close();
+        if ($this->req->method === 'POST' && $this->req->input('selectors') !== null) {
+            \M4W\Service\DomainHealth::setSelectors((string) $d['name'], $this->req->str('selectors'));
+        }
         $report = \M4W\Service\DomainHealth::report((string) $d['name'], $this->req->method === 'POST');
         return $this->page('domain_health', ['domain' => $d, 'r' => $report]);
     }

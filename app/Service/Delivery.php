@@ -27,6 +27,9 @@ final class Delivery
         $raw = self::sanitizeIncoming($raw);
         if ($auth !== null) {
             $raw = \M4W\Mail\MailAuth::headers($auth, (string) Settings::get('smtp.helo', '') ?: (gethostname() ?: 'localhost')) . $raw;
+        } elseif ($source === 'local') {
+            // Written here by someone signed in: the sender is known (padlock in the reading pane).
+            $raw = "X-M4W-Auth: verdict=internal\n" . $raw;
         }
         // Unauthenticated mail must not trigger forwarding of spoofed content to auto-replies, nor rule actions keyed on the sender.
         $suspicious = $auth !== null && $auth['verdict'] !== 'ok';

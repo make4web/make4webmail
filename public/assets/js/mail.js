@@ -542,6 +542,19 @@
     return '<div class="m4w-msg-atts"><div class="w-100 small text-muted mb-1"><i class="bi bi-paperclip"></i> ' + esc(t('n_attachments', { n: atts.length, size: M4W.bytes(total) })) + zip + '</div>' + html + '</div>';
   }
 
+  // Padlock after the sender's address: is the sender really who the From says (SenderCheck.php)?
+  function senderLock(c) {
+    if (!c || !c.state || c.state === 'none') return '';
+    var look = { internal: ['building-lock', 'text-primary'], verified: ['lock-fill', 'text-success'], partial: ['lock', 'text-muted'], failed: ['unlock', 'text-warning'] }[c.state];
+    if (!look) return '';
+    var rows = c.state === 'internal' ? '' : [['SPF', c.spf], ['DKIM', (c.dkim || '').replace(/@/g, ' · ').replace(/,/g, ', ')], ['DMARC', c.dmarc]].filter(function (r) { return r[1] && r[1] !== 'none'; })
+      .map(function (r) { return '<tr><td class="text-muted pe-2">' + r[0] + '</td><td class="text-break">' + esc(r[1]) + '</td></tr>'; }).join('');
+    return ' <span class="dropdown m4w-sender-lock"><button type="button" class="btn btn-link p-0 align-baseline ' + look[1] + '" data-bs-toggle="dropdown" title="' + esc(t('lock_' + c.state)) + '" aria-label="' + esc(t('lock_' + c.state)) + '"><i class="bi bi-' + look[0] + '"></i></button>'
+      + '<div class="dropdown-menu p-3 small" style="min-width:260px;max-width:380px"><div class="fw-semibold mb-1"><i class="bi bi-' + look[0] + ' ' + look[1] + ' me-1"></i>' + esc(t('lock_' + c.state)) + '</div>'
+      + '<div class="text-muted mb-2">' + esc(t('lock_' + c.state + '_text')) + '</div>'
+      + (rows ? '<table class="w-100">' + rows + '</table>' : '') + (c.by ? '<div class="text-muted mt-1">' + esc(t('lock_by', { by: c.by })) + '</div>' : '') + '</div></span>';
+  }
+
   function messageCard(msg, expanded) {
     var from = msg.from || {};
     var rcpt = '<div class="m4w-msg-recipients"><span class="dropdown"><a href="#" class="dropdown-toggle text-muted" data-bs-toggle="dropdown">' + esc(t('to_prefix')) + ' ' + addrList(msg.to.slice(0, 3)) + (msg.to.length > 3 ? '…' : '') + (msg.cc.length ? ', ' + addrList(msg.cc.slice(0, 2)) : '') + '</a>'
@@ -556,7 +569,7 @@
       + '</table></div></span></div>';
     var banner = '';
     var verdict = msg.auth && msg.auth.verdict;
-    if (verdict && verdict !== 'ok') {
+    if (verdict && verdict !== 'ok' && verdict !== 'internal') {
       banner += '<div class="m4w-msg-banner danger" role="alert"><i class="bi bi-shield-exclamation"></i><span><strong>' + esc(t('auth_' + verdict + '_title')) + '</strong> ' + esc(t('auth_' + verdict + '_text', { domain: (from.email || '').split('@').pop() })) + '</span></div>';
     }
     if (msg.impersonation) {
@@ -597,7 +610,7 @@
     }
     return '<article class="m4w-msg' + (expanded ? '' : ' collapsed') + '" data-msg="' + msg.id + '">'
       + '<div class="m4w-msg-head" data-toggle-msg>' + M4W.avatar(from.name || from.email, from.email, 'lg', msg.bimi, msg.bimi_vmc)
-      + '<div class="m4w-msg-who"><div><span class="m4w-msg-name">' + esc(from.name || from.email) + '</span> <span class="m4w-msg-email">&lt;' + esc(from.email) + '&gt;</span></div>'
+      + '<div class="m4w-msg-who"><div><span class="m4w-msg-name">' + esc(from.name || from.email) + '</span> <span class="m4w-msg-email">&lt;' + esc(from.email) + '&gt;</span>' + senderLock(msg.sender_check) + '</div>'
       + rcpt + '<div class="m4w-msg-snippet">' + esc(msg.snippet) + '</div></div>'
       + '<div class="d-flex align-items-start gap-1"><div class="m4w-msg-date pt-1">' + (msg.attachments.some(function (a) { return !a.inline; }) ? '<i class="bi bi-paperclip me-1"></i>' : '') + esc(M4W.date(msg.date)) + '<div class="small-2 d-none d-md-block">' + esc(M4W.relative(msg.date)) + '</div></div>'
       + '<span class="m4w-msg-actions-inline d-flex"><button class="btn btn-ghost btn-icon btn-sm" data-msg-act="star" title="' + esc(t('star')) + '"><i class="bi bi-star' + (msg.flagged ? '-fill text-warning' : '') + '"></i></button>'
