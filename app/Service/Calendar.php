@@ -65,7 +65,7 @@ final class Calendar
         }
         if ($c['kind'] === 'room') {
             // Rooms are booked from an event (free and open slots only), not written directly.
-            if (($user['role'] ?? '') === 'admin') {
+            if (is_admin($user)) {
                 return 3;
             }
             return in_array($uid, Rooms::config($c)['managers'], true) ? 2 : 1;
@@ -92,7 +92,7 @@ final class Calendar
     public static function create(array $user, string $name, string $kind = 'personal', string $color = ''): int
     {
         $kind = in_array($kind, ['personal', 'shared', 'room'], true) ? $kind : 'personal';
-        if ($kind === 'room' && ($user['role'] ?? '') !== 'admin') {
+        if ($kind === 'room' && !is_admin($user)) {
             throw new \InvalidArgumentException(t('cal.rooms_admin'));
         }
         $name = trim(mb_substr($name, 0, 190));

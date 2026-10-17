@@ -28,7 +28,7 @@ Aucune dépendance Composer ni npm n'est nécessaire à l'exécution. jQuery 4, 
   - priorité haute et accusé de lecture ;
   - alerte « pièce jointe oubliée ? » ;
   - transfert en ligne ou en pièce jointe, et « modifier comme nouveau ».
-- **Signature centralisée et imposée** : un seul modèle actif, défini par l'administrateur, s'applique à tous les utilisateurs et à tous les messages, réponses comprises. L'utilisateur ne peut ni le modifier, ni en choisir un autre ; il en voit seulement l'aperçu. La signature est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
+- **Signature centralisée et imposée** : un seul modèle actif, défini par l'administrateur, s'applique à tous les utilisateurs et à tous les messages, réponses comprises. L'utilisateur ne peut ni le modifier, ni en choisir un autre ; il en voit l'aperçu et peut, si l'administrateur le permet, remplacer l'encart d'information placé au-dessus. La signature est injectée côté serveur au moment de l'envoi, avant la citation, avec le logo embarqué en CID.
 - **Règles de messages entrants** :
   - conditions : expéditeur, destinataires, objet, corps, en-tête, taille, pièce jointe, priorité ;
   - actions : déplacer, copier, marquer comme lu, suivre, mettre à la corbeille, transférer, répondre automatiquement, supprimer, arrêter le traitement ;
@@ -203,6 +203,12 @@ Limites des navigateurs :
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
 ### Administration
+- **Trois rôles** :
+  - **super administrateur** : tous les droits. C'est le compte créé à l'installation, pour qui installe et exploite la messagerie (le prestataire qui la gère pour son client) ;
+  - **administrateur** : l'administration côté client, sans la configuration de l'outil. Il a accès au tableau de bord, aux signatures, aux messages supprimés, à la supervision et aux journaux. Il crée et règle les salles. Il ouvre les fichiers de chacun (« Fichiers de… » dans le volet Fichiers, consigné dans l'audit). Il ajoute une autre boîte à son compte sans son mot de passe ;
+  - **utilisateur** : utilise la messagerie. Il peut ajouter une autre boîte avec son mot de passe (la boîte reçoit un message qui l'en prévient), et gérer une salle dont il est gestionnaire.
+
+  Utilisateurs, domaines, personnalisation, réglages des fichiers, serveur de messagerie, antispam, visioconférence et sécurité sont réservés au super administrateur. Il reste toujours au moins un super administrateur actif. À la mise à jour (migration 44), le premier administrateur devient super administrateur.
 - **Santé d'un domaine** (Domaines & alias → bouton « Santé ») : pourquoi un message envoyé depuis ce domaine arrive, ou pas. La page reprend :
   - **comment les messages partent**, d'après la configuration : entre collègues (remis sur place, ni SPF ni DKIM ne s'appliquent), par la boîte perso ou la boîte collectrice chez le fournisseur (c'est lui qui signe), par un relais ou directement depuis le serveur (Make4WebMail signe avec sa clé). Les contrôles suivants sont jugés selon ces chemins ;
   - l'authentification : SPF évalué pour les adresses qui envoient réellement (celles des chemins utilisés, et celles vues dans les rapports DMARC), avec le nombre de consultations DNS ; DKIM de celui qui signe vraiment : le fournisseur (ses sélecteurs ne se devinent pas, ceux d'OVH portent le numéro du compte : on les recopie sur la page, ou ils sont trouvés dans les rapports DMARC et dans les messages du domaine venus de l'extérieur) ou Make4WebMail (sa clé doit être publiée) ; DMARC (politique, alignement, rapports) ;
@@ -220,7 +226,14 @@ Limites des navigateurs :
   - changement de mot de passe forcé, réinitialisation de la 2FA ;
   - actions groupées et import CSV.
 - Domaines hébergés et alias.
-- **Modèles de signature** : éditeur HTML avec aperçu en direct pour n'importe quel utilisateur, variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Un seul modèle est actif pour tous ; les autres sont des brouillons, activables en un clic. Il y a toujours un modèle actif tant qu'il en existe un.
+- **Modèles de signature** : mise en page guidée, avec aperçu en direct pour n'importe quel utilisateur :
+  - logo de la Personnalisation, logo propre au modèle ou aucun ; hauteur ; à gauche ou à droite ;
+  - séparateur vertical ou non, dans la couleur principale ou une autre ;
+  - site internet sous l'adresse e-mail (par défaut) ou à côté ;
+  - réseaux sociaux en petites icônes cliquables, côte à côte sous l'adresse postale (couleur ou gris). Les icônes, comme le logo, partent avec le message (CID) ;
+  - encart d'information au-dessus de la signature (fermetures, informations du moment), que chacun peut, si l'administrateur le permet, remplacer par le sien ou retirer (Paramètres › Signature).
+
+  Pour une mise en page libre, « Écrire mon propre HTML » part de la mise en page guidée : variables (`{{display_name}}`, `{{job_title}}`, `{{phone}}`, `{{logo}}`, `{{socials}}`, `{{notice}}`…) et sections conditionnelles (`{{#mobile}}…{{/mobile}}`). Le modèle par défaut des versions précédentes, s'il n'a pas été modifié, passe de lui-même en mise en page guidée. Un seul modèle est actif pour tous ; les autres sont des brouillons, activables en un clic. Il y a toujours un modèle actif tant qu'il en existe un.
 - **Fichiers** : limites, conservation et liste des espaces d'équipe.
 - **Personnalisation** (propre à l'instance) avec aperçu en direct :
   - nom et accroche, nom de l'entreprise à côté du logo (option) ;
@@ -293,6 +306,8 @@ Déposez le projet sur le serveur, par exemple dans `/var/www/make4webmail`, et 
   php bin/install.php --domain=example.com --admin=admin@example.com --password='Mot2Passe!Solide' --name="Prénom Nom" --brand="Acme Mail"
   ```
 
+Base MariaDB / MySQL : si `127.0.0.1` est refusé (MariaDB n'écoute souvent que sur son socket local), l'assistant essaie de lui-même le socket (`/run/mysqld/mysqld.sock`…) puis `localhost`, et garde la voie qui répond. Une base absente est créée si le compte en a le droit. Chaque échec est expliqué (serveur arrêté ou injoignable, identifiant refusé, droits manquants, base absente, avec la commande SQL à lancer) et écrit dans `storage/logs/php-error.log`.
+
 ### 3. Serveur web
 - nginx : voir `deploy/nginx.conf`.
 - Pour l'espace fichiers, alignez `upload_max_filesize` et `post_max_size` (PHP), `client_max_body_size` (nginx) et la taille maximale choisie dans « Administration → Fichiers ». En base MySQL, prévoyez `max_allowed_packet` ≥ 4 Mo.
@@ -300,10 +315,16 @@ Déposez le projet sur le serveur, par exemple dans `/var/www/make4webmail`, et 
 - En développement : `php -S 0.0.0.0:8080 -t public public/router.php`.
 
 ### 4. Tâche planifiée
-La tâche planifiée gère la file d'envoi, les envois programmés, les comptes externes et la purge de la corbeille et des indésirables après 30 jours. Le fichier `deploy/crontab` contient la ligne à ajouter :
+La tâche planifiée gère la file d'envoi, les envois programmés, les comptes externes et la purge de la corbeille et des indésirables après 30 jours. Elle tourne **sous le compte du serveur web** (`www-data` sur Debian/Ubuntu). Pour l'installer dans la crontab de ce compte (sans doublon, ses autres lignes conservées ; adaptez le chemin) :
+```bash
+(sudo crontab -u www-data -l 2>/dev/null | grep -v '/var/www/make4webmail/bin/'
+ echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/cron.php'
+ echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/backup.php --if-due >> /var/www/make4webmail/storage/logs/backup.log 2>&1'
+) | sudo crontab -u www-data -
+sudo crontab -u www-data -l                                   # vérifier
+sudo -u www-data php /var/www/make4webmail/bin/cron.php -v    # lancer une fois, en détail
 ```
-* * * * * www-data php /var/www/make4webmail/bin/cron.php
-```
+La notice intégrée (Administration › Guide, chapitre Exploitation) donne ces commandes avec le compte et le chemin réels du serveur. Autre possibilité : le fichier `deploy/crontab`, à copier dans `/etc/cron.d/make4webmail` (le compte y figure en 6e colonne).
 Avec PHP-FPM, la file est aussi traitée après chaque requête. Un cron reste recommandé.
 
 Comment la tâche planifiée travaille :
@@ -322,6 +343,21 @@ Choisissez l'un des deux modes :
 
 ### 6. Envoi
 Dans « Administration → Serveur de messagerie », renseignez le relais SMTP de votre fournisseur. Si vous laissez le champ vide, la messagerie remet directement les messages aux serveurs MX, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Générez la clé DKIM et publiez les enregistrements DNS proposés.
+
+## Mise à jour depuis GitHub
+Administration › **Mise à jour** (super administrateur) : l'application se met à jour depuis le dépôt privé `make4web/make4webmail`, uniquement quand on clique, rien d'automatique.
+
+- **Connexion** : identifiant GitHub et **jeton d'accès personnel**. GitHub n'accepte plus le mot de passe du compte pour ces accès. Le jeton se crée dans GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens, limité au dépôt, avec *Contents : Read-only*. Il est vérifié (compte, accès au dépôt) puis gardé chiffré.
+- **Vérifier** : versions installée et disponible (lue dans `app/bootstrap.php` de la branche), dernières modifications.
+- **Mettre à jour** :
+  1. la version est téléchargée entière (zip de la branche) et contrôlée ;
+  2. seuls les fichiers de l'application sont copiés (`app/`, `bin/`, `public/`, `deploy/`, `config/config.example.php`, `.htaccess`, `README.md`). Tests, exemples, fichiers `.git*`, notes de développement, `storage/` et `config/config.php` ne sont jamais touchés ;
+  3. tout doit être accessible en écriture avant que quoi que ce soit change : sinon, rien n'est modifié et la commande `chown` à lancer est indiquée ;
+  4. les fichiers qui changent sont sauvegardés d'abord (`storage/backups/updates/`, 5 versions gardées), puis remplacés un à un (écrits à côté, puis renommés) ;
+  5. un fichier apporté par une mise à jour précédente et retiré du dépôt est supprimé.
+
+  Les évolutions de la base s'appliquent à la page suivante.
+- **Revenir à la version précédente** : un bouton remet les fichiers sauvegardés avant la dernière mise à jour.
 
 ## Sauvegarde et restauration
 Administration → Fichiers → **Sauvegarde** : chaque jour, à l'heure choisie (3 h, heure de Paris, par défaut ; jours et fuseau réglables), un zip est envoyé en **SFTP, FTPS, FTP** ou dans un **dossier local** (NAS monté). Il contient :
@@ -343,7 +379,9 @@ Restauration, sur le même serveur ou un nouveau (installé sans lancer l'assist
 sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…'          # aperçu, rien n'est modifié
 sudo -u www-data php bin/restore.php m4w-backup-2026-10-15-030000-12.zip --password='…' --yes    # restauration
 ```
-L'option `--config` reprend aussi la configuration sur un serveur déjà configuré. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
+L'option `--config` reprend aussi la configuration sur un serveur déjà configuré.
+
+**Déplacer ou copier une installation** : copiez le dossier entier (dont `storage/` et `config/`), puis donnez-le au compte du serveur web : `sudo chown -R www-data: storage config`. La configuration n'enregistre plus les chemins internes à l'application ; une configuration plus ancienne qui pointe encore vers l'ancien emplacement est suivie d'elle-même vers le nouveau. Si le serveur web ne peut pas écrire dans `storage/`, ou si la base ne répond pas, chaque page le dit en clair (au lieu d'une erreur 500), avec la commande qui répare ; `sudo -u www-data php bin/check.php` fait le même contrôle. `php bin/backup.php --now | --test | --list` permet d'agir en ligne de commande.
 
 ## Outils en ligne de commande
 | Commande | Rôle |

@@ -34,6 +34,9 @@ foreach (['intl' => 'dates and sorting by language', 'pcntl' => 'built-in SMTP d
     $line(extension_loaded($ext) ? 'ok' : 'warn', "ext-$ext", extension_loaded($ext) ? '' : "recommended: $why");
 }
 if (Config::installed()) {
+    $problem = M4W\Core\App::startupProblem();
+    $line($problem === null ? 'ok' : 'fail', 'Storage and database usable by ' . (function_exists('posix_geteuid') && ($pw = @posix_getpwuid(posix_geteuid())) ? $pw['name'] : 'this account'), (string) $problem);
+    $fail += $problem === null ? 0 : 1;
     $av = Antivirus::enabled();
     $up = $av && Antivirus::ping();
     $line(!$av ? 'warn' : ($up ? 'ok' : 'fail'), 'ClamAV (' . Antivirus::address() . ')', !$av ? 'disabled in Administration → Security' : ($up ? Antivirus::version() : 'daemon unreachable: attachments are not scanned'));

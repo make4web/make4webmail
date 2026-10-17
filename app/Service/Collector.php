@@ -188,7 +188,7 @@ final class Collector
         if ($u && $u['status'] === 'active') {
             return $u;
         }
-        $id = (int) DB::value("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1");
+        $id = (int) DB::value("SELECT id FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active' ORDER BY id LIMIT 1");
         return $id ? Users::find($id) : null;
     }
 

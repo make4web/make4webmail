@@ -60,7 +60,7 @@ final class Rooms
 
     public static function canManage(array $user, array $room): bool
     {
-        return ($user['role'] ?? '') === 'admin' || in_array((int) $user['id'], self::config($room)['managers'], true);
+        return is_admin($user) || in_array((int) $user['id'], self::config($room)['managers'], true);
     }
 
     /** Rooms this person decides on. */
@@ -71,7 +71,7 @@ final class Rooms
 
     public static function saveConfig(array $admin, int $roomId, array $d): void
     {
-        if (($admin['role'] ?? '') !== 'admin' || !($room = self::find($roomId))) {
+        if (!is_admin($admin) || !($room = self::find($roomId))) {
             throw new \InvalidArgumentException(t('rooms.admin_only'));
         }
         $time = static fn($v) => is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/', $v) ? $v : null;
@@ -346,7 +346,7 @@ final class Rooms
     private static function tellManagers(array $room, array $requester, string $title, array $span, bool $recurring): void
     {
         $cfg = self::config($room);
-        $ids = $cfg['managers'] ?: array_map('intval', array_column(DB::all("SELECT id FROM users WHERE role = 'admin' AND status = 'active'"), 'id'));
+        $ids = $cfg['managers'] ?: array_map('intval', array_column(DB::all("SELECT id FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'"), 'id'));
         foreach (array_unique($ids) as $id) {
             $m = Users::find((int) $id);
             if ($m && $m['status'] === 'active') {

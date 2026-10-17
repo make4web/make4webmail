@@ -1063,4 +1063,29 @@ static function (): void {
 "ALTER TABLE dmarc_records ADD COLUMN dkim_selector VARCHAR(64) NOT NULL DEFAULT ''",
 "ALTER TABLE messages ADD COLUMN auth_cache VARCHAR(255) NOT NULL DEFAULT ''",
 ],
+43 => [
+// Signatures made with the guided editor: logo, position, separator, networks, notice (JSON).
+"ALTER TABLE signature_templates ADD COLUMN options {TEXT}",
+// The default template of older versions, never changed: it becomes a guided one (same look,
+// and the new options apply to it). One edited by hand stays as it was written.
+static function (): void {
+    $norm = static fn(string $h) => (string) preg_replace('/\s+/', ' ', trim($h));
+    $legacy = $norm(\M4W\Service\Signatures::legacyDefault());
+    foreach (\M4W\Core\Database::all('SELECT id, html FROM signature_templates') as $t) {
+        if ($norm((string) $t['html']) === $legacy) {
+            \M4W\Core\Database::update('signature_templates', ['html' => '', 'options' => json_encode(\M4W\Service\Signatures::OPTIONS + ['website_below' => 1])], 'id = :id', ['id' => $t['id']]);
+        }
+    }
+},
+],
+44 => [
+// Roles: who installed the application (the first administrator) becomes the super administrator,
+// with every right; the other administrators keep the customer's administration (see is_admin()).
+static function (): void {
+    $first = \M4W\Core\Database::value("SELECT MIN(id) FROM users WHERE role = 'admin'");
+    if ($first && !\M4W\Core\Database::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin'")) {
+        \M4W\Core\Database::update('users', ['role' => 'superadmin'], 'id = :id', ['id' => (int) $first]);
+    }
+},
+],
 ];

@@ -217,27 +217,13 @@
     if ($rules.length) initRules($rules);
 
     // --------------------------------------------- signature template
-    var $sig = $('#sig-html');
-    if ($sig.length) {
-      var preview = M4W.debounce(function () {
-        M4W.post('admin/signatures/preview', { html: $sig.val(), user_id: $('#sig-preview-user').val() }, { silent: true, quiet: true }).done(function (r) { $('#sig-preview').html(r.html); });
-      }, 300);
-      $sig.on('input', preview);
-      $('#sig-preview-user').on('change', preview);
-      preview();
-      $('[data-insert]').on('click', function () {
-        var el = $sig[0], v = $(this).data('insert'), s = el.selectionStart, e2 = el.selectionEnd;
-        el.value = el.value.slice(0, s) + v + el.value.slice(e2);
-        el.selectionStart = el.selectionEnd = s + v.length;
-        el.focus(); preview();
-      });
-      $('[data-sig-reset]').on('click', function () {
-        M4W.confirm(t('sig_reset_confirm')).done(function () { $sig.val(JSON.parse($('#sig-default').text())); preview(); });
-      });
-      $sig.on('keydown', function (e) {
-        if (e.key === 'Tab') { e.preventDefault(); var s = this.selectionStart; this.value = this.value.slice(0, s) + '  ' + this.value.slice(this.selectionEnd); this.selectionStart = this.selectionEnd = s + 2; }
-      });
-    }
+    // User form: what the chosen role may do.
+    $('[data-role-select]').on('change', function () { $('[data-role-desc]').text($(this).find(':selected').data('desc') || ''); });
+
+    var $sigForm = $('#sig-form');
+    if ($sigForm.length) initSignatureForm($sigForm);
+    // One's own notice: typing in it chooses it.
+    $('[data-sig-own-notice]').on('input focus', function () { $('#n-custom').prop('checked', true); });
 
     // ----------------------------------------------------- branding
     var $bf = $('#brand-form');
@@ -254,6 +240,66 @@
   });
 
   // =================================================================== rules
+  // Signature template: guided layout (logo, position, separator, networks, notice) or own HTML,
+  // previewed live with the details of a chosen person.
+  function initSignatureForm($form) {
+    var $sig = $('#sig-html'), lastBuilt = '';
+    var preview = M4W.debounce(function () {
+      var fd = new FormData($form[0]);
+      fd.set('user_id', $('#sig-preview-user').val());
+      M4W.post('admin/signatures/preview', fd, { silent: true, quiet: true }).done(function (r) {
+        $('#sig-preview').html(r.html);
+        lastBuilt = r.built || '';
+      });
+    }, 250);
+    $form.on('input change', 'input, select, textarea', preview);
+    $('#sig-preview-user').on('change', preview);
+    preview();
+    $form.on('change', '[name="opt[logo]"]', function () { $('[data-sig-custom-logo]').toggleClass('d-none', this.value !== 'custom'); });
+    $('#o-logo-upload').on('change', function () {
+      if (!this.files.length) return;
+      var fd = new FormData();
+      fd.append('logo', this.files[0]);
+      M4W.post('admin/signatures/logo', fd).done(function (r) {
+        $('#o-logo-file').val(r.file);
+        $('#o-logo-img').attr('src', r.url).prop('hidden', false);
+        $('#o-logo-custom').prop('checked', true);
+        preview();
+      });
+      this.value = '';
+    });
+    $('#o-lh').on('input', function () { $('[data-sig-lh]').text(this.value + ' px'); });
+    $('#o-sep').on('change', function () { $('[data-sig-sep-color]').toggleClass('d-none', !this.checked); });
+    $('#o-sepc-pick').on('input change', function () {
+      $('#o-sepc').val(this.value);
+      $('[data-sig-sep-reset]').prop('hidden', false); $('[data-sig-sep-main]').prop('hidden', true);
+      preview();
+    });
+    $('[data-sig-sep-reset]').on('click', function () {
+      $('#o-sepc').val(''); $(this).prop('hidden', true); $('[data-sig-sep-main]').prop('hidden', false); preview();
+    });
+    $('[data-soc-add]').on('click', function () {
+      $('#sig-socials').append($('#sig-soc-row').html());
+      $('#sig-socials [data-soc-row]').last().find('input').trigger('focus');
+    });
+    $('#sig-socials').on('click', '[data-soc-remove]', function () { $(this).closest('[data-soc-row]').remove(); preview(); });
+    // Writing one's own HTML starts from the guided layout as it stands.
+    $('#o-custom').on('change', function () {
+      $('[data-sig-html-box]').prop('hidden', !this.checked);
+      if (this.checked && !String($sig.val() || '').trim() && lastBuilt) $sig.val(lastBuilt);
+      preview();
+    });
+    $('[data-insert]').on('click', function () {
+      var el = $sig[0], v = $(this).data('insert'), s = el.selectionStart, e2 = el.selectionEnd;
+      el.value = el.value.slice(0, s) + v + el.value.slice(e2);
+      el.selectionStart = el.selectionEnd = s + v.length;
+      el.focus(); preview();
+    });
+    $sig.on('keydown', function (e) {
+      if (e.key === 'Tab') { e.preventDefault(); var s = this.selectionStart; this.value = this.value.slice(0, s) + '  ' + this.value.slice(this.selectionEnd); this.selectionStart = this.selectionEnd = s + 2; }
+    });
+  }
+
   function initRules($root) {
     var rules = $root.data('rules') || [], folders = $root.data('folders') || [], prefill = $root.data('prefill') || {};
     var FIELDS = ['from', 'to', 'cc', 'recipients', 'subject', 'body', 'header', 'size', 'has_attachment', 'priority'];

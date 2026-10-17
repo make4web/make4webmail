@@ -445,7 +445,7 @@ final class CalendarController extends Controller
     {
         $user = $this->user();
         $backlog = Rooms::backlog($user);
-        if (!$backlog['rooms'] && ($user['role'] ?? '') !== 'admin') {
+        if (!$backlog['rooms'] && !is_admin($user)) {
             return Response::redirect('/calendar');
         }
         $people = DB::all("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name, email");
@@ -453,7 +453,7 @@ final class CalendarController extends Controller
         foreach (Rooms::all() as $id => $r) {
             $rooms[$id] = $r + ['config' => Rooms::config($r), 'manage' => Rooms::canManage($user, $r)];
         }
-        return $this->view('calendar/rooms', ['backlog' => $backlog, 'rooms' => $rooms, 'people' => $people, 'isAdmin' => ($user['role'] ?? '') === 'admin',
+        return $this->view('calendar/rooms', ['backlog' => $backlog, 'rooms' => $rooms, 'people' => $people, 'isAdmin' => is_admin($user),
             'calendars' => $this->calendars($user), 'user' => $user]);
     }
 

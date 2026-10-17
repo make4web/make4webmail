@@ -192,8 +192,11 @@ final class ProviderFolders
                     continue; // under the Trash, the Sent folder…: not one's own
                 }
             }
-            $existing = DB::one('SELECT id FROM folders WHERE user_id = :u AND role IS NULL AND LOWER(name) = :n AND ' . ($parentId ? 'parent_id = :p' : 'parent_id IS NULL'),
-                ['u' => $uid, 'n' => mb_strtolower($leaf)] + ($parentId ? ['p' => $parentId] : []));
+            $existing = DB::one('SELECT id, role FROM folders WHERE user_id = :u AND LOWER(name) = :n AND ' . ($parentId ? 'parent_id = :p' : 'parent_id IS NULL'),
+                ['u' => $uid, 'n' => mb_strtolower(trim(mb_substr($leaf, 0, 100)))] + ($parentId ? ['p' => $parentId] : []));
+            if ($existing && $existing['role'] !== null && $existing['role'] !== '') {
+                continue; // same name as one of our system folders (an "Archives" not flagged as such there): not a folder of one's own
+            }
             try {
                 $fid = $existing ? (int) $existing['id'] : Folders::create($uid, $leaf !== '' ? $leaf : $name, $parentId);
             } catch (\InvalidArgumentException $e) {

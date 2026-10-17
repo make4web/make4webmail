@@ -46,9 +46,17 @@ final class Installer
             'base_url'     => $d['base_url'] ?? '',
             'trusted_proxies' => [],
         ];
-        // Validate DB connection before writing the config.
+        // Validate DB connection before writing the config (with the way that answered).
         Database::reset();
+        $cfg['db'] = self::reachDatabase($cfg['db']);
         Database::connect($cfg['db']);
+        // Paths inside the application are not written: moved elsewhere, it keeps finding its data.
+        if ($cfg['storage_path'] === M4W_ROOT . '/storage') {
+            unset($cfg['storage_path']);
+        }
+        if (($cfg['db']['driver'] ?? '') === 'sqlite' && ($cfg['db']['path'] ?? '') === M4W_ROOT . '/storage/data/m4w.sqlite') {
+            unset($cfg['db']['path']);
+        }
         Config::write($cfg);
         Database::reset();
         foreach (['data', 'mail', 'tmp', 'uploads/brand', 'logs', 'sessions', 'queue'] as $dir) {
@@ -74,10 +82,92 @@ final class Installer
         $parts = preg_split('/\s+/', trim($d['admin_name']), 2) ?: [''];
         $uid = Users::create([
             'email' => $d['admin_email'], 'password' => $d['admin_password'], 'display_name' => trim($d['admin_name']),
-            'first_name' => $parts[0] ?? '', 'last_name' => $parts[1] ?? '', 'role' => 'admin', 'quota_mb' => 0,
+            'first_name' => $parts[0] ?? '', 'last_name' => $parts[1] ?? '', 'role' => 'superadmin', 'quota_mb' => 0,
             'language' => $d['lang'], 'job_title' => 'Administrateur', 'signature_template_id' => $tplId,
         ]);
         self::welcome($uid);
+    }
+
+    /** Sockets where MariaDB / MySQL usually listen when it does not over the network. */
+    private const SOCKETS = ['/run/mysqld/mysqld.sock', '/var/run/mysqld/mysqld.sock', '/var/lib/mysql/mysql.sock', '/tmp/mysql.sock'];
+
+    /**
+     * The database configuration that really connects. MariaDB often listens only on its local
+     * socket (skip-networking, bind-address): "127.0.0.1" is then refused while "localhost" works,
+     * so the other way is tried before giving up. A missing database is created when the account
+     * may. Failures are explained (and logged), not shown as the driver's raw message.
+     */
+    public static function reachDatabase(array $db): array
+    {
+        if (($db['driver'] ?? 'sqlite') !== 'mysql') {
+            return $db;
+        }
+        $host = trim((string) ($db['host'] ?? '')) ?: '127.0.0.1';
+        $db['host'] = $host;
+        $tries = [$db];
+        if (in_array(strtolower($host), ['127.0.0.1', 'localhost', '::1'], true)) {
+            foreach (self::SOCKETS as $sock) {
+                if (@file_exists($sock)) {
+                    $tries[] = ['host' => 'localhost', 'socket' => $sock] + $db;
+                }
+            }
+            $tries[] = ['host' => strtolower($host) === 'localhost' ? '127.0.0.1' : 'localhost'] + $db;
+        }
+        $first = null;
+        foreach ($tries as $try) {
+            try {
+                self::pdo($try, true);
+                return $try;
+            } catch (\PDOException $e) {
+                $code = self::errorCode($e);
+                if ($code === 1049) {
+                    // Reached, the database does not exist yet: created if the account may.
+                    try {
+                        self::pdo($try, false)->exec('CREATE DATABASE `' . str_replace('`', '', (string) $try['name']) . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+                        return $try;
+                    } catch (\PDOException) {
+                        $first = $e;
+                        break;
+                    }
+                }
+                $first ??= $e;
+                if (!in_array($code, [2002, 2003, 2005, 2006], true)) {
+                    $first = $e; // reached, but refused for another reason: that is the answer
+                    break;
+                }
+            }
+        }
+        error_log('[m4w] install: database ' . $host . ':' . (int) ($db['port'] ?? 3306) . ' — ' . $first->getMessage());
+        throw new \RuntimeException(self::explain($first, $db));
+    }
+
+    private static function pdo(array $db, bool $withName): \PDO
+    {
+        $socket = (string) ($db['socket'] ?? '');
+        $dsn = $socket !== '' ? 'mysql:unix_socket=' . $socket : 'mysql:host=' . $db['host'] . ';port=' . (int) ($db['port'] ?? 3306);
+        if ($withName) {
+            $dsn .= ';dbname=' . ($db['name'] ?? 'm4w');
+        }
+        return new \PDO($dsn . ';charset=utf8mb4', (string) ($db['user'] ?? ''), (string) ($db['pass'] ?? ''), [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_TIMEOUT => 5]);
+    }
+
+    private static function errorCode(\PDOException $e): int
+    {
+        return (int) ($e->errorInfo[1] ?? 0) ?: (preg_match('/\[(\d{4})\]/', $e->getMessage(), $m) ? (int) $m[1] : 0);
+    }
+
+    private static function explain(\PDOException $e, array $db): string
+    {
+        $vars = ['host' => (string) $db['host'], 'port' => (int) ($db['port'] ?? 3306), 'user' => (string) ($db['user'] ?? ''), 'name' => (string) ($db['name'] ?? '')];
+        $key = match (self::errorCode($e)) {
+            2002, 2003, 2006 => 'install.db_unreachable',
+            2005 => 'install.db_unknown_host',
+            1045 => 'install.db_denied',
+            1044 => 'install.db_no_rights',
+            1049 => 'install.db_missing',
+            default => 'install.db_other',
+        };
+        return t($key, $vars) . ' (' . trim((string) preg_replace('/^SQLSTATE\[\w+\]\s*(\[\d+\])?\s*/', '', $e->getMessage())) . ')';
     }
 
     public static function welcome(int $uid): void

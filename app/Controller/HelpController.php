@@ -47,7 +47,7 @@ final class HelpController extends Controller
     public function index(): Response
     {
         $u = $this->actor();
-        $isAdmin = ($u['role'] ?? '') === 'admin';
+        $isAdmin = is_admin($u);
         return $this->view('help/index', [
             'isAdmin' => $isAdmin,
             'toc' => ['user' => self::USER_TOC, 'admin' => $isAdmin ? self::ADMIN_TOC : []],

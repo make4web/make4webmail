@@ -74,6 +74,7 @@ final class InstallController extends Controller
                 'timezone' => in_array($r->str('timezone'), timezone_identifiers_list(), true) ? $r->str('timezone') : 'Europe/Paris',
             ]);
         } catch (\Throwable $e) {
+            error_log('[m4w] install failed: ' . $e::class . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
             @unlink(Config::path());
             Config::load();
             return $this->form([t('install.failed') . ' ' . $e->getMessage()], $old);

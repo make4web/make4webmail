@@ -314,10 +314,24 @@ final class SettingsController extends Controller
     public function signature(): Response
     {
         $u = $this->user();
+        $tpl = Signatures::forUser($u);
         return $this->page('signature', [
             'preview' => Signatures::render($u)['html'],
-            'template' => Signatures::forUser($u),
+            'template' => $tpl,
+            'opts' => Signatures::options($tpl),
         ]);
+    }
+
+    /** One's own notice above the signature (when the template allows it), or none, or the company's. */
+    public function saveSignature(): Response
+    {
+        $u = $this->user();
+        if (!Signatures::options(Signatures::forUser($u))['notice_user']) {
+            return $this->back('/settings/signature', 'danger', t('sig.notice_locked'));
+        }
+        $mode = in_array($this->req->str('notice_mode'), ['custom', 'none'], true) ? $this->req->str('notice_mode') : '';
+        Users::savePrefs((int) $u['id'], ['sig_notice_mode' => $mode, 'sig_notice' => trim(str_replace("\r", '', $this->req->raw('notice')))]);
+        return $this->back('/settings/signature', 'success', t('settings.saved'));
     }
 
     // ---- Security ----------------------------------------------------------
@@ -415,7 +429,7 @@ final class SettingsController extends Controller
         if (!$secret || !Totp::verify($secret, $this->req->str('code'))) {
             return $this->back('/settings/security#2fa', 'danger', t('auth.2fa_invalid'));
         }
-        if ($u['role'] === 'admin' && (int) Settings::get('security.enforce_2fa_admin', 0)) {
+        if (is_admin($u) && (int) Settings::get('security.enforce_2fa_admin', 0)) {
             return $this->back('/settings/security#2fa', 'danger', t('2fa.required_admin'));
         }
         DB::update('users', ['totp_secret' => '', 'totp_enabled' => 0], 'id = :id', ['id' => $u['id']]);

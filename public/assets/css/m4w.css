@@ -1485,3 +1485,6 @@ body.m4w-editor-open { overflow: hidden; }
   .m4w-notify-hours td { padding-left: .15rem; padding-right: .15rem; }
   .m4w-notify-hours input[type=time] { padding-left: .35rem; padding-right: .25rem; font-size: .8rem; }
 }
+
+/* Signature template editor: the preview stays in sight while the options are changed. */
+@media (min-width: 1200px) { .m4w-sig-preview-sticky { position: sticky; top: 1rem; } }

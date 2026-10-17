@@ -1,4 +1,4 @@
-<?php $isAdmin = ($currentUser['role'] ?? '') === 'admin'; ?>
+<?php $isAdmin = is_admin($currentUser); ?>
 <div class="m4w-page-header"><div><h1><?= te('shared.title') ?></h1><p><?= te('shared.desc') ?></p></div></div>
 
 <div class="m4w-section">

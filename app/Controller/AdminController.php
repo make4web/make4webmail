@@ -64,7 +64,7 @@ final class AdminController extends Controller
             'https' => $this->req->isSecure(),
             'logo'  => Settings::get('brand.logo', '') !== '',
             'cron'  => (int) Settings::get('system.cron_last', 0) > time() - 900,
-            'twofa' => (bool) DB::value("SELECT COUNT(*) FROM users WHERE role = 'admin' AND totp_enabled = 1"),
+            'twofa' => (bool) DB::value("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'superadmin') AND totp_enabled = 1"),
         ];
         $recent = DB::all('SELECT a.*, u.email FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 8');
         $top = DB::all('SELECT id, email, display_name, used_bytes, quota_mb FROM users ORDER BY used_bytes DESC LIMIT 5');
@@ -162,7 +162,7 @@ final class AdminController extends Controller
             $where .= ' AND u.status = :s';
             $p['s'] = $status;
         } elseif ($status === 'admin') {
-            $where .= " AND u.role = 'admin'";
+            $where .= " AND u.role IN ('admin', 'superadmin')";
         }
         $users = DB::all("SELECT u.*, t.name AS template_name FROM users u LEFT JOIN signature_templates t ON t.id = u.signature_template_id WHERE $where ORDER BY u.email", $p);
         $remotes = [];
@@ -202,7 +202,7 @@ final class AdminController extends Controller
         $data = [
             'display_name' => $r->str('display_name'), 'first_name' => $r->str('first_name'), 'last_name' => $r->str('last_name'),
             'job_title' => $r->str('job_title'), 'department' => $r->str('department'), 'phone' => $r->str('phone'),
-            'mobile' => $r->str('mobile'), 'role' => $r->str('role') === 'admin' ? 'admin' : 'user',
+            'mobile' => $r->str('mobile'), 'role' => in_array($r->str('role'), Users::ROLES, true) ? $r->str('role') : 'user',
             'status' => $r->str('status') === 'disabled' ? 'disabled' : 'active', 'quota_mb' => max(0, $r->int('quota_mb', 2048)),
             'language' => isset(I18n::LANGUAGES[$r->str('language')]) ? $r->str('language') : 'fr',
             'must_change_password' => $r->bool('must_change_password') ? 1 : 0,
@@ -220,8 +220,13 @@ final class AdminController extends Controller
             if (!$existing) {
                 throw new HttpException(404);
             }
-            if ($id === $this->uid() && ($data['role'] !== 'admin' || $data['status'] !== 'active')) {
+            if ($id === $this->uid() && ($data['role'] !== $existing['role'] || $data['status'] !== 'active')) {
                 return $this->back($redirect, 'danger', t('admin.cannot_demote_self'));
+            }
+            // There is always a super administrator, active.
+            if ($existing['role'] === 'superadmin' && ($data['role'] !== 'superadmin' || $data['status'] !== 'active')
+                && (int) DB::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND status = 'active' AND id <> :id", ['id' => $id]) === 0) {
+                return $this->back($redirect, 'danger', t('admin.last_superadmin'));
             }
             if ($pw !== '') {
                 $data['password'] = $pw;
@@ -354,6 +359,9 @@ final class AdminController extends Controller
             return $this->back('/admin/users', 'danger', t('admin.cannot_delete_self'));
         }
         $u = Users::find($id);
+        if ($u && $this->lastSuperadmin($u)) {
+            return $this->back('/admin/users', 'danger', t('admin.last_superadmin'));
+        }
         if ($u) {
             Users::delete($id);
             Audit::log('admin.user_deleted', $u['email']);
@@ -361,9 +369,16 @@ final class AdminController extends Controller
         return $this->back('/admin/users', 'success', t('admin.user_deleted'));
     }
 
+    /** The only active super administrator left (never disabled nor deleted). */
+    private function lastSuperadmin(array $u): bool
+    {
+        return $u['role'] === 'superadmin'
+            && (int) DB::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND status = 'active' AND id <> :id", ['id' => $u['id']]) === 0;
+    }
+
     public function bulkUsers(): Response
     {
-        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid());
+        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid() && !(($bu = Users::find($i)) && $this->lastSuperadmin($bu)));
         $action = $this->req->str('bulk_action');
         foreach ($ids as $id) {
             switch ($action) {
@@ -528,26 +543,47 @@ final class AdminController extends Controller
         $templates = Signatures::all();
         $sample = Users::find($this->uid());
         foreach ($templates as &$t) {
-            $t['preview'] = Signatures::renderTemplate((string) $t['html'], $sample);
+            $t['preview'] = Signatures::renderTemplate((string) $t['html'], $sample, 'preview', Signatures::options($t));
         }
         return $this->page('signatures', ['templates' => $templates, 'departments' => array_column(DB::all("SELECT DISTINCT department FROM users WHERE department <> '' ORDER BY department"), 'department')]);
     }
 
     public function signatureForm(?string $id = null): Response
     {
-        $tpl = $id ? Signatures::find((int) $id) : ['id' => 0, 'name' => '', 'description' => '', 'html' => Signatures::defaultTemplate(), 'is_default' => 0, 'apply_on_reply' => 1];
+        $tpl = $id ? Signatures::find((int) $id) : ['id' => 0, 'name' => '', 'description' => '', 'html' => Signatures::defaultTemplate(), 'options' => '', 'is_default' => 0, 'apply_on_reply' => 1];
         if (!$tpl) {
             throw new HttpException(404);
         }
         $users = DB::all("SELECT id, email, display_name FROM users WHERE status = 'active' ORDER BY display_name LIMIT 500");
-        return $this->page('signature_form', ['tpl' => $tpl, 'variables' => Signatures::VARIABLES, 'users' => $users, 'section' => 'signatures']);
+        return $this->page('signature_form', ['tpl' => $tpl, 'opts' => Signatures::options($tpl), 'variables' => Signatures::VARIABLES, 'users' => $users, 'section' => 'signatures']);
+    }
+
+    /** Options of the guided editor, as posted (checked by Signatures::cleanOptions). */
+    private function signatureOptions(): array
+    {
+        $o = (array) ($this->req->input('opt') ?? []);
+        $nets = (array) ($this->req->input('soc_net') ?? []);
+        $urls = (array) ($this->req->input('soc_url') ?? []);
+        $o['socials'] = [];
+        foreach ($nets as $i => $net) {
+            $o['socials'][] = ['net' => (string) $net, 'url' => (string) ($urls[$i] ?? '')];
+        }
+        return $o;
+    }
+
+    /** The guided template's HTML, or the administrator's own when they chose to write it. */
+    private function signatureHtml(): string
+    {
+        return $this->req->bool('custom_html') ? $this->req->raw('html') : '';
     }
 
     public function saveSignature(): Response
     {
         $id = $this->req->int('id') ?: null;
+        $old = $id ? Signatures::options(Signatures::find($id)) : [];
         $id = Signatures::save([
-            'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->req->raw('html'),
+            'name' => $this->req->str('name'), 'description' => $this->req->str('description'), 'html' => $this->signatureHtml(),
+            'options' => $this->signatureOptions(), 'old_options' => $old,
             'is_default' => $this->req->bool('is_default'), 'apply_on_reply' => 1,
         ], $id);
         Audit::log('admin.signature_saved', (string) $id);
@@ -564,8 +600,25 @@ final class AdminController extends Controller
     public function previewSignature(): Response
     {
         $user = Users::find($this->req->int('user_id') ?: $this->uid()) ?? $this->user();
-        $html = Signatures::renderTemplate(Signatures::cleanTemplate($this->req->raw('html')), $user);
-        return $this->ok(['html' => $html]);
+        $opts = Signatures::cleanOptions($this->signatureOptions());
+        $html = Signatures::renderTemplate(Signatures::cleanTemplate($this->signatureHtml()), $user, 'preview', $opts);
+        // The guided layout's HTML, for the one who wants to start writing their own from it.
+        return $this->ok(['html' => $html, 'built' => Signatures::build($opts)]);
+    }
+
+    /** A logo of its own for a signature template (stored with the branding images). */
+    public function signatureLogo(): Response
+    {
+        $f = $this->req->files['logo'] ?? null;
+        try {
+            if (!is_array($f)) {
+                throw new \InvalidArgumentException(t('upload.failed'));
+            }
+            $name = \M4W\Service\Branding::storeImage($f, 'siglogo', 2_000_000);
+        } catch (\InvalidArgumentException $e) {
+            return $this->fail($e->getMessage());
+        }
+        return $this->ok(['file' => $name, 'url' => url('brand/' . $name)]);
     }
 
     /** The chosen template becomes the one applied to everyone. */
@@ -578,6 +631,52 @@ final class AdminController extends Controller
         DB::run('UPDATE signature_templates SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END', ['id' => $tpl['id']]);
         Audit::log('admin.signature_activated', $tpl['name']);
         return $this->back('/admin/signatures', 'success', t('admin.sig_activated', ['name' => $tpl['name']]));
+    }
+
+    // ---- Update from GitHub (super administrator) -------------------------------
+
+    public function update(): Response
+    {
+        $status = json_decode((string) Settings::get('update.status', ''), true);
+        return $this->page('update', [
+            'connected' => \M4W\Service\Updater::connected(), 'login' => (string) Settings::get('update.login', ''),
+            'branch' => \M4W\Service\Updater::branch(), 'status' => is_array($status) ? $status : null,
+            'history' => \M4W\Service\Updater::history(),
+        ]);
+    }
+
+    public function updateAction(string $action): Response
+    {
+        $U = \M4W\Service\Updater::class; // the session stays open: the outcome is shown on the page
+        try {
+            switch ($action) {
+                case 'connect':
+                    $b = $this->req->str('branch') ?: 'main';
+                    Settings::set('update.branch', preg_match('#^[\w./-]{1,100}$#', $b) ? $b : 'main');
+                    $r = $U::connect($this->req->str('login'), $this->req->raw('token'));
+                    Settings::set('update.status', json_encode($U::status()));
+                    return $this->back('/admin/update', 'success', t('upd.connected', ['login' => $r['login']]));
+                case 'disconnect':
+                    $U::disconnect();
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.disconnected'));
+                case 'check':
+                    Settings::set('update.status', json_encode($U::status()));
+                    return $this->back('/admin/update');
+                case 'apply':
+                    $r = $U::apply($this->req->str('sha') ?: null);
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.applied', ['from' => $r['from'], 'to' => $r['to'], 'n' => $r['written']]));
+                case 'rollback':
+                    $r = $U::rollback();
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.rolled_back', ['version' => $r['to']]));
+            }
+        } catch (\Throwable $e) {
+            error_log('[m4w] update ' . $action . ': ' . $e->getMessage());
+            return $this->back('/admin/update', 'danger', $e->getMessage());
+        }
+        throw new HttpException(404);
     }
 
     // ---- Branding ------------------------------------------------------------
@@ -653,7 +752,7 @@ final class AdminController extends Controller
             'account' => \M4W\Service\Collector::account(),
             'stats' => \M4W\Service\Collector::stats(),
             'redirect' => \M4W\Service\Collector::addressesToRedirect(),
-            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role = 'admin' DESC, email"),
+            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role IN ('admin', 'superadmin') DESC, email"),
             'fallback' => \M4W\Service\Collector::fallbackUser(),
         ];
         return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked, 'collector' => $collector]);

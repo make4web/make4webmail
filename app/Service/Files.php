@@ -44,6 +44,8 @@ final class Files
     private static array $folderCache = [];
     /** @var array<string, int> */
     private static array $permCache = [];
+    /** Off while listing what was shared with someone or searching: an administrator's reach is not a share. */
+    private static bool $adminReach = true;
 
     public static function levelName(int $level): string
     {
@@ -271,7 +273,7 @@ final class Files
         try {
             $to = DB::one("SELECT * FROM users WHERE id = :u AND status = 'active'", ['u' => (int) $f['created_by']]);
             $orphan = !$to;
-            $to ??= DB::one("SELECT * FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1");
+            $to ??= DB::one("SELECT * FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active' ORDER BY id LIMIT 1");
             if (!$to) {
                 return;
             }
@@ -331,7 +333,7 @@ final class Files
      */
     public static function permission(array $user, int $folderId, bool $includeDeleted = false): int
     {
-        $key = $user['id'] . ':' . $folderId . ':' . (int) $includeDeleted;
+        $key = $user['id'] . ':' . $folderId . ':' . (int) $includeDeleted . ':' . (int) self::$adminReach;
         if (isset(self::$permCache[$key])) {
             return self::$permCache[$key];
         }
@@ -347,7 +349,10 @@ final class Files
                 $level = self::NONE;
             } elseif ($root['kind'] === 'personal' && (int) $root['owner_id'] === (int) $user['id']) {
                 $level = self::MANAGE;
-            } elseif ($root['kind'] === 'space' && ($user['role'] ?? '') === 'admin') {
+            } elseif ($root['kind'] === 'space' && is_admin($user)) {
+                $level = self::MANAGE;
+            } elseif ($root['kind'] === 'personal' && is_admin($user) && self::$adminReach) {
+                // Administrators open everyone's files ("Files of…" in the side panel).
                 $level = self::MANAGE;
             } else {
                 $ids = array_map(static fn($f) => (int) $f['id'], $chain);
@@ -377,7 +382,7 @@ final class Files
 
     public static function canCreateSpaces(array $user): bool
     {
-        return ($user['role'] ?? '') === 'admin' || (int) Settings::get('files.users_create_spaces', 0) === 1;
+        return is_admin($user) || (int) Settings::get('files.users_create_spaces', 0) === 1;
     }
 
     public static function createSpace(array $user, string $name, string $description = ''): int
@@ -443,6 +448,9 @@ final class Files
             'shared' => self::sharedWithMe($user),
             'shared_files' => self::sharedFilesWithMe($user),
             'can_create_space' => self::canCreateSpaces($user),
+            // Administrators: whose files to open ("Files of…").
+            'people' => is_admin($user) ? array_map(static fn($u) => ['id' => (int) $u['id'], 'name' => $u['display_name'] ?: $u['email'], 'email' => $u['email']],
+                DB::all("SELECT id, email, display_name FROM users WHERE status = 'active' AND id <> :me ORDER BY display_name, email LIMIT 2000", ['me' => (int) $user['id']])) : [],
             'usage' => self::usage(),
             'trash' => count(self::trash($user)),
             'trash_days' => max(1, (int) Settings::get('files.trash_days', 30)),
@@ -454,6 +462,16 @@ final class Files
      * or from their own tree: the top-most granted folder of each branch.
      */
     public static function sharedWithMe(array $user): array
+    {
+        self::$adminReach = false;
+        try {
+            return self::sharedWithMeOnly($user);
+        } finally {
+            self::$adminReach = true;
+        }
+    }
+
+    private static function sharedWithMeOnly(array $user): array
     {
         $params = [];
         $or = [];
@@ -487,7 +505,7 @@ final class Files
         return $out;
     }
 
-    private static function userName(int $id): string
+    public static function userName(int $id): string
     {
         static $cache = [];
         if (!isset($cache[$id])) {
@@ -497,11 +515,31 @@ final class Files
         return $cache[$id];
     }
 
+    /** "My files", or "Files of …" for an administrator looking at someone else's. */
+    public static function personalName(array $root): string
+    {
+        $me = \M4W\Core\Auth::id();
+        return $me === null || (int) $root['owner_id'] === $me ? t('files.my_files') : t('files.files_of', ['name' => self::userName((int) $root['owner_id'])]);
+    }
+
+    /** Someone's own files, opened by an administrator: the root, and a trace in the audit log. */
+    public static function personalRootFor(array $admin, int $userId): array
+    {
+        $u = DB::one("SELECT id, email FROM users WHERE id = :id AND status <> 'deleted'", ['id' => $userId]);
+        if (!is_admin($admin) || !$u) {
+            throw new \M4W\Core\HttpException(404, t('files.not_found'));
+        }
+        if ($userId !== (int) $admin['id']) {
+            Audit::log('files.admin_opened', (string) $u['email'], [], (int) $admin['id']);
+        }
+        return self::personalRoot($userId);
+    }
+
     public static function folderOut(array $f, int $level): array
     {
         return [
             'id' => (int) $f['id'], 'parent_id' => $f['parent_id'] !== null ? (int) $f['parent_id'] : null,
-            'kind' => $f['kind'], 'name' => $f['kind'] === 'personal' ? t('files.my_files') : $f['name'],
+            'kind' => $f['kind'], 'name' => $f['kind'] === 'personal' ? self::personalName($f) : $f['name'],
             'description' => (string) $f['description'], 'updated_at' => (int) $f['updated_at'],
             'created_by' => $f['created_by'] ? self::userName((int) $f['created_by']) : '',
             'level' => self::levelName($level), 'shared' => (bool) DB::value('SELECT 1 FROM fs_acl WHERE folder_id = :f LIMIT 1', ['f' => $f['id']]),
@@ -546,12 +584,22 @@ final class Files
                 $out = [];
                 continue;
             }
-            $out[] = ['id' => (int) $f['id'], 'name' => $f['kind'] === 'personal' ? t('files.my_files') : $f['name'], 'kind' => $f['kind']];
+            $out[] = ['id' => (int) $f['id'], 'name' => $f['kind'] === 'personal' ? self::personalName($f) : $f['name'], 'kind' => $f['kind'], 'owner_id' => (int) $f['owner_id']];
         }
         return $out;
     }
 
     public static function search(array $user, string $q, int $limit = 100): array
+    {
+        self::$adminReach = false; // one's own files and what was shared, not everyone's
+        try {
+            return self::searchOnly($user, $q, $limit);
+        } finally {
+            self::$adminReach = true;
+        }
+    }
+
+    private static function searchOnly(array $user, string $q, int $limit): array
     {
         $q = trim($q);
         if (mb_strlen($q) < 2) {
@@ -1473,7 +1521,7 @@ final class Files
             $clean[$type . ':' . $principal] = ['type' => $type, 'principal' => $principal, 'level' => $level];
         }
         // A non-admin manager keeps their own grant: nobody locks themselves out by mistake.
-        if (($user['role'] ?? '') !== 'admin') {
+        if (!is_admin($user)) {
             $own = (int) DB::value("SELECT level FROM fs_acl WHERE folder_id = :f AND principal_type = 'user' AND principal = :p", ['f' => $folderId, 'p' => (string) $user['id']]);
             $key = 'user:' . $user['id'];
             if ($own === self::MANAGE && ($clean[$key]['level'] ?? 0) < self::MANAGE) {

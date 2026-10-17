@@ -99,7 +99,7 @@ final class SharedMailboxes
         if ($email === mb_strtolower((string) $actor['email'])) {
             throw new \InvalidArgumentException(t('shared.self'));
         }
-        $isAdmin = ($actor['role'] ?? '') === 'admin';
+        $isAdmin = is_admin($actor);
         if ($isAdmin) {
             $box = Users::findByEmail($email);
             if (!$box || $box['status'] !== 'active') {
@@ -129,6 +129,12 @@ final class SharedMailboxes
         }
         DB::insert('mailbox_links', ['user_id' => (int) $actor['id'], 'mailbox_id' => (int) $box['id'], 'method' => $method, 'created_by' => (int) $actor['id'], 'created_at' => time()]);
         Audit::log('shared.added', $box['email'], ['method' => $method], (int) $actor['id']);
+        if ($method === 'password') {
+            // Opened with its password: the mailbox is told who, when and from where (a password
+            // that leaked would otherwise give silent and lasting access).
+            AccountGuard::notifyUser(Users::find((int) $box['id']) ?? $box, t('shared.notice_subject', ['name' => $actor['name'] ?? $actor['email']]),
+                t('shared.notice_text', ['name' => $actor['name'] ?? $actor['email'], 'email' => $actor['email'], 'box' => $box['email'], 'date' => format_datetime(time()), 'ip' => $req->ip()]));
+        }
         return $box;
     }
 

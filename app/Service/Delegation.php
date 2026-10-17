@@ -41,7 +41,7 @@ final class Delegation
         if (DB::value('SELECT 1 FROM mailbox_delegates WHERE owner_id = :o AND delegate_id = :d', ['o' => $ownerId, 'd' => (int) $actor['id']])) {
             return 'delegate';
         }
-        if (($actor['role'] ?? '') === 'admin' && self::adminsByDefault()) {
+        if (is_admin($actor) && self::adminsByDefault()) {
             return 'admin';
         }
         return null;

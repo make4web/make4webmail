@@ -9,6 +9,9 @@ use M4W\Core\Database as DB;
 
 final class Users
 {
+    /** superadmin: everything; admin: the customer's administration (see is_admin()); user. */
+    public const ROLES = ['superadmin', 'admin', 'user'];
+
     public const PREF_DEFAULTS = [
         'theme'          => 'auto',      // light | dark | auto
         'density'        => 'comfortable', // comfortable | compact
@@ -41,6 +44,9 @@ final class Users
         'sound_reminder'      => 'chime',
         'sound_volume'        => 70,
         'vibrate'             => 'short',
+        // The notice above one's signature (closures, temporary news): the company's, one's own, or none.
+        'sig_notice_mode'     => '',     // '' = the company's | custom | none
+        'sig_notice'          => '',
     ];
 
     /** What a swipe on a message row can do (touch screens). */
@@ -62,6 +68,7 @@ final class Users
             'reminder_minutes' => Notify::REMINDER_MINUTES,
             'notify_period' => ['always', 'custom'],
             'vibrate' => array_keys(Notify::VIBRATIONS),
+            'sig_notice_mode' => ['', 'custom', 'none'],
             default => null,
         };
     }
@@ -128,7 +135,7 @@ final class Users
             'department'            => trim((string) ($data['department'] ?? '')),
             'phone'                 => trim((string) ($data['phone'] ?? '')),
             'mobile'                => trim((string) ($data['mobile'] ?? '')),
-            'role'                  => ($data['role'] ?? 'user') === 'admin' ? 'admin' : 'user',
+            'role'                  => in_array($data['role'] ?? 'user', self::ROLES, true) ? ($data['role'] ?? 'user') : 'user',
             'status'                => ($data['status'] ?? 'active') === 'disabled' ? 'disabled' : 'active',
             'quota_mb'              => max(0, (int) ($data['quota_mb'] ?? 2048)),
             'signature_template_id' => !empty($data['signature_template_id']) ? (int) $data['signature_template_id'] : null,
@@ -179,7 +186,7 @@ final class Users
         $clean = [];
         foreach ($prefs as $k => $v) {
             if (array_key_exists($k, self::PREF_DEFAULTS)) {
-                $v = is_int(self::PREF_DEFAULTS[$k]) ? (int) $v : mb_substr((string) $v, 0, 200);
+                $v = is_int(self::PREF_DEFAULTS[$k]) ? (int) $v : mb_substr((string) $v, 0, $k === 'sig_notice' ? Signatures::NOTICE_MAX : 200);
                 $v = match ($k) {
                     'page_size' => max(20, min(200, (int) $v)),
                     'mark_read_delay' => max(-1, min(30, (int) $v)),

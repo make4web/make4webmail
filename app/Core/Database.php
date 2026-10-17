@@ -32,12 +32,12 @@ final class Database
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
         if ($driver === 'mysql') {
-            $dsn = sprintf(
-                'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-                $db['host'] ?? '127.0.0.1',
-                (int) ($db['port'] ?? 3306),
-                $db['name'] ?? 'm4w'
-            );
+            // A path as host (or "socket") goes through the server's local socket.
+            $host = (string) ($db['host'] ?? '127.0.0.1');
+            $socket = (string) ($db['socket'] ?? (str_starts_with($host, '/') ? $host : ''));
+            $dsn = $socket !== ''
+                ? sprintf('mysql:unix_socket=%s;dbname=%s;charset=utf8mb4', $socket, $db['name'] ?? 'm4w')
+                : sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, (int) ($db['port'] ?? 3306), $db['name'] ?? 'm4w');
             $pdo = new PDO($dsn, $db['user'] ?? '', $db['pass'] ?? '', $opts);
         } else {
             $path = $db['path'] ?? Config::storagePath('data/m4w.sqlite');

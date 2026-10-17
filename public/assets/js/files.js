@@ -58,6 +58,13 @@
       });
       if (!r.spaces.length) html = '<li class="px-3 py-1 small m4w-sidebar-muted">' + esc(t('fs_no_spaces')) + '</li>';
       $('#fs-nav-spaces').html(html);
+      // Administrators: someone else's files, chosen in the list.
+      if (r.people && r.people.length && $('#fs-people').length) {
+        var cur = $('#fs-people').val();
+        $('#fs-people').html('<option value="">' + esc(t('fs_files_of_choose')) + '</option>' + r.people.map(function (p) {
+          return '<option value="' + p.id + '">' + esc(p.name) + (p.name !== p.email ? ' — ' + esc(p.email) : '') + '</option>';
+        }).join('')).val(cur || '');
+      }
       $('[data-fs-space-only]').toggleClass('d-none', !r.can_create_space);
       $('#fs-trash-count').text(r.trash || '');
       var u = r.usage;
@@ -71,12 +78,23 @@
       markNav();
     });
   }
+  $(document).on('change', '#fs-people', function () {
+    var id = this.value;
+    if (!id) return;
+    M4W.get('api/files/person/' + id).done(function (r) { window.location.hash = 'f/' + r.folder; });
+  });
   function markNav() {
+    // The list says whose files are open (empty on one's own, a space, the trash…).
+    if ($('#fs-people').length) {
+      var owner = S.route === 'folder' && S.path && S.path.length && S.path[0].kind === 'personal' && S.roots && S.path[0].id !== S.roots.personal ? S.path[0].owner_id : '';
+      $('#fs-people').val(owner ? String(owner) : '');
+    }
     $('.m4w-sidebar .m4w-nav-item').removeClass('active').removeAttr('aria-current');
     var $a;
     if (S.route === 'folder' && S.path && S.path.length) {
       var root = S.path[0];
-      if (root.kind === 'personal') $a = $('[data-fs-nav="mine"]');
+      if (root.kind === 'personal' && S.roots && root.id !== S.roots.personal) $a = null; // someone else's ("Files of…")
+      else if (root.kind === 'personal') $a = $('[data-fs-nav="mine"]');
       else if (root.kind === 'space') $a = $('[data-fs-folder="' + root.id + '"]');
       else $a = $('[data-fs-nav="shared"]');
     } else {
@@ -156,7 +174,7 @@
           + '<span class="badge badge-soft-secondary">' + esc(t('fs_level_' + r.folder.level)) + '</span>';
       } else if (r.path.length && r.path[0].kind !== 'personal' && r.path[0].kind !== 'space') {
         sub = '<span class="badge badge-soft-secondary">' + esc(t('fs_level_' + r.folder.level)) + '</span>';
-      } else if (r.folder.kind === 'personal') {
+      } else if (r.folder.kind === 'personal' && S.roots && r.folder.id === S.roots.personal) {
         sub = '<span>' + esc(t('fs_mine_desc')) + '</span>';
       }
       if (r.folder.shared && r.folder.kind !== 'space') sub += '<span class="badge badge-soft-primary"><i class="bi bi-people me-1"></i>' + esc(t('fs_shared_badge')) + '</span>';
