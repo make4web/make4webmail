@@ -27,6 +27,12 @@ final class FilesController extends Controller
         return $this->ok(Files::roots($this->user()));
     }
 
+    /** An administrator opens someone's own files. */
+    public function personOf(string $id): Response
+    {
+        return $this->ok(['folder' => (int) Files::personalRootFor($this->user(), (int) $id)['id']]);
+    }
+
     public function folder(string $id): Response
     {
         return $this->ok(Files::listing($this->user(), (int) $id));

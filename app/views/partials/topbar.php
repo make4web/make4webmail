@@ -58,8 +58,8 @@ $elsewhere = array_sum($boxCounts); ?>
     <button class="btn btn-sm" type="submit" title="<?= te('shared.back_mine') ?>"><i class="bi bi-arrow-return-left"></i><span class="m4w-hide-xs ms-1"><?= te('shared.back_short') ?></span><span class="m4w-new-badge ms-1<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0" title="<?= te('shared.unread_title') ?>"><?= (int) $boxCounts[0] ?></span></button>
   </form>
   <?php endif; ?>
-  <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); if ($cs['level'] === 'full' || $cs['level'] === 'high'): ?>
-  <a class="m4w-limit-pill <?= $cs['level'] ?>" href="<?= e(url('admin/mail')) ?>#col-gauge" role="status" title="<?= te('col.pill_title', ['limit' => $cs['limit']]) ?>">
+  <?php if (is_admin($u) && M4W\Service\Collector::active()): $cs = M4W\Service\Collector::stats(); if ($cs['level'] === 'full' || $cs['level'] === 'high'): ?>
+  <a class="m4w-limit-pill <?= $cs['level'] ?>" href="<?= e(url(is_superadmin($u) ? 'admin/mail' : 'admin')) ?>#col-gauge" role="status" title="<?= te('col.pill_title', ['limit' => $cs['limit']]) ?>">
     <i class="bi bi-<?= $cs['level'] === 'full' ? 'sign-stop-fill' : 'speedometer' ?>" aria-hidden="true"></i>
     <span class="text-truncate"><?= $cs['level'] === 'full' ? te('col.pill_full', ['used' => $cs['used'], 'limit' => $cs['limit']]) : te('col.pill_high', ['used' => $cs['used'], 'limit' => $cs['limit']]) ?><?php if ($cs['next']): ?><span class="m4w-hide-xs"> · <?= te('col.pill_resume', ['time' => date('H:i', $cs['next'])]) ?></span><?php endif; ?></span>
   </a>
@@ -113,7 +113,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <div class="row g-1 text-center">
           <?php
           $apps = [['mail', 'envelope', 'nav.mail'], ['files', 'folder2-open', 'nav.files'], ['calendar', 'calendar3', 'nav.calendar'], ['contacts', 'people', 'nav.contacts'], ['settings', 'sliders', 'nav.settings'], ['settings/rules', 'funnel', 'nav.rules'], ['help', 'book', 'nav.guide']];
-          if (($u['role'] ?? '') === 'admin') {
+          if (is_admin($u)) {
               $apps[] = ['admin', 'speedometer2', 'nav.admin'];
               $apps[] = ['admin/users', 'person-gear', 'nav.users'];
           }
@@ -146,12 +146,12 @@ $elsewhere = array_sum($boxCounts); ?>
         <?php endforeach; ?>
         <a class="dropdown-item" href="<?= e(url('settings/mailboxes')) ?>#add"><i class="bi bi-plus-lg"></i><?= te('shared.menu_add') ?></a>
         <div class="dropdown-divider"></div>
-        <?php if ($delegatedTo || ($u['role'] ?? '') === 'admin'): ?>
+        <?php if ($delegatedTo || is_admin($u)): ?>
         <h6 class="dropdown-header"><?= te('deleg.mailboxes') ?></h6>
         <?php foreach ($delegatedTo as $d): $dn = $d['display_name'] ?: trim($d['first_name'] . ' ' . $d['last_name']) ?: $d['email']; ?>
         <button class="dropdown-item" type="button" data-open-mailbox="<?= (int) $d['id'] ?>" data-name="<?= e($dn) ?>" data-email="<?= e($d['email']) ?>" data-reason="0"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($dn)) ?></span><span class="text-truncate"><?= e($dn) ?></span></button>
         <?php endforeach; ?>
-        <?php if (($u['role'] ?? '') === 'admin' && M4W\Service\Delegation::adminsByDefault()): ?>
+        <?php if (is_superadmin($u) && M4W\Service\Delegation::adminsByDefault()): ?>
         <a class="dropdown-item" href="<?= e(url('admin/users')) ?>"><i class="bi bi-person-badge"></i><?= te('deleg.open_other') ?></a>
         <?php endif; ?>
         <div class="dropdown-divider"></div>
@@ -160,7 +160,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <a class="dropdown-item" href="<?= e(url('settings/vacation')) ?>"><i class="bi bi-airplane"></i><?= te('nav.vacation') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/security')) ?>"><i class="bi bi-shield-lock"></i><?= te('nav.security') ?></a>
         <a class="dropdown-item" href="<?= e(url('help')) ?>"><i class="bi bi-book"></i><?= te('nav.guide') ?></a>
-        <?php if (($u['role'] ?? '') === 'admin'): ?><a class="dropdown-item" href="<?= e(url('admin')) ?>"><i class="bi bi-speedometer2"></i><?= te('nav.admin') ?></a><?php endif; ?>
+        <?php if (is_admin($u)): ?><a class="dropdown-item" href="<?= e(url('admin')) ?>"><i class="bi bi-speedometer2"></i><?= te('nav.admin') ?></a><?php endif; ?>
         <div class="dropdown-divider"></div>
         <form method="post" action="<?= e(url('logout')) ?>"><?= csrf_field() ?><button class="dropdown-item text-danger" type="submit"><i class="bi bi-box-arrow-right text-danger"></i><?= te('nav.logout') ?></button></form>
       </div>

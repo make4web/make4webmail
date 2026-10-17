@@ -365,7 +365,7 @@ final class Backup
 
     private static function alertAdmins(string $why): void
     {
-        foreach (DB::all("SELECT id FROM users WHERE role = 'admin' AND status = 'active'") as $row) {
+        foreach (DB::all("SELECT id FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'") as $row) {
             try {
                 $u = Users::find((int) $row['id']);
                 $domain = \M4W\Mail\Address::domain($u['email']) ?: 'localhost';

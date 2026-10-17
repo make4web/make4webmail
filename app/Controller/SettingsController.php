@@ -429,7 +429,7 @@ final class SettingsController extends Controller
         if (!$secret || !Totp::verify($secret, $this->req->str('code'))) {
             return $this->back('/settings/security#2fa', 'danger', t('auth.2fa_invalid'));
         }
-        if ($u['role'] === 'admin' && (int) Settings::get('security.enforce_2fa_admin', 0)) {
+        if (is_admin($u) && (int) Settings::get('security.enforce_2fa_admin', 0)) {
             return $this->back('/settings/security#2fa', 'danger', t('2fa.required_admin'));
         }
         DB::update('users', ['totp_secret' => '', 'totp_enabled' => 0], 'id = :id', ['id' => $u['id']]);

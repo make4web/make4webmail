@@ -129,7 +129,7 @@ final class App
         View::share('req', $req);
         // Remember the public address for links in scheduled messages; only from administrators,
         // so a forged Host header from anyone else can never end up in an e-mail.
-        if ($user && $user['role'] === 'admin' && $req->method === 'GET' && !$req->isAjax()) {
+        if ($user && is_admin($user) && $req->method === 'GET' && !$req->isAjax()) {
             $host = (string) ($req->server['HTTP_HOST'] ?? '');
             if (preg_match('/^[a-z0-9.-]+(:\d+)?$/i', $host)) {
                 $pub = ($req->isSecure() ? 'https' : 'http') . '://' . strtolower($host) . Request::basePath();
@@ -161,8 +161,8 @@ final class App
             if ($user['must_change_password'] && !in_array($req->path, ['/password/change', '/logout'], true)) {
                 return $req->isAjax() ? Response::json(['ok' => false, 'error' => t('auth.must_change')], 403) : Response::redirect('/password/change');
             }
-            if ($access === 'admin') {
-                if ($user['role'] !== 'admin') {
+            if ($access === 'admin' || $access === 'superadmin') {
+                if (!is_admin($user) || ($access === 'superadmin' && !is_superadmin($user))) {
                     throw new HttpException(403, t('error.forbidden'));
                 }
                 self::checkAdminIp($req);
@@ -238,7 +238,8 @@ final class App
     private static function routes(Router $r): void
     {
         $pub = ['auth' => 'public'];
-        $admin = ['auth' => 'admin'];
+        $admin = ['auth' => 'admin'];           // the customer's administrator (and the super administrator)
+        $super = ['auth' => 'superadmin'];      // configuring the application itself
         $r->get('/install', [Controller\InstallController::class, 'form'], $pub);
         $r->post('/install', [Controller\InstallController::class, 'install'], $pub);
         $r->get('/theme.css', [Controller\AssetController::class, 'theme'], $pub);
@@ -347,6 +348,7 @@ final class App
         $r->get('/files/file/{id}/preview', [Controller\FilesController::class, 'preview']);
         $r->get('/files/folder/{id}/zip', [Controller\FilesController::class, 'zip']);
         $r->get('/api/files/roots', [Controller\FilesController::class, 'roots']);
+        $r->get('/api/files/person/{id}', [Controller\FilesController::class, 'personOf']);
         $r->get('/api/files/tree', [Controller\FilesController::class, 'tree']);
         $r->get('/api/files/search', [Controller\FilesController::class, 'search']);
         $r->get('/api/files/trash', [Controller\FilesController::class, 'trash']);
@@ -380,13 +382,13 @@ final class App
         $r->post('/admin/deleted/restore', [Controller\RetentionController::class, 'restore'], $admin);
         $r->post('/admin/deleted/purge', [Controller\RetentionController::class, 'purge'], $admin);
         $r->post('/admin/deleted/settings', [Controller\RetentionController::class, 'settings'], $admin);
-        $r->get('/admin/files', [Controller\AdminController::class, 'files'], $admin);
-        $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $admin);
-        $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $admin);
-        $r->post('/admin/files/backup', [Controller\AdminController::class, 'saveBackup'], $admin);
-        $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $admin);
-        $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
-        $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $admin);
+        $r->get('/admin/files', [Controller\AdminController::class, 'files'], $super);
+        $r->post('/admin/files', [Controller\AdminController::class, 'saveFiles'], $super);
+        $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $super);
+        $r->post('/admin/files/backup', [Controller\AdminController::class, 'saveBackup'], $super);
+        $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $super);
+        $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $super);
+        $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $super);
 
         // Calendar
         $r->get('/calendar', [Controller\CalendarController::class, 'index']);
@@ -452,24 +454,24 @@ final class App
 
         // Administration
         $r->get('/admin', [Controller\AdminController::class, 'dashboard'], $admin);
-        $r->get('/admin/users', [Controller\AdminController::class, 'users'], $admin);
-        $r->get('/admin/users/new', [Controller\AdminController::class, 'userForm'], $admin);
-        $r->get('/admin/users/{id}', [Controller\AdminController::class, 'userForm'], $admin);
-        $r->post('/admin/users/save', [Controller\AdminController::class, 'saveUser'], $admin);
-        $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $admin);
-        $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $admin);
-        $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $admin);
-        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $admin);
-        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $admin);
-        $r->post('/admin/users/{id}/remote/restore', [Controller\AdminController::class, 'restoreRemote'], $admin);
-        $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $admin);
-        $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $admin);
-        $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $admin);
-        $r->post('/admin/domains/delete', [Controller\AdminController::class, 'deleteDomain'], $admin);
-        $r->get('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $admin);
-        $r->post('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $admin);
-        $r->post('/admin/aliases/save', [Controller\AdminController::class, 'saveAlias'], $admin);
-        $r->post('/admin/aliases/delete', [Controller\AdminController::class, 'deleteAlias'], $admin);
+        $r->get('/admin/users', [Controller\AdminController::class, 'users'], $super);
+        $r->get('/admin/users/new', [Controller\AdminController::class, 'userForm'], $super);
+        $r->get('/admin/users/{id}', [Controller\AdminController::class, 'userForm'], $super);
+        $r->post('/admin/users/save', [Controller\AdminController::class, 'saveUser'], $super);
+        $r->post('/admin/users/delete', [Controller\AdminController::class, 'deleteUser'], $super);
+        $r->post('/admin/users/bulk', [Controller\AdminController::class, 'bulkUsers'], $super);
+        $r->post('/admin/users/import', [Controller\AdminController::class, 'importUsers'], $super);
+        $r->post('/admin/users/{id}/remote/test', [Controller\AdminController::class, 'testRemote'], $super);
+        $r->post('/admin/users/{id}/remote/sync', [Controller\AdminController::class, 'syncRemote'], $super);
+        $r->post('/admin/users/{id}/remote/restore', [Controller\AdminController::class, 'restoreRemote'], $super);
+        $r->post('/admin/users/reset2fa', [Controller\AdminController::class, 'reset2fa'], $super);
+        $r->get('/admin/domains', [Controller\AdminController::class, 'domains'], $super);
+        $r->post('/admin/domains/save', [Controller\AdminController::class, 'saveDomain'], $super);
+        $r->post('/admin/domains/delete', [Controller\AdminController::class, 'deleteDomain'], $super);
+        $r->get('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $super);
+        $r->post('/admin/domains/{id}/health', [Controller\AdminController::class, 'domainHealth'], $super);
+        $r->post('/admin/aliases/save', [Controller\AdminController::class, 'saveAlias'], $super);
+        $r->post('/admin/aliases/delete', [Controller\AdminController::class, 'deleteAlias'], $super);
         $r->get('/admin/signatures', [Controller\AdminController::class, 'signatures'], $admin);
         $r->get('/admin/signatures/new', [Controller\AdminController::class, 'signatureForm'], $admin);
         $r->get('/admin/signatures/{id}', [Controller\AdminController::class, 'signatureForm'], $admin);
@@ -478,27 +480,29 @@ final class App
         $r->post('/admin/signatures/preview', [Controller\AdminController::class, 'previewSignature'], $admin);
         $r->post('/admin/signatures/logo', [Controller\AdminController::class, 'signatureLogo'], $admin);
         $r->post('/admin/signatures/{id}/activate', [Controller\AdminController::class, 'activateSignature'], $admin);
-        $r->get('/admin/branding', [Controller\AdminController::class, 'branding'], $admin);
-        $r->post('/admin/branding', [Controller\AdminController::class, 'saveBranding'], $admin);
-        $r->get('/admin/mail', [Controller\AdminController::class, 'mail'], $admin);
-        $r->post('/admin/mail', [Controller\AdminController::class, 'saveMail'], $admin);
-        $r->post('/admin/mail/test', [Controller\AdminController::class, 'testMail'], $admin);
-        $r->post('/admin/mail/dkim', [Controller\AdminController::class, 'generateDkim'], $admin);
-        $r->post('/admin/mail/collector/test', [Controller\AdminController::class, 'testCollector'], $admin);
-        $r->post('/admin/mail/collector/sync', [Controller\AdminController::class, 'syncCollector'], $admin);
-        $r->get('/admin/mail/collector/stats', [Controller\AdminController::class, 'collectorStats'], $admin);
-        $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $admin);
-        $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $admin);
-        $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $admin);
-        $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $admin);
-        $r->get('/admin/meetings', [Controller\AdminController::class, 'meetings'], $admin);
-        $r->post('/admin/meetings', [Controller\AdminController::class, 'saveMeetings'], $admin);
-        $r->post('/admin/meetings/test', [Controller\AdminController::class, 'testMeeting'], $admin);
+        $r->get('/admin/update', [Controller\AdminController::class, 'update'], $super);
+        $r->post('/admin/update/{action}', [Controller\AdminController::class, 'updateAction'], $super);
+        $r->get('/admin/branding', [Controller\AdminController::class, 'branding'], $super);
+        $r->post('/admin/branding', [Controller\AdminController::class, 'saveBranding'], $super);
+        $r->get('/admin/mail', [Controller\AdminController::class, 'mail'], $super);
+        $r->post('/admin/mail', [Controller\AdminController::class, 'saveMail'], $super);
+        $r->post('/admin/mail/test', [Controller\AdminController::class, 'testMail'], $super);
+        $r->post('/admin/mail/dkim', [Controller\AdminController::class, 'generateDkim'], $super);
+        $r->post('/admin/mail/collector/test', [Controller\AdminController::class, 'testCollector'], $super);
+        $r->post('/admin/mail/collector/sync', [Controller\AdminController::class, 'syncCollector'], $super);
+        $r->get('/admin/mail/collector/stats', [Controller\AdminController::class, 'collectorStats'], $admin); // the gauge of the dashboard
+        $r->get('/admin/spam', [Controller\AdminController::class, 'spam'], $super);
+        $r->post('/admin/spam', [Controller\AdminController::class, 'saveSpam'], $super);
+        $r->post('/admin/spam/test', [Controller\AdminController::class, 'testSpam'], $super);
+        $r->post('/admin/spam/reported', [Controller\AdminController::class, 'forgetReported'], $super);
+        $r->get('/admin/meetings', [Controller\AdminController::class, 'meetings'], $super);
+        $r->post('/admin/meetings', [Controller\AdminController::class, 'saveMeetings'], $super);
+        $r->post('/admin/meetings/test', [Controller\AdminController::class, 'testMeeting'], $super);
         $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
         $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
-        $r->get('/admin/security', [Controller\AdminController::class, 'security'], $admin);
-        $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $admin);
-        $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $admin);
+        $r->get('/admin/security', [Controller\AdminController::class, 'security'], $super);
+        $r->post('/admin/security', [Controller\AdminController::class, 'saveSecurity'], $super);
+        $r->post('/admin/security/guard', [Controller\AdminController::class, 'guardAction'], $super);
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
         $r->post('/admin/queue/retry', [Controller\AdminController::class, 'retryQueue'], $admin);
         $r->post('/admin/queue/delete', [Controller\AdminController::class, 'deleteQueue'], $admin);

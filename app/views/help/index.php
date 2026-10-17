@@ -414,6 +414,16 @@ $cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/b
   <section id="a-overview" class="m4w-help-section admin">
     <h2><i class="bi bi-speedometer2"></i>Vue d'ensemble</h2>
     <p>La console d'administration s'ouvre depuis le menu de votre avatar ou les applications : <?= $go('admin', 'Administration') ?>. Le <strong>tableau de bord</strong> affiche le nombre de comptes, le trafic des dernières 24 heures et sur 14 jours, l'espace utilisé, l'activité récente et une <strong>liste de vérification</strong> de la configuration (relais SMTP, DKIM, DNS, double authentification des administrateurs). Traitez en priorité les points signalés en orange.</p>
+    <h3>Trois rôles</h3>
+    <table class="table table-sm m4w-help-table">
+      <thead><tr><th>Rôle</th><th>Ce qu'il peut faire</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Super administrateur</strong></td><td>Tous les droits. C'est le compte créé à l'installation, pour qui installe et exploite la messagerie (par exemple le prestataire qui la gère pour son client) : utilisateurs, domaines et alias, serveur de messagerie, antispam, sécurité, personnalisation, fichiers, visioconférence, en plus de tout ce que fait l'administrateur. Il en reste toujours au moins un, actif.</td></tr>
+        <tr><td><strong>Administrateur</strong></td><td>L'administration côté client, sans toucher à la configuration de l'outil : tableau de bord, signatures, messages supprimés, supervision, journaux. Il crée et règle les salles, ouvre les fichiers de chacun (« Fichiers de… » dans le volet Fichiers, consigné dans l'audit) et ajoute une autre boîte à son compte sans son mot de passe.</td></tr>
+        <tr><td><strong>Utilisateur</strong></td><td>Utilise la messagerie, sans droit de configuration. Il peut ajouter une autre boîte à son compte avec le mot de passe de cette boîte (la boîte reçoit un message qui l'en prévient), et gérer une salle dont il est gestionnaire.</td></tr>
+      </tbody>
+    </table>
+    <p>Le rôle se choisit dans la fiche de l'utilisateur (Utilisateurs, réservé au super administrateur). À la mise à jour, le premier administrateur, celui qui a installé l'application, devient super administrateur ; les autres restent administrateurs.</p>
     <div class="m4w-help-note warn"><i class="bi bi-shield-exclamation"></i><div>Les administrateurs ont accès à des données sensibles : activez la double authentification sur votre compte, et imposez-la à tous les administrateurs dans <?= $go('admin/security', 'Sécurité') ?>.</div></div>
   </section>
 
@@ -671,7 +681,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
         </ol>
         Pour modifier les lignes à la main : <code>sudo crontab -u <?= e($cronUser) ?> -e</code>. Autre possibilité : le fichier <code>/etc/cron.d/make4webmail</code> (installé par <code>deploy/install-debian.sh</code>), où le compte figure en 6<sup>e</sup> colonne. La page <?= $go('admin/health', 'Supervision') ?> indique la dernière exécution, et signale une tâche lancée en root.</li>
       <li><strong>Sauvegardes</strong> : sauvegardez chaque nuit le dossier <code>storage/</code> (base de données, messages, pièces jointes, fichiers) et <code>config/config.php</code>, qui contient la clé de chiffrement. Sans cette clé, les secrets ne sont plus lisibles. Testez régulièrement une restauration.</li>
-      <li><strong>Mises à jour</strong> : remplacez les fichiers de l'application en conservant <code>storage/</code> et <code>config/</code>. Les évolutions de la base s'appliquent automatiquement.</li>
+      <li><strong>Mises à jour</strong> : depuis <?= $go('admin/update', 'Mise à jour') ?> (super administrateur), l'application se met à jour depuis son dépôt GitHub, quand vous cliquez. Connectez une fois le compte GitHub avec un jeton d'accès personnel en lecture seule sur le dépôt (GitHub n'accepte plus le mot de passe pour cela ; la page explique comment le créer). « Vérifier » montre la version disponible et les dernières modifications ; « Mettre à jour » sauvegarde d'abord les fichiers qui changent, puis copie seulement ceux de l'application (jamais les tests, les exemples, <code>storage/</code> ni <code>config/config.php</code>). « Revenir à … » remet la version précédente. Les évolutions de la base s'appliquent automatiquement. À la main, on peut aussi remplacer les fichiers en conservant <code>storage/</code> et <code>config/</code>.</li>
       <li><strong>Outils en ligne de commande</strong> : <code>php bin/user.php list|create|password|enable|disable</code> (dépannage d'un compte administrateur), <code>php bin/cron.php -v</code> (exécution manuelle et détaillée de la maintenance).</li>
     </ul>
   </section>

@@ -82,7 +82,7 @@ final class Installer
         $parts = preg_split('/\s+/', trim($d['admin_name']), 2) ?: [''];
         $uid = Users::create([
             'email' => $d['admin_email'], 'password' => $d['admin_password'], 'display_name' => trim($d['admin_name']),
-            'first_name' => $parts[0] ?? '', 'last_name' => $parts[1] ?? '', 'role' => 'admin', 'quota_mb' => 0,
+            'first_name' => $parts[0] ?? '', 'last_name' => $parts[1] ?? '', 'role' => 'superadmin', 'quota_mb' => 0,
             'language' => $d['lang'], 'job_title' => 'Administrateur', 'signature_template_id' => $tplId,
         ]);
         self::welcome($uid);

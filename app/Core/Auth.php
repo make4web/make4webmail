@@ -27,7 +27,7 @@ final class Auth
 
     public static function isAdmin(): bool
     {
-        return (self::user()['role'] ?? '') === 'admin';
+        return is_admin(self::user());
     }
 
     /** For CLI/tests. */

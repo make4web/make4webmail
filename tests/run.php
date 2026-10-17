@@ -98,7 +98,7 @@ test('installer creates schema, domain, admin and signature', function () use ($
         'admin_password' => 'Secret!Pass123', 'admin_name' => 'Alice Admin', 'db' => ['driver' => 'sqlite', 'path' => Config::storagePath('test.sqlite')]]);
     ok(Config::installed(), 'config not written');
     $u = Users::findByEmail('admin@test.local');
-    ok($u && $u['role'] === 'admin');
+    ok($u && $u['role'] === 'superadmin', 'who installs is the super administrator');
     eq(count(Folders::listWithCounts((int) $u['id'])), 6, 'default folders');
     ok((bool) Signatures::forUser($u), 'default signature');
 });
@@ -1255,19 +1255,20 @@ test('files: space rights are inherited and enforced', function () use ($fsAdmin
     eq(Files::contents(Files::file($f['id'])['blob_id']), str_repeat("\x00\xff binaire ", 300000), 'binary roundtrip across chunks');
     $fsState = ['space' => $space, 'sub' => $sub, 'deep' => $deep, 'file' => $f['id']];
 });
-test('files: personal space is private, even to administrators', function () use ($fsAdmin, $fsBob, $fsFile) {
+test('files: personal space is private to other users; administrators open it; a share to them still shows as one', function () use ($fsAdmin, $fsBob, $fsCarol, $fsFile) {
     $root = Files::personalRoot((int) $fsBob['id']);
     Files::addFromPath($fsBob, (int) $root['id'], $fsFile('perso'), 'notes.txt');
-    eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE);
+    eq(Files::permission($fsCarol, (int) $root['id']), Files::NONE);
     $thrown = false;
-    try { Files::listing($fsAdmin, (int) $root['id']); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 404; }
-    ok($thrown, '404, existence not revealed');
+    try { Files::listing($fsCarol, (int) $root['id']); } catch (\M4W\Core\HttpException $e) { $thrown = $e->status === 404; }
+    ok($thrown, '404 for another user, existence not revealed');
+    eq(Files::permission($fsAdmin, (int) $root['id']), Files::MANAGE, 'the administrators open everyone\'s files');
     $shared = Files::createFolder($fsBob, (int) $root['id'], 'Pour Camille');
     Files::setAcl($fsBob, $shared, [['type' => 'user', 'principal' => $fsAdmin['id'], 'level' => 'read']]);
     Files::resetCache();
     $mine = array_column(Files::sharedWithMe($fsAdmin), 'id');
-    ok(in_array($shared, $mine, true), 'listed in "shared with me"');
-    eq(Files::permission($fsAdmin, (int) $root['id']), Files::NONE, 'parent stays private');
+    ok(in_array($shared, $mine, true), 'what is shared with an administrator is listed in "shared with me" all the same');
+    ok(!in_array((int) $root['id'], $mine, true), 'not the whole space');
 });
 test('files: a single file is shared without its folder', function () use ($fsAdmin, $fsBob, $fsCarol, $fsFile) {
     $root = Files::personalRoot((int) $fsBob['id']);
@@ -4456,6 +4457,132 @@ test('install: a moved installation finds its data; paths of the application are
         ok(false, 'a wrong password must fail');
     } catch (RuntimeException $e) {
         ok(str_contains($e->getMessage(), $cfg['user']) && !str_starts_with($e->getMessage(), 'SQLSTATE'), $e->getMessage());
+    }
+});
+test('roles: the customer\'s administrator opens everyone\'s files (not as shares), a mailbox added with its password is told, the installer stays super administrator', function () use ($fsBob, $fsCarol, $fsAdmin) {
+    ok(is_admin(['role' => 'admin']) && is_admin(['role' => 'superadmin']) && !is_admin(['role' => 'user']) && !is_admin(null));
+    ok(is_superadmin(['role' => 'superadmin']) && !is_superadmin(['role' => 'admin']));
+    $bobRoot = Files::personalRoot((int) $fsBob['id']);
+    $carol = $fsCarol;
+    eq(Files::permission($carol, (int) $bobRoot['id']), Files::NONE, 'a user does not see someone else\'s files');
+    $sharedBefore = count(Files::sharedWithMe($carol));
+    $carol['role'] = 'admin';
+    Files::resetCache();
+    eq(Files::permission($carol, (int) $bobRoot['id']), Files::MANAGE, 'the administrator does');
+    eq(count(Files::sharedWithMe($carol)), $sharedBefore, 'which is not a share: "Shared with me" unchanged');
+    ok(in_array((int) $fsBob['id'], array_column(Files::roots($carol)['people'], 'id'), true), 'Bob in the list "Files of…"');
+    eq(Files::roots($fsBob)['people'], [], 'no list for a user');
+    $audits = (int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'files.admin_opened'");
+    eq((int) Files::personalRootFor($carol, (int) $fsBob['id'])['id'], (int) $bobRoot['id']);
+    eq((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'files.admin_opened'"), $audits + 1, 'recorded in the audit log');
+    \M4W\Core\Auth::setUser($carol);
+    eq(Files::folderOut($bobRoot, Files::MANAGE)['name'], t('files.files_of', ['name' => Files::userName((int) $fsBob['id'])]), 'named "Files of Bob"');
+    \M4W\Core\Auth::setUser(null);
+    try {
+        Files::personalRootFor($fsBob, (int) $fsCarol['id']);
+        ok(false, 'a user may not');
+    } catch (M4W\Core\HttpException $e) {
+        eq($e->status, 404);
+    }
+    Files::resetCache();
+    // A user adds a mailbox with its password: the mailbox is told who, when, from where.
+    $req = new M4W\Core\Request('POST', '/settings/mailboxes', [], [], [], ['REMOTE_ADDR' => '198.51.100.20']);
+    $before = (int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $fsBob['id']]);
+    M4W\Service\SharedMailboxes::add($fsCarol, (string) $fsBob['email'], 'Secret!Pass123', '', $req);
+    $note = DB::one('SELECT * FROM messages WHERE user_id = :u ORDER BY id DESC LIMIT 1', ['u' => $fsBob['id']]);
+    ok((int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $fsBob['id']]) === $before + 1 && str_contains((string) $note['subject'], (string) $fsCarol['name']), 'the mailbox is told');
+    ok(str_contains(Mailbox::parsed($note)->text(), '198.51.100.20'), 'with the address it was done from');
+    M4W\Service\SharedMailboxes::remove((int) $fsCarol['id'], (int) $fsBob['id']);
+    // An administrator adds it without its password, and without telling.
+    M4W\Service\SharedMailboxes::add($carol, (string) $fsBob['email'], '', '', $req);
+    eq((int) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u', ['u' => $fsBob['id']]), $before + 1, 'no notice from an administrator');
+    M4W\Service\SharedMailboxes::remove((int) $fsCarol['id'], (int) $fsBob['id']);
+    DB::delete('messages', 'id = :id', ['id' => $note['id']]);
+    // Update of an older installation: its first administrator becomes super administrator.
+    DB::update('users', ['role' => 'admin'], 'id = :id', ['id' => $fsAdmin['id']]);
+    $schema = require M4W_ROOT . '/app/Database/schema.php';
+    foreach ($schema[44] as $step) {
+        $step();
+    }
+    eq(Users::find((int) $fsAdmin['id'])['role'], 'superadmin');
+    ok(in_array('superadmin', Users::ROLES, true) && Users::find(Users::create(['email' => 'norole@test.local', 'password' => 'Secret!Pass123']))['role'] === 'user', 'a new account is a user');
+    Users::delete((int) Users::findByEmail('norole@test.local')['id']);
+});
+test('update from GitHub: token checked, only the application\'s files copied, saved first, undone, files gone upstream removed', function () {
+    $U = M4W\Service\Updater::class;
+    $base = sys_get_temp_dir() . '/m4w-upd-' . getmypid();
+    $put = static function (string $path, string $content) { @mkdir(dirname($path), 0777, true); file_put_contents($path, $content); };
+    $rel = $base . '/release';
+    $site = $base . '/site';
+    $put("$rel/app/bootstrap.php", "<?php\ndefine('M4W_VERSION', '9.9.2026.0101.1');\n");
+    $put("$rel/app/Core/App.php", '<?php // new App');
+    $put("$rel/app/Nouveau.php", '<?php // new file');
+    $put("$rel/public/index.php", '<?php // same');
+    $put("$rel/README.md", '# new readme');
+    foreach (['tests/run.php', '.gitignore', '.github/workflows/ci.yml', 'CLAUDE.md', 'storage/data/evil.sqlite', 'config/config.php', 'app/samples/demo.txt', 'readme.m4w', 'bin/social-icons.js'] as $f) {
+        $put("$rel/$f", 'must not be copied');
+    }
+    $put("$site/app/bootstrap.php", "<?php\ndefine('M4W_VERSION', '1.0');\n");
+    $put("$site/app/Core/App.php", '<?php // old App');
+    $put("$site/app/Ancien.php", '<?php // only here');
+    $put("$site/public/index.php", '<?php // same');
+    $put("$site/config/config.php", 'SECRET');
+    $port = 20000 + getmypid() % 20000;
+    $proc = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $port, __DIR__ . '/fixtures/fake_github.php'], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, ['FAKE_GH_DIR' => $base] + getenv());
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) { usleep(100000); }
+    $U::$api = 'http://127.0.0.1:' . $port;
+    $U::$root = $site;
+    try {
+        ok($U::included('app/Core/App.php') && $U::included('README.md') && !$U::included('tests/run.php') && !$U::included('app/.gitkeep') && !$U::included('config/config.php') && !$U::included('storage/x') && !$U::included('app/samples/a.txt') && !$U::included('../etc/passwd'));
+        try {
+            $U::connect('make4web', 'github_pat_bad_0000000000000000');
+            ok(false, 'a bad token is refused');
+        } catch (RuntimeException $e) {
+            ok(str_contains($e->getMessage(), 'jeton') || str_contains($e->getMessage(), 'token'), $e->getMessage());
+        }
+        ok(!$U::connected());
+        try {
+            $U::connect('quelquun', 'github_pat_good_0123456789abcdef');
+            ok(false, 'another account than the one given');
+        } catch (InvalidArgumentException $e) {
+            ok(str_contains($e->getMessage(), 'make4web'));
+        }
+        eq($U::connect('make4web', 'github_pat_good_0123456789abcdef')['login'], 'make4web');
+        ok($U::connected() && Settings::get('update.login') === 'make4web');
+        $st = $U::status();
+        eq([$st['remote'], $st['newer'], $st['commits'][0]['message']], ['9.9.2026.0101.1', true, 'Nouvelle version']);
+        $r = $U::apply();
+        eq([$r['to'], $r['written']], ['9.9.2026.0101.1', 4], 'bootstrap, App, new file, readme (index unchanged)');
+        eq(file_get_contents("$site/app/Core/App.php"), '<?php // new App');
+        ok(is_file("$site/app/Nouveau.php") && is_file("$site/app/Ancien.php"), 'new file in; a file of no earlier update left alone');
+        eq(file_get_contents("$site/config/config.php"), 'SECRET', 'configuration never touched');
+        foreach (['tests/run.php', '.gitignore', '.github/workflows/ci.yml', 'CLAUDE.md', 'storage/data/evil.sqlite', 'app/samples/demo.txt', 'readme.m4w', 'bin/social-icons.js'] as $f) {
+            ok(!file_exists("$site/$f"), "$f not copied");
+        }
+        ok(is_file(Config::storagePath('backups/updates/' . $r['backup'])), 'saved first');
+        eq($U::history()[0]['to'], '9.9.2026.0101.1');
+        // Undone: the old files back, the new one gone.
+        $U::rollback();
+        eq(file_get_contents("$site/app/Core/App.php"), '<?php // old App');
+        ok(!is_file("$site/app/Nouveau.php"), 'a file the update brought is removed');
+        ok(!empty($U::history()[0]['rolled_back']));
+        // Updated again, then a release without Nouveau.php: the file goes (it came from an update).
+        $U::apply();
+        unlink("$rel/app/Nouveau.php");
+        file_put_contents("$base/sha", 'def5678abc1234def5678abc1234def5678abc12');
+        $r = $U::apply();
+        ok(!is_file("$site/app/Nouveau.php") && $r['removed'] === 1, 'removed upstream → removed here');
+        ok(is_file("$site/app/Ancien.php"), 'still never touched');
+        $U::disconnect();
+        ok(!$U::connected());
+    } finally {
+        proc_terminate($proc);
+        $U::$api = 'https://api.github.com';
+        $U::$root = null;
+        Settings::setMany(['update.history' => '', 'update.login' => '', 'update.branch' => '']);
+        @unlink(Config::storagePath('update-manifest.json'));
+        foreach (glob(Config::storagePath('backups/updates') . '/*') ?: [] as $f) { @unlink($f); }
+        exec('rm -rf ' . escapeshellarg($base));
     }
 });
 test('health: DNS, queue, cron, backups checked; administrators told once, reminded, then told it is fixed', function () {

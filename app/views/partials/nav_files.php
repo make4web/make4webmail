@@ -14,6 +14,13 @@
     <li><a class="m4w-nav-item" href="#mine" data-fs-nav="mine"><i class="bi bi-person-workspace"></i><span class="m4w-nav-label"><?= te('files.my_files') ?></span></a></li>
     <li><a class="m4w-nav-item" href="#shared" data-fs-nav="shared"><i class="bi bi-people"></i><span class="m4w-nav-label"><?= te('files.shared_with_me') ?></span></a></li>
   </ul>
+  <?php if (is_admin($currentUser ?? null)): ?>
+  <div class="px-3 mt-2 mb-1" id="fs-people-box">
+    <label class="m4w-nav-title px-0 mb-1 d-block" for="fs-people"><?= te('files.files_of_label') ?></label>
+    <select class="form-select form-select-sm" id="fs-people" aria-describedby="fs-people-hint"><option value=""><?= te('files.files_of_choose') ?></option></select>
+    <div class="small m4w-sidebar-muted mt-1" id="fs-people-hint"><?= te('files.files_of_hint') ?></div>
+  </div>
+  <?php endif; ?>
   <div class="m4w-nav-title">
     <span><?= te('files.spaces') ?></span>
     <button class="btn btn-ghost btn-icon btn-sm d-none" type="button" data-fs="new-space" data-fs-space-only title="<?= te('files.new_space') ?>" aria-label="<?= te('files.new_space') ?>"><i class="bi bi-plus-lg"></i></button>

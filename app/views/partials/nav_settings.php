@@ -20,7 +20,7 @@ if ((int) M4W\Core\Settings::get('features.fetch_accounts', 1)) {
   <li><a class="m4w-nav-item<?= ($section ?? '') === $key ? ' active' : '' ?>" href="<?= e(url($p)) ?>"><i class="bi bi-<?= $icon ?>"></i><span class="m4w-nav-label"><?= te($label) ?></span></a></li>
 <?php endforeach; ?>
 </ul>
-<?php if (($currentUser['role'] ?? '') === 'admin'): ?>
+<?php if (is_admin($currentUser)): ?>
 <div class="m4w-nav-title"><?= te('nav.admin') ?></div>
 <ul class="m4w-nav"><li><a class="m4w-nav-item" href="<?= e(url('admin')) ?>"><i class="bi bi-speedometer2"></i><span class="m4w-nav-label"><?= te('nav.admin_console') ?></span></a></li></ul>
 <?php endif; ?>

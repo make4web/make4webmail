@@ -9,6 +9,9 @@ use M4W\Core\Database as DB;
 
 final class Users
 {
+    /** superadmin: everything; admin: the customer's administration (see is_admin()); user. */
+    public const ROLES = ['superadmin', 'admin', 'user'];
+
     public const PREF_DEFAULTS = [
         'theme'          => 'auto',      // light | dark | auto
         'density'        => 'comfortable', // comfortable | compact
@@ -132,7 +135,7 @@ final class Users
             'department'            => trim((string) ($data['department'] ?? '')),
             'phone'                 => trim((string) ($data['phone'] ?? '')),
             'mobile'                => trim((string) ($data['mobile'] ?? '')),
-            'role'                  => ($data['role'] ?? 'user') === 'admin' ? 'admin' : 'user',
+            'role'                  => in_array($data['role'] ?? 'user', self::ROLES, true) ? ($data['role'] ?? 'user') : 'user',
             'status'                => ($data['status'] ?? 'active') === 'disabled' ? 'disabled' : 'active',
             'quota_mb'              => max(0, (int) ($data['quota_mb'] ?? 2048)),
             'signature_template_id' => !empty($data['signature_template_id']) ? (int) $data['signature_template_id'] : null,

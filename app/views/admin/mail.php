@@ -44,7 +44,7 @@ $show = static fn(string $modes): string => ' data-modes="' . $modes . '"' . (in
           <div class="col-md-6"><label class="form-label" for="col-limit"><?= te('col.limit') ?></label><div class="input-group"><input class="form-control" id="col-limit" type="number" min="1" max="100000" name="col_limit" value="<?= (int) S::get('collector.hourly_limit') ?>"><span class="input-group-text"><?= te('col.per_hour') ?></span></div><div class="form-text"><?= te('col.limit_hint') ?></div></div>
           <div class="col-md-6"><label class="form-label" for="col-fallback"><?= te('col.fallback') ?></label><select class="form-select" id="col-fallback" name="col_fallback">
             <option value="0"><?= te('col.fallback_auto') ?></option>
-            <?php foreach ($collector['users'] as $cu): ?><option value="<?= (int) $cu['id'] ?>" <?= (int) S::get('collector.fallback_user') === (int) $cu['id'] ? 'selected' : '' ?>><?= e($cu['email']) ?><?= $cu['role'] === 'admin' ? ' (admin)' : '' ?></option><?php endforeach; ?>
+            <?php foreach ($collector['users'] as $cu): ?><option value="<?= (int) $cu['id'] ?>" <?= (int) S::get('collector.fallback_user') === (int) $cu['id'] ? 'selected' : '' ?>><?= e($cu['email']) ?><?= is_admin($cu) ? ' (admin)' : '' ?></option><?php endforeach; ?>
           </select><div class="form-text"><?= te('col.fallback_hint') ?></div></div>
         </div>
         <?php if ($ca): ?>

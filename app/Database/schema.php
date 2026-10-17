@@ -1078,4 +1078,14 @@ static function (): void {
     }
 },
 ],
+44 => [
+// Roles: who installed the application (the first administrator) becomes the super administrator,
+// with every right; the other administrators keep the customer's administration (see is_admin()).
+static function (): void {
+    $first = \M4W\Core\Database::value("SELECT MIN(id) FROM users WHERE role = 'admin'");
+    if ($first && !\M4W\Core\Database::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin'")) {
+        \M4W\Core\Database::update('users', ['role' => 'superadmin'], 'id = :id', ['id' => (int) $first]);
+    }
+},
+],
 ];

@@ -117,7 +117,7 @@ final class AccountGuard
         // Mail of this person still waiting in the queue stays there.
         DB::run("UPDATE mail_queue SET status = 'held', last_error = :e WHERE user_id = :u AND status = 'pending'", ['u' => $userId, 'e' => 'account blocked']);
         $locked = false;
-        if (Settings::get('guard.on_burst', 'block_send') === 'lock' && $user['role'] !== 'admin') {
+        if (Settings::get('guard.on_burst', 'block_send') === 'lock' && !is_admin($user)) {
             DB::update('users', ['status' => 'disabled'], 'id = :id', ['id' => $userId]);
             DB::run('UPDATE user_sessions SET revoked = 1 WHERE user_id = :u', ['u' => $userId]);
             DB::run('DELETE FROM app_passwords WHERE user_id = :u', ['u' => $userId]);
@@ -238,7 +238,7 @@ final class AccountGuard
             'ip' => mb_substr($ip, 0, 64), 'created_at' => time()]);
         if ($severity === 'high' || ((int) Settings::get('guard.alert_admins_all', 0) && $severity !== 'info')) {
             $who = $userId ? Users::find($userId) : null;
-            foreach (DB::all("SELECT id FROM users WHERE role = 'admin' AND status = 'active'") as $a) {
+            foreach (DB::all("SELECT id FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'") as $a) {
                 $admin = Users::find((int) $a['id']);
                 if ($admin) {
                     self::notifyUser($admin, t('guard.admin_subject', ['who' => $who['email'] ?? '?']),

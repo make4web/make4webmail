@@ -203,6 +203,12 @@ Limites des navigateurs :
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
 ### Administration
+- **Trois rôles** :
+  - **super administrateur** : tous les droits. C'est le compte créé à l'installation, pour qui installe et exploite la messagerie (le prestataire qui la gère pour son client) ;
+  - **administrateur** : l'administration côté client, sans la configuration de l'outil. Il a accès au tableau de bord, aux signatures, aux messages supprimés, à la supervision et aux journaux. Il crée et règle les salles. Il ouvre les fichiers de chacun (« Fichiers de… » dans le volet Fichiers, consigné dans l'audit). Il ajoute une autre boîte à son compte sans son mot de passe ;
+  - **utilisateur** : utilise la messagerie. Il peut ajouter une autre boîte avec son mot de passe (la boîte reçoit un message qui l'en prévient), et gérer une salle dont il est gestionnaire.
+
+  Utilisateurs, domaines, personnalisation, réglages des fichiers, serveur de messagerie, antispam, visioconférence et sécurité sont réservés au super administrateur. Il reste toujours au moins un super administrateur actif. À la mise à jour (migration 44), le premier administrateur devient super administrateur.
 - **Santé d'un domaine** (Domaines & alias → bouton « Santé ») : pourquoi un message envoyé depuis ce domaine arrive, ou pas. La page reprend :
   - **comment les messages partent**, d'après la configuration : entre collègues (remis sur place, ni SPF ni DKIM ne s'appliquent), par la boîte perso ou la boîte collectrice chez le fournisseur (c'est lui qui signe), par un relais ou directement depuis le serveur (Make4WebMail signe avec sa clé). Les contrôles suivants sont jugés selon ces chemins ;
   - l'authentification : SPF évalué pour les adresses qui envoient réellement (celles des chemins utilisés, et celles vues dans les rapports DMARC), avec le nombre de consultations DNS ; DKIM de celui qui signe vraiment : le fournisseur (ses sélecteurs ne se devinent pas, ceux d'OVH portent le numéro du compte : on les recopie sur la page, ou ils sont trouvés dans les rapports DMARC et dans les messages du domaine venus de l'extérieur) ou Make4WebMail (sa clé doit être publiée) ; DMARC (politique, alignement, rapports) ;
@@ -337,6 +343,21 @@ Choisissez l'un des deux modes :
 
 ### 6. Envoi
 Dans « Administration → Serveur de messagerie », renseignez le relais SMTP de votre fournisseur. Si vous laissez le champ vide, la messagerie remet directement les messages aux serveurs MX, ce qui demande un port 25 sortant ouvert et un DNS inverse correct. Générez la clé DKIM et publiez les enregistrements DNS proposés.
+
+## Mise à jour depuis GitHub
+Administration › **Mise à jour** (super administrateur) : l'application se met à jour depuis le dépôt privé `make4web/make4webmail`, uniquement quand on clique, rien d'automatique.
+
+- **Connexion** : identifiant GitHub et **jeton d'accès personnel**. GitHub n'accepte plus le mot de passe du compte pour ces accès. Le jeton se crée dans GitHub › Settings › Developer settings › Personal access tokens › Fine-grained tokens, limité au dépôt, avec *Contents : Read-only*. Il est vérifié (compte, accès au dépôt) puis gardé chiffré.
+- **Vérifier** : versions installée et disponible (lue dans `app/bootstrap.php` de la branche), dernières modifications.
+- **Mettre à jour** :
+  1. la version est téléchargée entière (zip de la branche) et contrôlée ;
+  2. seuls les fichiers de l'application sont copiés (`app/`, `bin/`, `public/`, `deploy/`, `config/config.example.php`, `.htaccess`, `README.md`). Tests, exemples, fichiers `.git*`, notes de développement, `storage/` et `config/config.php` ne sont jamais touchés ;
+  3. tout doit être accessible en écriture avant que quoi que ce soit change : sinon, rien n'est modifié et la commande `chown` à lancer est indiquée ;
+  4. les fichiers qui changent sont sauvegardés d'abord (`storage/backups/updates/`, 5 versions gardées), puis remplacés un à un (écrits à côté, puis renommés) ;
+  5. un fichier apporté par une mise à jour précédente et retiré du dépôt est supprimé.
+
+  Les évolutions de la base s'appliquent à la page suivante.
+- **Revenir à la version précédente** : un bouton remet les fichiers sauvegardés avant la dernière mise à jour.
 
 ## Sauvegarde et restauration
 Administration → Fichiers → **Sauvegarde** : chaque jour, à l'heure choisie (3 h, heure de Paris, par défaut ; jours et fuseau réglables), un zip est envoyé en **SFTP, FTPS, FTP** ou dans un **dossier local** (NAS monté). Il contient :

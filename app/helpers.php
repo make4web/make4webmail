@@ -133,3 +133,18 @@ function html_ascii(string $html): string
 {
     return mb_encode_numericentity($html, [0x80, 0x10FFFF, 0, 0x1FFFFF], 'UTF-8');
 }
+
+/**
+ * Roles: "superadmin" (who installed and runs the application: everything), "admin" (the
+ * customer's administrator: dashboard, signatures, deleted messages, supervision, logs, rooms,
+ * everyone's files, mailboxes without their password), "user".
+ */
+function is_admin(?array $user): bool
+{
+    return in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+}
+
+function is_superadmin(?array $user): bool
+{
+    return ($user['role'] ?? '') === 'superadmin';
+}

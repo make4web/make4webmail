@@ -284,7 +284,7 @@ final class Health
     private static function notify(string $subject, string $text): int
     {
         $n = 0;
-        foreach (DB::all("SELECT id FROM users WHERE role = 'admin' AND status = 'active'") as $a) {
+        foreach (DB::all("SELECT id FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'") as $a) {
             $admin = Users::find((int) $a['id']);
             if ($admin) {
                 AccountGuard::notifyUser($admin, $subject, $text, 'admin/health');

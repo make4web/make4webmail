@@ -217,6 +217,9 @@
     if ($rules.length) initRules($rules);
 
     // --------------------------------------------- signature template
+    // User form: what the chosen role may do.
+    $('[data-role-select]').on('change', function () { $('[data-role-desc]').text($(this).find(':selected').data('desc') || ''); });
+
     var $sigForm = $('#sig-form');
     if ($sigForm.length) initSignatureForm($sigForm);
     // One's own notice: typing in it chooses it.

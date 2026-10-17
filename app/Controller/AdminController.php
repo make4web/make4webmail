@@ -64,7 +64,7 @@ final class AdminController extends Controller
             'https' => $this->req->isSecure(),
             'logo'  => Settings::get('brand.logo', '') !== '',
             'cron'  => (int) Settings::get('system.cron_last', 0) > time() - 900,
-            'twofa' => (bool) DB::value("SELECT COUNT(*) FROM users WHERE role = 'admin' AND totp_enabled = 1"),
+            'twofa' => (bool) DB::value("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'superadmin') AND totp_enabled = 1"),
         ];
         $recent = DB::all('SELECT a.*, u.email FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 8');
         $top = DB::all('SELECT id, email, display_name, used_bytes, quota_mb FROM users ORDER BY used_bytes DESC LIMIT 5');
@@ -162,7 +162,7 @@ final class AdminController extends Controller
             $where .= ' AND u.status = :s';
             $p['s'] = $status;
         } elseif ($status === 'admin') {
-            $where .= " AND u.role = 'admin'";
+            $where .= " AND u.role IN ('admin', 'superadmin')";
         }
         $users = DB::all("SELECT u.*, t.name AS template_name FROM users u LEFT JOIN signature_templates t ON t.id = u.signature_template_id WHERE $where ORDER BY u.email", $p);
         $remotes = [];
@@ -202,7 +202,7 @@ final class AdminController extends Controller
         $data = [
             'display_name' => $r->str('display_name'), 'first_name' => $r->str('first_name'), 'last_name' => $r->str('last_name'),
             'job_title' => $r->str('job_title'), 'department' => $r->str('department'), 'phone' => $r->str('phone'),
-            'mobile' => $r->str('mobile'), 'role' => $r->str('role') === 'admin' ? 'admin' : 'user',
+            'mobile' => $r->str('mobile'), 'role' => in_array($r->str('role'), Users::ROLES, true) ? $r->str('role') : 'user',
             'status' => $r->str('status') === 'disabled' ? 'disabled' : 'active', 'quota_mb' => max(0, $r->int('quota_mb', 2048)),
             'language' => isset(I18n::LANGUAGES[$r->str('language')]) ? $r->str('language') : 'fr',
             'must_change_password' => $r->bool('must_change_password') ? 1 : 0,
@@ -220,8 +220,13 @@ final class AdminController extends Controller
             if (!$existing) {
                 throw new HttpException(404);
             }
-            if ($id === $this->uid() && ($data['role'] !== 'admin' || $data['status'] !== 'active')) {
+            if ($id === $this->uid() && ($data['role'] !== $existing['role'] || $data['status'] !== 'active')) {
                 return $this->back($redirect, 'danger', t('admin.cannot_demote_self'));
+            }
+            // There is always a super administrator, active.
+            if ($existing['role'] === 'superadmin' && ($data['role'] !== 'superadmin' || $data['status'] !== 'active')
+                && (int) DB::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND status = 'active' AND id <> :id", ['id' => $id]) === 0) {
+                return $this->back($redirect, 'danger', t('admin.last_superadmin'));
             }
             if ($pw !== '') {
                 $data['password'] = $pw;
@@ -354,6 +359,9 @@ final class AdminController extends Controller
             return $this->back('/admin/users', 'danger', t('admin.cannot_delete_self'));
         }
         $u = Users::find($id);
+        if ($u && $this->lastSuperadmin($u)) {
+            return $this->back('/admin/users', 'danger', t('admin.last_superadmin'));
+        }
         if ($u) {
             Users::delete($id);
             Audit::log('admin.user_deleted', $u['email']);
@@ -361,9 +369,16 @@ final class AdminController extends Controller
         return $this->back('/admin/users', 'success', t('admin.user_deleted'));
     }
 
+    /** The only active super administrator left (never disabled nor deleted). */
+    private function lastSuperadmin(array $u): bool
+    {
+        return $u['role'] === 'superadmin'
+            && (int) DB::value("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND status = 'active' AND id <> :id", ['id' => $u['id']]) === 0;
+    }
+
     public function bulkUsers(): Response
     {
-        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid());
+        $ids = array_filter(array_map('intval', $this->req->arr('ids')), fn($i) => $i !== $this->uid() && !(($bu = Users::find($i)) && $this->lastSuperadmin($bu)));
         $action = $this->req->str('bulk_action');
         foreach ($ids as $id) {
             switch ($action) {
@@ -618,6 +633,52 @@ final class AdminController extends Controller
         return $this->back('/admin/signatures', 'success', t('admin.sig_activated', ['name' => $tpl['name']]));
     }
 
+    // ---- Update from GitHub (super administrator) -------------------------------
+
+    public function update(): Response
+    {
+        $status = json_decode((string) Settings::get('update.status', ''), true);
+        return $this->page('update', [
+            'connected' => \M4W\Service\Updater::connected(), 'login' => (string) Settings::get('update.login', ''),
+            'branch' => \M4W\Service\Updater::branch(), 'status' => is_array($status) ? $status : null,
+            'history' => \M4W\Service\Updater::history(),
+        ]);
+    }
+
+    public function updateAction(string $action): Response
+    {
+        $U = \M4W\Service\Updater::class; // the session stays open: the outcome is shown on the page
+        try {
+            switch ($action) {
+                case 'connect':
+                    $b = $this->req->str('branch') ?: 'main';
+                    Settings::set('update.branch', preg_match('#^[\w./-]{1,100}$#', $b) ? $b : 'main');
+                    $r = $U::connect($this->req->str('login'), $this->req->raw('token'));
+                    Settings::set('update.status', json_encode($U::status()));
+                    return $this->back('/admin/update', 'success', t('upd.connected', ['login' => $r['login']]));
+                case 'disconnect':
+                    $U::disconnect();
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.disconnected'));
+                case 'check':
+                    Settings::set('update.status', json_encode($U::status()));
+                    return $this->back('/admin/update');
+                case 'apply':
+                    $r = $U::apply($this->req->str('sha') ?: null);
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.applied', ['from' => $r['from'], 'to' => $r['to'], 'n' => $r['written']]));
+                case 'rollback':
+                    $r = $U::rollback();
+                    Settings::set('update.status', '');
+                    return $this->back('/admin/update', 'success', t('upd.rolled_back', ['version' => $r['to']]));
+            }
+        } catch (\Throwable $e) {
+            error_log('[m4w] update ' . $action . ': ' . $e->getMessage());
+            return $this->back('/admin/update', 'danger', $e->getMessage());
+        }
+        throw new HttpException(404);
+    }
+
     // ---- Branding ------------------------------------------------------------
 
     public function branding(): Response
@@ -691,7 +752,7 @@ final class AdminController extends Controller
             'account' => \M4W\Service\Collector::account(),
             'stats' => \M4W\Service\Collector::stats(),
             'redirect' => \M4W\Service\Collector::addressesToRedirect(),
-            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role = 'admin' DESC, email"),
+            'users' => DB::all("SELECT id, email, display_name, role FROM users WHERE status = 'active' ORDER BY role IN ('admin', 'superadmin') DESC, email"),
             'fallback' => \M4W\Service\Collector::fallbackUser(),
         ];
         return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked, 'collector' => $collector]);

@@ -1,23 +1,27 @@
 <?php
+// The customer's administrator sees what is theirs; the super administrator, everything (see is_admin()).
+$super = is_superadmin($currentUser ?? null);
+// 5th value: for the super administrator only.
 $items = [
     ['admin', 'speedometer2', 'admin.nav_dashboard', 'dashboard'],
-    ['admin/users', 'people', 'admin.nav_users', 'users'],
-    ['admin/domains', 'globe2', 'admin.nav_domains', 'domains'],
+    ['admin/users', 'people', 'admin.nav_users', 'users', true],
+    ['admin/domains', 'globe2', 'admin.nav_domains', 'domains', true],
     ['admin/signatures', 'vector-pen', 'admin.nav_signatures', 'signatures'],
-    ['admin/branding', 'palette', 'admin.nav_branding', 'branding'],
-    ['admin/files', 'folder2-open', 'admin.nav_files', 'files'],
+    ['admin/branding', 'palette', 'admin.nav_branding', 'branding', true],
+    ['admin/files', 'folder2-open', 'admin.nav_files', 'files', true],
     ['admin/deleted', 'trash3', 'admin.nav_deleted', 'deleted'],
-    ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail'],
-    ['admin/spam', 'funnel', 'admin.nav_spam', 'spam'],
-    ['admin/meetings', 'camera-video', 'admin.nav_meetings', 'meetings'],
-    ['admin/security', 'shield-check', 'admin.nav_security', 'security'],
+    ['admin/mail', 'hdd-network', 'admin.nav_mail', 'mail', true],
+    ['admin/spam', 'funnel', 'admin.nav_spam', 'spam', true],
+    ['admin/meetings', 'camera-video', 'admin.nav_meetings', 'meetings', true],
+    ['admin/security', 'shield-check', 'admin.nav_security', 'security', true],
     ['admin/health', 'heart-pulse', 'admin.nav_health', 'health'],
     ['admin/logs', 'journal-text', 'admin.nav_logs', 'logs'],
+    ['admin/update', 'cloud-arrow-down', 'admin.nav_update', 'update', true],
 ];
 ?>
 <div class="m4w-nav-title"><?= te('nav.admin_console') ?></div>
 <ul class="m4w-nav">
-<?php foreach ($items as [$p, $icon, $label, $key]): ?>
+<?php foreach ($items as $it): [$p, $icon, $label, $key] = $it; if (!empty($it[4]) && !$super) { continue; } ?>
   <li><a class="m4w-nav-item<?= ($section ?? '') === $key ? ' active' : '' ?>" href="<?= e(url($p)) ?>"><i class="bi bi-<?= $icon ?>"></i><span class="m4w-nav-label"><?= te($label) ?></span></a></li>
 <?php endforeach; ?>
 </ul>
