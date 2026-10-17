@@ -344,4 +344,45 @@ final class ProviderFolders
             }
         }
     }
+
+    /**
+     * Messages here in a followed folder that the provider does not have at all (brought by
+     * another way: the collector, a colleague of the server…): put into that folder there, so
+     * that the other mail apps see the same folder. Never twice (RemoteMailbox::appendOnce).
+     */
+    public static function push(ImapClient $client, array $acc, array $user, array $folders, int $max = 50): int
+    {
+        $ids = [];
+        foreach ($folders as $key => $f) {
+            if (!$f['gone_here'] && !$f['gone_there']) {
+                $ids[(int) $f['folder_id']] = $f['path'];
+            }
+        }
+        if (!$ids) {
+            return 0;
+        }
+        [$in, $p] = DB::in('f', array_keys($ids));
+        $rows = DB::all("SELECT m.* FROM messages m WHERE m.user_id = :u AND m.is_draft = 0 AND m.folder_id IN $in
+            AND NOT EXISTS (SELECT 1 FROM remote_uids r WHERE r.account_id = :a AND r.msgid = m.message_id AND m.message_id <> '')
+            AND NOT EXISTS (SELECT 1 FROM provider_pushed x WHERE x.account_id = :a2 AND x.local_id = m.id)
+            ORDER BY m.id LIMIT $max", $p + ['u' => $user['id'], 'a' => $acc['id'], 'a2' => $acc['id']]);
+        if (!$rows) {
+            return 0;
+        }
+        $holds = RemoteMailbox::providerHolds($client, $acc);
+        $n = 0;
+        foreach ($rows as $m) {
+            if (RemoteMailbox::heldThere($holds, $m) || $m['storage_path'] === '' || !is_file(storage_path((string) $m['storage_path']))) {
+                // Already there somewhere (followed another way), or nothing to send: written down, not tried again.
+                DB::insert('provider_pushed', ['account_id' => $acc['id'], 'local_id' => $m['id'], 'msgid' => '', 'fkey' => '', 'created_at' => time()]);
+                continue;
+            }
+            try {
+                $n += RemoteMailbox::appendOnce($client, $acc, $m, $ids[(int) $m['folder_id']], 'folder') ? 1 : 0;
+            } catch (\RuntimeException $e) {
+                error_log('[m4w] folder copy: ' . $e->getMessage());
+            }
+        }
+        return $n;
+    }
 }

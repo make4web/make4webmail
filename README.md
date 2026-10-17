@@ -166,7 +166,9 @@ En mode boîte collectrice :
 - **Jamais deux fois le même message chez le fournisseur** :
   - un message distribué ici et recopié dans la boîte, par exemple envoyé par un collègue, attend 10 minutes : il est souvent déjà en route par le fournisseur ;
   - avant toute copie ou recopie, on vérifie qu'il n'y est pas déjà, dans la boîte de réception, les indésirables, la Corbeille, les Archives ou un dossier perso. Le message est reconnu par son Message-ID, ou par l'expéditeur, la date et l'objet quand son Message-ID a changé en route (redirection) ;
-  - les doublons exacts déjà présents (même Message-ID dans un même dossier) sont supprimés une fois par jour et à la fin d'une recopie. Le nombre de doublons supprimés est affiché dans la fiche utilisateur.
+  - chaque message que Make4WebMail dépose chez le fournisseur (copie, recopie, dossier perso) est noté dans un registre, et n'y est jamais déposé deux fois, quoi que réponde la recherche du fournisseur. S'il est supprimé là-bas, il n'est pas remis. Chaque dépôt figure dans les journaux (« sync.copied_there »), avec sa raison ;
+  - les doublons déjà présents, de même Message-ID ou de même expéditeur, même date à la seconde et même objet, sont supprimés toutes les 15 minutes et à la fin d'une recopie. L'exemplaire suivi est gardé, et le nombre est affiché dans la fiche utilisateur ;
+  - un message rangé ici dans un dossier perso, mais absent chez le fournisseur parce qu'il est arrivé par un autre chemin, est déposé dans le même dossier chez lui.
 
 ### Application mobile et notifications push
 - Make4WebMail s'installe comme une application (PWA) sur iPhone, Android et ordinateur : manifeste, icônes (dont l'icône « maskable » d'Android et l'icône d'écran d'accueil iOS), affichage plein écran.
