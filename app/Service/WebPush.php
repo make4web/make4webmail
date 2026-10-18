@@ -233,7 +233,7 @@ final class WebPush
     // ---------------------------------------------------------------- send
 
     /** @return int number of devices reached */
-    /** A device whose app checked in this recently is open (hidden pages check once a minute). */
+    /** A device whose app checked in this recently, on screen, is open (see presence: $away). */
     public const PRESENCE = 70;
     /** Held at most this long for an open app that has not shown the new mail yet. */
     public const HOLD_MAX = 120;
@@ -275,12 +275,21 @@ final class WebPush
      * else the messages held for it, which the page announces: the rest of what is new was
      * already announced by a system notification (the device was taken for closed).
      */
-    public static function presence(int $userId, string $endpointHash, bool $seen = true): ?array
+    public static function presence(int $userId, string $endpointHash, bool $seen = true, bool $away = false): ?array
     {
         if (!preg_match('/^[0-9a-f]{64}$/', $endpointHash)) {
             return null;
         }
         $s = DB::one('SELECT id FROM push_subscriptions WHERE user_id = :u AND endpoint_hash = :h', ['u' => $userId, 'h' => $endpointHash]);
+        // The app went to the background (phone locked, another app in front): from now on the
+        // system notifies this device, and what was held for it is sent at once. Such a page
+        // announces nothing itself (it would only make a sound: a hidden page cannot show its
+        // own notification on a phone).
+        if ($s && $away) {
+            DB::update('push_subscriptions', ['active_at' => 0], 'id = :id', ['id' => $s['id']]);
+            self::flushPending(null, (int) $s['id']);
+            return [];
+        }
         $held = [];
         if ($s && $seen) {
             foreach (DB::all('SELECT payload FROM push_pending WHERE subscription_id = :s', ['s' => $s['id']]) as $p) {
@@ -304,11 +313,14 @@ final class WebPush
      * the new mail: sent now, unless the message was read meanwhile. Scheduled task, every minute.
      * Returns how many were sent.
      */
-    public static function flushPending(?int $now = null): int
+    public static function flushPending(?int $now = null, int $only = 0): int
     {
         $now ??= time();
         $n = 0;
-        foreach (DB::all('SELECT * FROM push_pending WHERE created_at <= :t ORDER BY id', ['t' => $now - self::PRESENCE]) as $p) {
+        // $only: one device that has just gone to the background, whatever the age of what it holds.
+        $rows = $only ? DB::all('SELECT * FROM push_pending WHERE subscription_id = :s ORDER BY id', ['s' => $only])
+            : DB::all('SELECT * FROM push_pending WHERE created_at <= :t ORDER BY id', ['t' => $now - self::PRESENCE]);
+        foreach ($rows as $p) {
             $s = DB::one('SELECT * FROM push_subscriptions WHERE id = :id', ['id' => $p['subscription_id']]);
             // Still open (it will see it at its next full check): kept for now, but not for long:
             // a notification is never lost, even when the page fails to bring it (sent anyway).

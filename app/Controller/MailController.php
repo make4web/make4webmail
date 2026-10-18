@@ -789,7 +789,7 @@ final class MailController extends Controller
         $u = $this->user();
         Session::close();
         // Heartbeat only: this check does not bring the new mail (held notifications stay held).
-        \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''), false);
+        $this->presence(false);
         return $this->ok(['stamp' => self::folderStamp((int) $u['id'], (int) ($this->req->query['folder'] ?? 0))]);
     }
 
@@ -809,7 +809,7 @@ final class MailController extends Controller
         $u = $this->user();
         Session::close();
         // Heartbeat: the app is open on this device (no system notification there, see WebPush::send).
-        $held = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
+        $held = $this->presence();
         // Webmail mode: reading the mailbox is enough to pull new mail from the provider.
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], $this->req->bool('force') ? 15 : 60);
@@ -851,7 +851,7 @@ final class MailController extends Controller
     {
         $u = $this->user();
         Session::close();
-        $held = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''));
+        $held = $this->presence();
         try {
             \M4W\Service\RemoteMailbox::syncIfDue((int) $u['id'], 60);
         } catch (\Throwable $e) {
@@ -873,13 +873,19 @@ final class MailController extends Controller
         ]);
     }
 
+    /** Heartbeat of the app on this device (see WebPush::presence); away=1: in the background. */
+    private function presence(bool $seen = true): ?array
+    {
+        return \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? ''), $seen, $this->req->bool('away'));
+    }
+
     /** Mail fetched during this very check was held for this device too: the page announces it. */
     private function heldAfterSync(?array $held): ?array
     {
         if ($held === null) {
             return null;
         }
-        $more = \M4W\Service\WebPush::presence((int) $this->actor()['id'], (string) ($this->req->query['device'] ?? '')) ?? [];
+        $more = $this->presence() ?? [];
         return array_values(array_unique(array_merge($held, $more)));
     }
 

@@ -4013,6 +4013,22 @@ test('notifications: no system notification where the app is open; held, sent if
         $sent = [];
         eq($W::flushPending(time() + $W::PRESENCE + 5), 1, 'the phone closed before seeing it: notified anyway');
         eq(basename($sent[0][0]), 'phone');
+        // Open a moment ago, now in the background (phone locked): told at once, it gets the system
+        // notification (a hidden page could only make a sound), with what was held for it.
+        $W::presence((int) $bob['id'], $subs['phone']);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Juste verrouillé', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        ok(!in_array('phone', array_map(static fn($x) => basename($x[0]), $sent), true), 'still taken for open: held for the phone');
+        $sent = [];
+        eq($W::presence((int) $bob['id'], $subs['phone'], false, true), [], 'gone to the background: its page announces nothing');
+        eq(array_map(static fn($x) => basename($x[0]), $sent), ['phone'], 'and the held one is sent to its system at once');
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Téléphone en poche', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        ok(in_array('phone', array_map(static fn($x) => basename($x[0]), $sent), true), 'the next one too, though its page still checks now and then');
+        $W::presence((int) $bob['id'], $subs['phone'], true, true);
+        $sent = [];
+        Delivery::deliver($sendTo('bob@test.local', 'Toujours en poche', 'x@ext.com'), 'x@ext.com', ['bob@test.local']);
+        ok(in_array('phone', array_map(static fn($x) => basename($x[0]), $sent), true), 'a hidden page checking does not count as open');
         // Test on every device at once: accepted by each push service, then acknowledged by each device.
         $sent = [];
         $t = $W::testAll((int) $bob['id']);

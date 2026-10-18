@@ -172,12 +172,33 @@ self.addEventListener('push', function (event) {
       mine.forEach(function (c) { c.postMessage({ type: 'm4w-push', kind: kind, id: data.id || 0 }); });
       return;
     }
-    // Otherwise the system announces it; an open page in the background only updates (no second sound).
-    return self.registration.showNotification(data.title || 'Make4WebMail', opts).then(function () {
+    // Otherwise the system shows it. An open page in the background (alive a while after the app
+    // left the screen) first plays the app's own sound, the one chosen in the settings (on a phone
+    // the system's sound cannot be chosen per app): the notification is then silent. A page asleep
+    // or closed does not answer in time: the system's sound then.
+    return (data.kind && !data.silent ? playThere(mine, kind, data.id || 0) : Promise.resolve(false)).then(function (played) {
+      if (played) opts.silent = true;
+      return self.registration.showNotification(data.title || 'Make4WebMail', opts);
+    }).then(function () {
       mine.forEach(function (c) { c.postMessage({ type: 'm4w-alert', kind: kind, id: data.id || 0 }); });
     });
   }));
 });
+
+/** Asks the open pages to play the app's sound; true if one did within a second and a half. */
+function playThere(list, kind, id) {
+  if (!list.length || typeof MessageChannel === 'undefined') return Promise.resolve(false);
+  return new Promise(function (resolve) {
+    var done = false, left = list.length;
+    var finish = function (v) { if (!done) { done = true; resolve(v); } };
+    setTimeout(function () { finish(false); }, 1500);
+    list.forEach(function (c) {
+      var ch = new MessageChannel();
+      ch.port1.onmessage = function (e) { if (e.data && e.data.played) finish(true); else if (--left === 0) finish(false); };
+      try { c.postMessage({ type: 'm4w-play', kind: kind, id: id }, [ch.port2]); } catch (e) { if (--left === 0) finish(false); }
+    });
+  });
+}
 
 // A step of the test of every device, said to the server with this device's subscription hash.
 function testAck(test, stage, state) {
