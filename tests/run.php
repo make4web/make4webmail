@@ -2556,6 +2556,23 @@ test('one crontab line: bin/cron.php starts the live watch and the backup, each 
         $run();
         usleep(800000);
         eq((int) trim((string) @file_get_contents($lockFile)), $pid, 'one watch at a time');
+        // A watch that holds the lock but no longer reports (stuck): stopped and replaced.
+        posix_kill($pid, SIGTERM);
+        for ($i = 0; $i < 30 && posix_kill($pid, 0); $i++) {
+            usleep(100000);
+        }
+        $holder = proc_open([PHP_BINARY, '-r', '$h = fopen($argv[1], "c"); flock($h, LOCK_EX); ftruncate($h, 0); fwrite($h, (string) getmypid()); fflush($h); sleep(60);', $lockFile], [1 => ['file', '/dev/null', 'w']], $hp);
+        usleep(500000);
+        $stuck = (int) trim((string) file_get_contents($lockFile));
+        ok($stuck > 0 && posix_kill($stuck, 0), 'a stuck watch holds the lock');
+        Settings::set('watch.last', time() - 600);
+        $out = shell_exec('M4W_CONFIG=' . escapeshellarg((string) getenv('M4W_CONFIG')) . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__) . '/bin/watch.php') . ' --for=2 -v 2>&1');
+        proc_close($holder); // (its exit collected)
+        ok(str_contains((string) $out, 'stopped and replaced') && !posix_kill($stuck, 0), 'replaced: ' . $out);
+        $pid = 0;
+        Settings::set('watch.last', time());
+        $out = shell_exec('M4W_CONFIG=' . escapeshellarg((string) getenv('M4W_CONFIG')) . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__) . '/bin/watch.php') . ' --for=2 -v 2>&1');
+        ok(str_contains((string) $out, 'watching'), 'and -v says what it does: ' . $out);
         // When it does not run, the supervision says why.
         Settings::flush();
         $why = static function (array $s) {
