@@ -2363,7 +2363,13 @@ test('new mail told by the provider (IMAP IDLE): fetched within seconds, not at 
             $found = DB::one("SELECT * FROM messages WHERE user_id = :u AND message_id = 'idle-1@ext.com'", ['u' => $uid]);
         }
         ok($found !== null, 'fetched at once: ' . @file_get_contents('/tmp/m4w-watch-' . getmypid() . '.log'));
-        eq((int) DB::value('SELECT last_sync_at FROM remote_accounts WHERE user_id = :u', ['u' => $uid]), $before, 'the full passes keep their pace');
+        // The message is stored during the quick fetch; its claim on the mailbox is given back
+        // when that fetch is over, a moment later.
+        $last = 0;
+        for ($i = 0; $i < 30 && ($last = (int) DB::value('SELECT last_sync_at FROM remote_accounts WHERE user_id = :u', ['u' => $uid])) !== $before; $i++) {
+            usleep(100000);
+        }
+        eq($last, $before, 'the full passes keep their pace');
     } finally {
         proc_terminate($proc);
         proc_close($proc);
@@ -2860,6 +2866,73 @@ test('sessions: stored hashed, read back, refreshed sparingly, expired and purge
     $h->write($id, 'x|i:1;');
     $h->destroy($id);
     eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
+});
+
+test('stay signed in on this device: longer limits for the device chosen, ordinary ones otherwise, ended at will', function () {
+    $u = Users::find(Users::create(['email' => 'trust.me@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Trust']));
+    $req = new M4W\Core\Request('POST', '/login', [], [], [], ['REMOTE_ADDR' => '198.51.100.21', 'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; Android 14) Chrome/130']);
+    $reset = static function () {
+        $p = new ReflectionProperty(M4W\Core\Auth::class, 'resolved');
+        $p->setValue(null, false);
+    };
+    $signIn = static function (bool $trust) use ($u, $req, $reset) {
+        $_SESSION = [];
+        M4W\Core\Auth::login($u, $req, $trust);
+        $reset();
+        return (int) DB::value('SELECT id FROM user_sessions WHERE token_hash = :h', ['h' => hash('sha256', (string) $_SESSION['stoken'])]);
+    };
+    $age = static function (int $sid, int $seen, int $created = 0) use ($reset) {
+        DB::update('user_sessions', ['last_seen_at' => time() - $seen] + ($created ? ['created_at' => time() - $created] : []), 'id = :id', ['id' => $sid]);
+        $reset();
+        return M4W\Core\Auth::user() !== null;
+    };
+    Settings::setMany(['security.session_idle' => 30, 'security.session_absolute' => 720, 'security.trusted_enabled' => 1, 'security.trusted_idle_days' => 7, 'security.trusted_days' => 30]);
+    try {
+        // Ordinary: two hours locked in a pocket and it is over.
+        $sid = $signIn(false);
+        eq((int) DB::value('SELECT trusted FROM user_sessions WHERE id = :i', ['i' => $sid]), 0);
+        ok($age($sid, 20 * 60), 'ordinary session, 20 min idle: still signed in');
+        $sid = $signIn(false);
+        ok(!$age($sid, 2 * 3600), 'ordinary session, 2 h idle: signed out');
+        // The device chosen: a weekend away from the phone is fine, a fortnight is not.
+        $sid = $signIn(true);
+        eq((int) DB::value('SELECT trusted FROM user_sessions WHERE id = :i', ['i' => $sid]), 1);
+        ok((int) $_SESSION['_trusted_until'] >= time() + 30 * 86400 - 5, 'the cookie is kept as long');
+        ok($age($sid, 3 * 86400), 'trusted device, 3 days unused: still signed in');
+        ok(!$age($sid, 8 * 86400), 'trusted device, 8 days unused: signed out');
+        $sid = $signIn(true);
+        ok(!$age($sid, 60, 31 * 86400), 'trusted device used every day: signed in again after 30 days');
+        eq(M4W\Core\Auth::limits(['trusted' => 1]), [7 * 86400, 30 * 86400]);
+        // The server keeps session data as long as the longest session may last.
+        eq(M4W\Core\Auth::longest(), 30 * 86400);
+        // The administrator turns it off: trusted sessions get the ordinary limits at once.
+        $sid = $signIn(true);
+        Settings::set('security.trusted_enabled', 0);
+        ok(!$age($sid, 2 * 3600), 'turned off: back to the ordinary idle time');
+        eq(M4W\Core\Auth::longest(), 720 * 60);
+        $sid = $signIn(true);
+        eq((int) DB::value('SELECT trusted FROM user_sessions WHERE id = :i', ['i' => $sid]), 0, 'not offered: not recorded');
+        Settings::set('security.trusted_enabled', 1);
+        // Ended from "My devices", or with every session when the account is protected.
+        $sid = $signIn(true);
+        DB::update('user_sessions', ['revoked' => 1], 'id = :id', ['id' => $sid]);
+        ok(!$age($sid, 0), 'ended at will');
+        $sid = $signIn(true);
+        M4W\Core\Auth::revokeOtherSessions((int) $u['id'], 0);
+        ok(!$age($sid, 0), 'every session ended (password changed, account protected)');
+        // The offline copy on the device follows the same limits.
+        eq(M4W\Core\Auth::limits(DB::one('SELECT * FROM user_sessions WHERE id = :i', ['i' => $sid])), [7 * 86400, 30 * 86400]);
+        // Offered at sign-in.
+        ob_start();
+        $email = '';
+        include dirname(__DIR__) . '/app/views/auth/login.php';
+        $html = ob_get_clean();
+        ok(str_contains($html, 'name="trust"') && str_contains($html, '30'), 'the box at sign-in');
+    } finally {
+        $_SESSION = [];
+        M4W\Core\Auth::setUser(null);
+        Settings::setMany(['security.trusted_enabled' => 1, 'security.trusted_idle_days' => 7, 'security.trusted_days' => 30]);
+    }
 });
 
 echo "\nFiles: same content stored once\n";

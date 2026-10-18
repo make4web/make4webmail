@@ -21,7 +21,9 @@ final class Session
         ini_set('session.use_trans_sid', '0');
         ini_set('session.sid_length', '48');
         ini_set('session.sid_bits_per_character', '6');
-        ini_set('session.gc_maxlifetime', (string) (max(60, (int) Settings::get('security.session_absolute', 720)) * 60));
+        // The data of a session is kept as long as the longest session may last (a device where
+        // the user stays signed in); each session's own limits are checked by Auth.
+        ini_set('session.gc_maxlifetime', (string) max(3600, Auth::longest()));
         if (Config::installed() && Config::get('session_store', 'database') !== 'files') {
             // In the database: shared by every web server behind a load balancer.
             session_set_save_handler(new DbSessionHandler(), true);
@@ -47,6 +49,16 @@ final class Session
         self::$started = true;
     }
 
+    /** The session cookie kept until then (a device where the user stays signed in). */
+    public static function keepCookieUntil(int $until): void
+    {
+        if (PHP_SAPI === 'cli' || session_status() !== PHP_SESSION_ACTIVE || headers_sent()) {
+            return;
+        }
+        $p = session_get_cookie_params();
+        setcookie(session_name(), session_id(), ['expires' => $until, 'path' => $p['path'], 'secure' => $p['secure'], 'httponly' => true, 'samesite' => $p['samesite'] ?: 'Lax']);
+    }
+
     public static function get(string $key, mixed $default = null): mixed
     {
         return $_SESSION[$key] ?? $default;
@@ -66,6 +78,10 @@ final class Session
     {
         if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_ACTIVE) {
             session_regenerate_id(true);
+            // A new identifier, a new cookie: as long-lived as the one it replaces.
+            if ((int) ($_SESSION['_trusted_until'] ?? 0) > time()) {
+                self::keepCookieUntil((int) $_SESSION['_trusted_until']);
+            }
         }
     }
 

@@ -1088,4 +1088,9 @@ static function (): void {
     }
 },
 ],
+45 => [
+// "Stay signed in on this device": a session chosen at sign-in, with its own longer limits (a
+// phone locked often cannot keep an ordinary session from going idle).
+"ALTER TABLE user_sessions ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0",
+],
 ];

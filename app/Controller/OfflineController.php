@@ -38,7 +38,8 @@ final class OfflineController extends Controller
         } catch (\InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
         }
-        $session = \M4W\Core\Database::one('SELECT created_at FROM user_sessions WHERE id = :id', ['id' => (int) ($actor['_session_id'] ?? 0)]);
+        $session = \M4W\Core\Database::one('SELECT created_at, trusted FROM user_sessions WHERE id = :id', ['id' => (int) ($actor['_session_id'] ?? 0)]);
+        [$idle, $max] = \M4W\Core\Auth::limits($session ?: []);
         Session::close();
         return $this->ok([
             'enabled' => true,
@@ -46,8 +47,8 @@ final class OfflineController extends Controller
             'user' => (int) $actor['id'],
             'session' => [
                 'login_at' => (int) ($session['created_at'] ?? time()),
-                'idle' => max(5, (int) Settings::get('security.session_idle', 30)) * 60,
-                'max' => max(30, (int) Settings::get('security.session_absolute', 720)) * 60,
+                'idle' => $idle,
+                'max' => $max,
             ],
             'manifest' => Offline::manifest((int) $actor['id']),
         ]);

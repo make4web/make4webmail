@@ -3,8 +3,15 @@
   'use strict';
   $(function () {
     var $login = $('form[data-m4w-login]');
+    // "Stay signed in on this device": the last choice made here; ticked at first in the
+    // installed app (a phone locks often, an ordinary session would keep ending).
+    var $trust = $('[data-m4w-trust]'), saved = null;
+    try { saved = localStorage.getItem('m4w.trust'); } catch (e) { /* private browsing */ }
+    var standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    $trust.prop('checked', saved === null ? standalone : saved === '1');
     $login.on('submit', function (e) {
       if (!this.checkValidity()) { e.preventDefault(); e.stopPropagation(); $(this).addClass('was-validated'); return; }
+      try { if ($trust.length) localStorage.setItem('m4w.trust', $trust.prop('checked') ? '1' : '0'); } catch (err) { /* private browsing */ }
       $(this).find('button[type=submit]').prop('disabled', true).find('.spinner-border').removeClass('d-none');
     });
     $('#password').on('keyup keydown', function (e) {
