@@ -40,6 +40,14 @@ final class Health
         $add('cron', $cron === 0 ? 'fail' : ($age > 1800 ? 'fail' : ($age > 300 ? 'warn' : 'ok')),
             $cron ? t('health.cron_last', ['ago' => self::ago($age)]) : t('health.cron_never'), 'help#a-ops');
 
+        // New mail at the providers known at once (bin/watch.php, IMAP IDLE): only when there are
+        // mailboxes to watch; without it, the scheduled passes still fetch it, later.
+        if (\M4W\Service\RemoteMailbox::watched()) {
+            $wAge = $now - (int) Settings::get('watch.last', 0);
+            $add('watch', $wAge < 180 ? 'ok' : 'warn', $wAge < 180 ? t('health.watch_ok', ['n' => (int) Settings::get('watch.count', 0)])
+                : t('health.watch_off', ['interval' => \M4W\Service\RemoteMailbox::interval()]), 'help#a-ops');
+        }
+
         // Files the web server cannot read (written by a command run as root): empty messages.
         $unreadable = 0;
         foreach (DB::all('SELECT storage_path FROM messages ORDER BY id DESC LIMIT 300') as $r) {

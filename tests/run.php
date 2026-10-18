@@ -2338,6 +2338,34 @@ test('two-way: deleted, archived, read or flagged on the phone or here, both sid
     eq($local('tw-here-flag')['role'], 'inbox', 'cleaned up at the provider by us: kept in the inbox here');
     RemoteMailbox::save($uid, ['login' => '', 'password' => '', 'enabled' => 1, 'forced' => 1, 'overflow' => 0, 'hourly_limit' => 0, 'leave_days' => -1, 'save_sent' => 1], 1);
 });
+test('new mail told by the provider (IMAP IDLE): fetched within seconds, not at the next pass', function () use ($paul, $colState, $colMsg, $wm) {
+    $uid = (int) $paul['id'];
+    $acc = RemoteMailbox::find($uid);
+    ok($acc && in_array((int) $acc['id'], array_map('intval', array_column(RemoteMailbox::watched(), 'id')), true), 'his own mailbox is watched');
+    // A full pass was just made: the scheduled task would not come back before its interval.
+    DB::run('UPDATE remote_accounts SET last_sync_at = :t WHERE user_id = :u', ['t' => time(), 'u' => $uid]);
+    $before = (int) DB::value('SELECT last_sync_at FROM remote_accounts WHERE user_id = :u', ['u' => $uid]);
+    $proc = proc_open([PHP_BINARY, dirname(__DIR__) . '/bin/watch.php', '--for=12', '-v'], [1 => ['file', '/tmp/m4w-watch-' . getmypid() . '.log', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, ['M4W_CONFIG' => getenv('M4W_CONFIG')] + getenv());
+    try {
+        usleep(2500000); // connected, waiting
+        $colState(static function (array &$st) use ($colMsg) {
+            $in = &$st['boxes']['paul@test.local']['INBOX'];
+            $in['next'] = max((int) ($in['next'] ?? 1), 1 + max(array_merge([0], array_map(static fn($m) => (int) $m['uid'], $in['msgs']))));
+            $in['msgs'][] = ['uid' => $in['next']++, 'raw' => $colMsg("To: paul@test.local\r\n", 'Tout de suite', 'idle-1'), 'flags' => []];
+        });
+        $found = null;
+        for ($i = 0; $i < 40 && !$found; $i++) {
+            usleep(200000);
+            $found = DB::one("SELECT * FROM messages WHERE user_id = :u AND message_id = 'idle-1@ext.com'", ['u' => $uid]);
+        }
+        ok($found !== null, 'fetched at once: ' . @file_get_contents('/tmp/m4w-watch-' . getmypid() . '.log'));
+        eq((int) DB::value('SELECT last_sync_at FROM remote_accounts WHERE user_id = :u', ['u' => $uid]), $before, 'the full passes keep their pace');
+    } finally {
+        proc_terminate($proc);
+        proc_close($proc);
+        @unlink('/tmp/m4w-watch-' . getmypid() . '.log');
+    }
+});
 test('own folders: the same tree here and at the provider, messages filed alike both ways', function () use ($paul, $colState, $colMsg, $wm) {
     $uid = (int) $paul['id'];
     $boxes = static fn() => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'];

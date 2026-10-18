@@ -201,7 +201,8 @@ Limites des navigateurs :
 **Tester sur tous mes appareils** (Paramètres › Notifications sur cet appareil) : une notification part vers tous les appareils au même moment. Un tableau montre, pour chacun, l'état de l'application à la réception (fermée, arrière-plan, visible, premier plan, dit par l'appareil lui-même) et les étapes de la notification : envoyée (acceptée par le service push, en ms), reçue, notifiée, ouverte si on la touche, avec le délai de chacune.
 
 **Fréquence des relèves** :
-- les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont relevées par la tâche planifiée toutes les 1 à 15 minutes ;
+- **en direct** : `bin/watch.php` garde une connexion ouverte avec chaque boîte chez le fournisseur (boîtes imposées, boîte collectrice, mode webmail) et attend en IMAP IDLE. Quand le fournisseur annonce un nouveau message, la boîte de réception est relevée dans les secondes qui suivent, et les téléphones sont prévenus aussitôt. Deux façons de le lancer : la ligne `bin/watch.php` de la crontab (chaque passage surveille 58 s), ou le service `deploy/m4w-watch.service` (`--forever`, une connexion permanente). La page Supervision signale s'il ne tourne pas ;
+- les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont aussi relevées en entier par la tâche planifiée toutes les 1 à 15 minutes : dossiers, lus, suppressions, et les boîtes dont le fournisseur ne propose pas IDLE ;
 - le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
@@ -323,6 +324,7 @@ La tâche planifiée gère la file d'envoi, les envois programmés, les comptes 
 ```bash
 (sudo crontab -u www-data -l 2>/dev/null | grep -v '/var/www/make4webmail/bin/'
  echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/cron.php'
+ echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/watch.php'
  echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/backup.php --if-due >> /var/www/make4webmail/storage/logs/backup.log 2>&1'
 ) | sudo crontab -u www-data -
 sudo crontab -u www-data -l                                   # vérifier

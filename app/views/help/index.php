@@ -14,6 +14,7 @@ $cronPhp = PHP_SAPI === 'cli' || !str_contains(PHP_BINARY, 'fpm') ? (PHP_BINARY 
 $cronRoot = M4W_ROOT;
 $cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/bin/'\n"
     . " echo '* * * * * $cronPhp $cronRoot/bin/cron.php'\n"
+    . " echo '* * * * * $cronPhp $cronRoot/bin/watch.php'\n"
     . " echo '* * * * * $cronPhp $cronRoot/bin/backup.php --if-due >> $cronRoot/storage/logs/backup.log 2>&1'\n"
     . ") | sudo crontab -u $cronUser -";
 ?>
@@ -674,7 +675,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <ul>
       <li><strong>Tâche planifiée</strong> : elle doit tourner chaque minute (<code>bin/cron.php</code>). Elle gère la file d'envoi, les envois programmés, les comptes externes, les purges (corbeilles, messages supprimés expirés) et les quotas. Le tableau de bord signale si elle ne tourne pas. Elle doit tourner <strong>sous le compte du serveur web</strong> (<code><?= e($cronUser) ?></code> ici), jamais dans la crontab de root : un message écrit par root n'est plus lisible par le serveur web et s'affiche vide.
         <ol class="mt-2">
-          <li>Installer les deux lignes (maintenance et sauvegarde) dans la crontab de <code><?= e($cronUser) ?></code>, sans toucher à ses autres lignes ni créer de doublon :
+          <li>Installer les trois lignes (maintenance, nouveaux messages chez le fournisseur dans la seconde, sauvegarde) dans la crontab de <code><?= e($cronUser) ?></code>, sans toucher à ses autres lignes ni créer de doublon :
             <pre class="m4w-help-code"><code><?= e($cronInstall) ?></code></pre></li>
           <li>Vérifier qu'elles y sont : <pre class="m4w-help-code"><code>sudo crontab -u <?= e($cronUser) ?> -l</code></pre></li>
           <li>La lancer une fois à la main pour voir ce qu'elle fait : <pre class="m4w-help-code"><code>sudo -u <?= e($cronUser) ?> <?= e($cronPhp) ?> <?= e(M4W_ROOT) ?>/bin/cron.php -v</code></pre></li>

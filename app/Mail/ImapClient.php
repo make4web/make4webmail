@@ -403,6 +403,61 @@ final class ImapClient
         $this->command('EXPUNGE');
     }
 
+    // ------------------------------------------------------------------ IDLE (RFC 2177)
+
+    private string $idleTag = '';
+
+    /** @return resource|null the connection, for stream_select over several mailboxes */
+    public function stream()
+    {
+        return $this->sock;
+    }
+
+    public function supportsIdle(): bool
+    {
+        foreach ($this->command('CAPABILITY')['lines'] as $l) {
+            if (preg_match('/^\* CAPABILITY .*\bIDLE\b/i', $l)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Wait for the server to tell of changes (new mail: "* n EXISTS"). */
+    public function idleStart(): void
+    {
+        $this->idleTag = 'A' . (++$this->tag);
+        fwrite($this->sock, $this->idleTag . " IDLE\r\n");
+        while (true) {
+            $line = $this->readLine();
+            if (str_starts_with($line, '+')) {
+                return;
+            }
+            if (str_starts_with($line, $this->idleTag . ' ')) {
+                $this->idleTag = '';
+                throw new \RuntimeException('IMAP: IDLE refusé');
+            }
+        }
+    }
+
+    /** A line sent by the server while idling (the connection is readable). */
+    public function idleLine(): string
+    {
+        return $this->readLine();
+    }
+
+    public function idleDone(): void
+    {
+        if ($this->idleTag === '') {
+            return;
+        }
+        fwrite($this->sock, "DONE\r\n");
+        while (!str_starts_with($this->readLine(), $this->idleTag . ' ')) {
+            // the untagged lines still on their way
+        }
+        $this->idleTag = '';
+    }
+
     public function logout(): void
     {
         if ($this->sock) {

@@ -1,5 +1,8 @@
 # Make4WebMail scheduler (installed as /etc/cron.d/make4webmail by deploy/install-debian.sh).
 # Not in root's crontab: files written as root cannot be read by the web server (empty messages).
 * * * * * www-data /usr/bin/php /var/www/make4webmail/bin/cron.php
+# New mail at the providers known at once (IMAP IDLE): each run watches 58 s. Or the systemd
+# service deploy/m4w-watch.service (one connection kept open, no reconnection each minute).
+* * * * * www-data /usr/bin/php /var/www/make4webmail/bin/watch.php
 # Backups (Administration > Files > Backup): checks every minute, runs when due, in its own process.
 * * * * * www-data /usr/bin/php /var/www/make4webmail/bin/backup.php --if-due >>/var/www/make4webmail/storage/logs/backup.log 2>&1

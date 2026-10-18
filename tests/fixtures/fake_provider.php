@@ -12,7 +12,17 @@ if (!$imap || !$smtp) {
     fwrite(STDERR, "listen failed\n");
     exit(1);
 }
-$load = static fn() => json_decode((string) file_get_contents($stateFile), true);
+// Read under a shared lock: another connection (its own process) may be writing it.
+$load = static function () use ($stateFile) {
+    for ($i = 0; $i < 20; $i++) {
+        $st = json_decode((string) file_get_contents($stateFile), true);
+        if (is_array($st)) {
+            return $st;
+        }
+        usleep(20000);
+    }
+    return ['accounts' => [], 'boxes' => []];
+};
 $save = static fn(array $s) => file_put_contents($stateFile, json_encode($s), LOCK_EX);
 $quoted = static function (string $s): array {
     preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"|(\S+)/', $s, $m, PREG_SET_ORDER);
@@ -32,6 +42,21 @@ while (true) {
         }
         stream_set_timeout($c, 10);
         $out = static fn(string $l) => fwrite($c, $l . "\r\n");
+        // A connection waiting in IDLE must not stop the others: with pcntl, each IMAP connection
+        // is served by its own process (the state file is shared, written under a lock).
+        if ($srv === $imap && function_exists('pcntl_fork')) {
+            pcntl_signal(SIGCHLD, SIG_IGN);
+            $pid = pcntl_fork();
+            if ($pid > 0) {
+                fclose($c);
+                continue;
+            }
+            if ($pid === 0) {
+                fclose($imap);
+                fclose($smtp);
+                $child = true;
+            }
+        }
         if ($srv === $imap) {
             // ---------------------------------------------------------------- IMAP
             $out('* OK fake IMAP ready');
@@ -217,6 +242,30 @@ while (true) {
                     $st['boxes'][$user][$box]['msgs'] = array_values(array_filter($st['boxes'][$user][$box]['msgs'], static fn($m) => empty($m['deleted'])));
                     $save($st);
                     $out("$tag OK expunged");
+                } elseif ($cmd === 'CAPABILITY') {
+                    $out('* CAPABILITY IMAP4rev1 IDLE MOVE');
+                    $out("$tag OK capability");
+                } elseif ($cmd === 'IDLE' && $user && $box) {
+                    // Tells of new messages of the selected folder until DONE.
+                    $out('+ idling');
+                    $count = count($st['boxes'][$user][$box]['msgs'] ?? []);
+                    $told = false;
+                    while (true) {
+                        $rr = [$c];
+                        $ww = $xx = null;
+                        if (@stream_select($rr, $ww, $xx, 0, 200000)) {
+                            $l2 = fgets($c);
+                            if ($l2 === false || strtoupper(trim($l2)) === 'DONE') {
+                                break;
+                            }
+                        }
+                        $now = count($load()['boxes'][$user][$box]['msgs'] ?? []);
+                        if ($now > $count && !$told) {
+                            $out("* $now EXISTS");
+                            $told = true;
+                        }
+                    }
+                    $out("$tag OK IDLE terminated");
                 } elseif ($cmd === 'LOGOUT') {
                     $out('* BYE');
                     $out("$tag OK bye");
@@ -286,5 +335,8 @@ while (true) {
             }
         }
         fclose($c);
+        if (!empty($child)) {
+            exit(0);
+        }
     }
 }
