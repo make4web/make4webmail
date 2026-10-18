@@ -76,7 +76,7 @@ $bkDays = (string) S::get('backup.days', '1234567');
       <?php if (M4W\Service\Backup::enabled()): ?><span class="badge badge-soft-success ms-2"><?= te('backup.next', ['date' => $bkNext ? (new DateTimeImmutable('@' . $bkNext))->setTimezone(M4W\Service\Backup::timezone())->format('d/m H:i') : '—']) ?></span><?php else: ?><span class="badge badge-soft-secondary ms-2"><?= te('backup.off') ?></span><?php endif; ?></div>
     <p class="small text-muted"><?= te('backup.desc') ?></p>
     <?php if (M4W\Service\Backup::enabled() && $bkCron < time() - 600): ?>
-    <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-1"></i><?= te('backup.no_cron') ?><code class="d-block mt-1">* * * * * www-data php <?= e(M4W_ROOT) ?>/bin/backup.php --if-due</code></div>
+    <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-1"></i><?= te('backup.no_cron') ?><code class="d-block mt-1">* * * * * www-data php <?= e(M4W_ROOT) ?>/bin/cron.php</code></div>
     <?php endif; ?>
     <div class="m4w-setting-row"><div class="label"><?= te('backup.enable') ?></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enabled" value="1" aria-label="<?= te('backup.enable') ?>" <?= M4W\Service\Backup::enabled() ? 'checked' : '' ?>></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('backup.server') ?><small><?= te('backup.server_hint') ?></small></div>

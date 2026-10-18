@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 /**
- * Scheduled maintenance — run every minute:
+ * Scheduled maintenance — the only line of the crontab, every minute:
  *   * * * * * php /path/to/bin/cron.php
+ * It also starts, each in its own process, the live watch of the providers (bin/watch.php) and
+ * the backup when it is due (bin/backup.php --if-due). --no-spawn: this maintenance alone;
+ * --spawn-only: only start them.
  */
 if (PHP_SAPI !== 'cli') {
     exit(1);
@@ -14,6 +17,28 @@ require dirname(__DIR__) . '/app/bootstrap.php';
 use M4W\Core\Database as DB;
 use M4W\Core\Settings;
 use M4W\Service\Jobs;
+
+// The other scheduled programs first, apart (they last longer than a run, or must not be held
+// up by a slow one): each keeps its own lock, so an older crontab still listing them, or the
+// systemd watch service, never runs them twice.
+if (!in_array('--no-spawn', $argv, true) && M4W\Core\Config::installed()) {
+    $spawn = static function (array $args, string $log): void {
+        if (function_exists('exec')) {
+            exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY], $args))) . ' >> ' . escapeshellarg($log) . ' 2>&1 < /dev/null &');
+        }
+    };
+    try {
+        if (M4W\Service\RemoteMailbox::watched()) {
+            $spawn([__DIR__ . '/watch.php'], '/dev/null');
+        }
+    } catch (Throwable $e) {
+        error_log('[m4w] cron: ' . $e->getMessage()); // before the first migration
+    }
+    $spawn([__DIR__ . '/backup.php', '--if-due'], M4W\Core\Config::storagePath('logs') . '/backup.log');
+}
+if (in_array('--spawn-only', $argv, true)) {
+    exit(0);
+}
 
 $lock = fopen(M4W\Core\Config::storagePath('tmp/cron.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {

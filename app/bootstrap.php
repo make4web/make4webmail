@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Loaded by every entry point (web front controller and CLI tools).
  */
 
-define('M4W_VERSION', '1.1.2026.1018.2');
+define('M4W_VERSION', '1.1.2026.1018.3');
 define('M4W_ROOT', dirname(__DIR__));
 define('M4W_APP', __DIR__);
 
