@@ -59,15 +59,15 @@ final class AuthController extends Controller
         $user = $res['user'];
         if ($user['totp_enabled']) {
             Session::regenerate();
-            Session::set('pending_2fa', ['uid' => (int) $user['id'], 'at' => time(), 'tries' => 0]);
+            Session::set('pending_2fa', ['uid' => (int) $user['id'], 'at' => time(), 'tries' => 0, 'trust' => $this->req->bool('trust')]);
             return Response::redirect('/login/2fa');
         }
-        return $this->complete($user);
+        return $this->complete($user, $this->req->bool('trust'));
     }
 
-    private function complete(array $user): Response
+    private function complete(array $user, bool $trust = false): Response
     {
-        Auth::login($user, $this->req);
+        Auth::login($user, $this->req, $trust);
         $intended = (string) Session::get('intended', '/mail');
         Session::forget('intended');
         if (self::safePath($intended) === null || str_starts_with($intended, '/api/')) {
@@ -124,7 +124,7 @@ final class AuthController extends Controller
             Session::flash('danger', t('auth.2fa_invalid'));
             return Response::redirect('/login/2fa');
         }
-        return $this->complete($user);
+        return $this->complete($user, !empty($p['trust']));
     }
 
     private function useRecoveryCode(array $user, string $code): bool

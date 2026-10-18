@@ -49,8 +49,7 @@ final class Auth
             ['h' => hash('sha256', $token), 'u' => (int) $uid]
         );
         $now = time();
-        $idle = max(5, (int) Settings::get('security.session_idle', 60)) * 60;
-        $abs = max(30, (int) Settings::get('security.session_absolute', 720)) * 60;
+        [$idle, $abs] = $row ? self::limits($row) : [0, 0];
         if (!$row || $row['revoked'] || ($now - (int) $row['last_seen_at']) > $idle || ($now - (int) $row['created_at']) > $abs) {
             Session::forget('uid');
             Session::forget('stoken');
@@ -65,6 +64,33 @@ final class Auth
         }
         $user['_session_id'] = (int) $row['id'];
         return $user;
+    }
+
+    /** Whether "stay signed in on this device" is offered at sign-in. */
+    public static function trustOffered(): bool
+    {
+        return (int) Settings::get('security.trusted_enabled', 1) === 1;
+    }
+
+    /**
+     * Idle time and maximum length of a session (seconds): the ordinary ones, or the longer
+     * ones of a device the user chose to stay signed in on (while the administrator allows it).
+     * @return array{0:int,1:int}
+     */
+    public static function limits(array $session): array
+    {
+        if ((int) ($session['trusted'] ?? 0) === 1 && self::trustOffered()) {
+            return [max(1, min(90, (int) Settings::get('security.trusted_idle_days', 7))) * 86400,
+                max(1, min(365, (int) Settings::get('security.trusted_days', 30))) * 86400];
+        }
+        return [max(5, (int) Settings::get('security.session_idle', 60)) * 60, max(30, (int) Settings::get('security.session_absolute', 720)) * 60];
+    }
+
+    /** Longest a session can last (seconds), whichever kind: how long the server keeps its data. */
+    public static function longest(): int
+    {
+        $abs = max(30, (int) Settings::get('security.session_absolute', 720)) * 60;
+        return self::trustOffered() ? max($abs, max(1, min(365, (int) Settings::get('security.trusted_days', 30))) * 86400) : $abs;
     }
 
     /**
@@ -149,12 +175,15 @@ final class Auth
         return $h;
     }
 
-    public static function login(array $user, Request $req): void
+    public static function login(array $user, Request $req, bool $trusted = false): void
     {
+        $trusted = $trusted && self::trustOffered();
+        Session::forget('_trusted_until');
         Session::regenerate();
         $token = Crypto::token(32);
         $now = time();
         Database::insert('user_sessions', [
+            'trusted'      => $trusted ? 1 : 0,
             'user_id'      => $user['id'],
             'token_hash'   => hash('sha256', $token),
             'ip'           => $req->ip(),
@@ -167,8 +196,13 @@ final class Auth
         Session::set('uid', (int) $user['id']);
         Session::set('stoken', $token);
         Session::set('_csrf', Crypto::token(32));
+        if ($trusted) {
+            // The cookie lasts as long as the session may (the server still checks the limits).
+            Session::set('_trusted_until', $now + self::limits(['trusted' => 1])[1]);
+            Session::keepCookieUntil($now + self::limits(['trusted' => 1])[1]);
+        }
         self::$resolved = false;
-        Audit::log('login.success', $user['email'], ['ip' => $req->ip()], (int) $user['id']);
+        Audit::log('login.success', $user['email'], ['ip' => $req->ip(), 'trusted' => $trusted ? 1 : 0], (int) $user['id']);
         try {
             \M4W\Service\AccountGuard::onLogin($user, $req->ip(), $req->userAgent());
         } catch (\Throwable $e) {

@@ -20,6 +20,13 @@
       </div>
       <div class="form-text d-none text-warning" data-capslock><i class="bi bi-capslock-fill"></i> <?= te('auth.capslock') ?></div>
     </div>
+    <?php if (M4W\Core\Auth::trustOffered()): ?>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="trust" value="1" id="trust" data-m4w-trust>
+      <label class="form-check-label" for="trust"><?= te('auth.trust', ['days' => max(1, min(365, (int) Settings::get('security.trusted_days', 30)))]) ?></label>
+      <div class="form-text"><?= te('auth.trust_hint', ['idle' => max(1, min(90, (int) Settings::get('security.trusted_idle_days', 7)))]) ?></div>
+    </div>
+    <?php endif; ?>
     <button class="btn btn-primary btn-lg w-100 mt-2" type="submit"><span class="label"><?= te('auth.login') ?></span><span class="spinner-border spinner-border-sm d-none ms-2"></span></button>
   </form>
   <p class="text-muted small mt-4 mb-0 text-center"><i class="bi bi-info-circle"></i> <?= te('auth.forgot_help') ?></p>

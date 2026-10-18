@@ -90,6 +90,9 @@ final class Settings
         'security.session_absolute'  => 720, // minutes from sign-in, whatever happens
         'security.session_keepalive' => 1,   // an open app (even in the background) is not idle
         'security.session_persist'   => 1,   // the session outlives closing the browser / app
+        'security.trusted_enabled'   => 1,   // "stay signed in on this device" offered at sign-in
+        'security.trusted_idle_days' => 7,   // such a device unused this long: sign in again
+        'security.trusted_days'      => 30,  // and in any case this long after signing in
         'offline.enabled'            => 1,   // recent mail and work kept (encrypted) on the device
         'security.enforce_2fa_admin' => 0,
         'security.allow_external_forward' => 1,

@@ -294,6 +294,9 @@ $cronInstall = "(sudo crontab -u $cronUser -l 2>/dev/null | grep -v '$cronRoot/b
       <li><strong>Android</strong> (Chrome, Edge, Samsung Internet) : menu <?= $ui('three-dots-vertical', '⋮') ?> → « Installer l'application » ou « Ajouter à l'écran d'accueil ».</li>
       <li><strong>Ordinateur</strong> (Chrome, Edge) : cliquez sur l'icône d'installation à droite de la barre d'adresse.</li>
     </ul>
+    <?php if (M4W\Core\Auth::trustOffered()): ?>
+    <p>Pour ne pas avoir à vous reconnecter chaque fois que le téléphone s'est verrouillé, cochez « Rester connecté sur cet appareil » à la connexion (la case est déjà cochée dans l'application installée). La session dure alors <?= (int) M4W\Core\Settings::get('security.trusted_days', 30) ?> jours, ou <?= (int) M4W\Core\Settings::get('security.trusted_idle_days', 7) ?> jours sans utilisation. Ne le faites pas sur un appareil partagé. Vous pouvez fermer cette session à tout moment dans <?= $go('settings/security', 'Paramètres → Sécurité') ?>, rubrique « Sessions actives ».</p>
+    <?php endif; ?>
     <?php if ($cfg['push']): ?>
     <h3>Recevoir les notifications</h3>
     <ol class="m4w-help-steps">
@@ -633,7 +636,7 @@ thomas.petit@exemple.fr;Thomas;Petit;Directeur technique;DSI;;</pre>
     <p>Réglages de <?= $go('admin/security', 'Sécurité') ?> :</p>
     <ul>
       <li><strong>Mots de passe</strong> : longueur minimale et nombre de familles de caractères exigées.</li>
-      <li><strong>Protection de la connexion</strong> : tentatives avant blocage et durée du blocage, durée d'inactivité et durée maximale d'une session, double authentification obligatoire pour les administrateurs, restriction de l'administration à certaines adresses IP (attention à ne pas vous exclure : votre adresse actuelle est affichée).</li>
+      <li><strong>Protection de la connexion</strong> : tentatives avant blocage et durée du blocage, durée d'inactivité et durée maximale d'une session, case « Rester connecté sur cet appareil » proposée à la connexion (par défaut 30 jours, ou 7 jours sans usage : utile sur un téléphone, qui se verrouille souvent et met l'application en pause), double authentification obligatoire pour les administrateurs, restriction de l'administration à certaines adresses IP (attention à ne pas vous exclure : votre adresse actuelle est affichée).</li>
       <li><strong>Délégation des boîtes</strong> : voir <a href="#a-delegation">ci-dessus</a>.</li>
       <li><strong>Liens et hameçonnage</strong> : vérification des liens au clic, clé Google Safe Browsing (ou Web Risk pour un usage commercial), flux public URLhaus mis à jour chaque jour, domaines bloqués.</li>
       <li><strong>Messagerie</strong> : blocage des images distantes, transfert externe autorisé ou limité à une liste de domaines, taille maximale des pièces jointes.</li>
