@@ -2525,6 +2525,40 @@ test('connections to the provider kept within its limits: paced, counted per mai
         @unlink($wm['state'] . '.sessions');
     }
 });
+test('one crontab line: bin/cron.php starts the live watch and the backup, each apart and never twice', function () use ($paul) {
+    $lockFile = Config::storagePath('tmp/watch.lock');
+    Settings::setMany(['watch.last' => 0, 'backup.cron_seen' => 0]);
+    $run = static function () {
+        $t = microtime(true);
+        $p = proc_open([PHP_BINARY, dirname(__DIR__) . '/bin/cron.php', '--spawn-only'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['M4W_CONFIG' => getenv('M4W_CONFIG')] + getenv());
+        stream_get_contents($pipes[1]);
+        proc_close($p);
+        return microtime(true) - $t;
+    };
+    $pid = 0;
+    try {
+        ok($run() < 5, 'the scheduled run does not wait for them');
+        for ($i = 0; $i < 50 && (!(int) Settings::get('watch.last', 0) || !(int) Settings::get('backup.cron_seen', 0)); $i++) {
+            usleep(100000);
+            Settings::flush(); // written by the other processes
+        }
+        ok((int) Settings::get('watch.last', 0) > 0, 'the watch runs (his mailbox is watched)');
+        ok((int) Settings::get('backup.cron_seen', 0) > 0, 'the backup was checked');
+        $pid = (int) trim((string) @file_get_contents($lockFile));
+        ok($pid > 0 && posix_kill($pid, 0), 'the watch tells who it is: ' . $pid);
+        // The next minute (or an older crontab still listing watch.php): the same watch goes on.
+        $run();
+        usleep(800000);
+        eq((int) trim((string) @file_get_contents($lockFile)), $pid, 'one watch at a time');
+    } finally {
+        if ($pid > 0) {
+            posix_kill($pid, SIGTERM);
+            for ($i = 0; $i < 30 && posix_kill($pid, 0); $i++) {
+                usleep(100000);
+            }
+        }
+    }
+});
 test('own folders: the same tree here and at the provider, messages filed alike both ways', function () use ($paul, $colState, $colMsg, $wm) {
     $uid = (int) $paul['id'];
     $boxes = static fn() => json_decode((string) file_get_contents($wm['state']), true)['boxes']['paul@test.local'];

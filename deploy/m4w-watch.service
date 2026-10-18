@@ -1,5 +1,6 @@
 # /etc/systemd/system/m4w-watch.service — new mail at the providers known at once (IMAP IDLE).
-# Replaces the bin/watch.php line of the crontab: one connection per mailbox kept open.
+# Optional: one connection per mailbox kept open, instead of the watch started by bin/cron.php each
+# minute (which then finds it running and stops at once).
 [Unit]
 Description=Make4WebMail provider mailbox watcher (IMAP IDLE)
 After=network-online.target

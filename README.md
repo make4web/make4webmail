@@ -201,7 +201,7 @@ Limites des navigateurs :
 **Tester sur tous mes appareils** (Paramètres › Notifications sur cet appareil) : une notification part vers tous les appareils au même moment. Un tableau montre, pour chacun, l'état de l'application à la réception (fermée, arrière-plan, visible, premier plan, dit par l'appareil lui-même) et les étapes de la notification : envoyée (acceptée par le service push, en ms), reçue, notifiée, ouverte si on la touche, avec le délai de chacune.
 
 **Fréquence des relèves** :
-- **en direct** : `bin/watch.php` garde une connexion ouverte avec chaque boîte chez le fournisseur (boîtes imposées, boîte collectrice, mode webmail) et attend en IMAP IDLE. Quand le fournisseur annonce un nouveau message, la boîte de réception est relevée dans les secondes qui suivent, et les téléphones sont prévenus aussitôt. Deux façons de le lancer : la ligne `bin/watch.php` de la crontab (chaque passage surveille 58 s), ou le service `deploy/m4w-watch.service` (`--forever`, une connexion permanente). La page Supervision signale s'il ne tourne pas ;
+- **en direct** : `bin/watch.php` garde une connexion ouverte avec chaque boîte chez le fournisseur (boîtes imposées, boîte collectrice, mode webmail) et attend en IMAP IDLE. Quand le fournisseur annonce un nouveau message, la boîte de réception est relevée dans les secondes qui suivent, et les téléphones sont prévenus aussitôt. Il est lancé chaque minute par `bin/cron.php` (chaque passage surveille 58 s). Autre possibilité : le service `deploy/m4w-watch.service` (`--forever`, une connexion permanente). La page Supervision signale s'il ne tourne pas ;
 - les boîtes chez un fournisseur (boîtes imposées, boîte collectrice, comptes externes des utilisateurs) sont aussi relevées en entier par la tâche planifiée toutes les 1 à 15 minutes : dossiers, lus, suppressions, et les boîtes dont le fournisseur ne propose pas IDLE ;
 - le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
@@ -332,12 +332,12 @@ La tâche planifiée gère la file d'envoi, les envois programmés, les comptes 
 ```bash
 (sudo crontab -u www-data -l 2>/dev/null | grep -v '/var/www/make4webmail/bin/'
  echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/cron.php'
- echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/watch.php'
- echo '* * * * * /usr/bin/php /var/www/make4webmail/bin/backup.php --if-due >> /var/www/make4webmail/storage/logs/backup.log 2>&1'
 ) | sudo crontab -u www-data -
 sudo crontab -u www-data -l                                   # vérifier
 sudo -u www-data php /var/www/make4webmail/bin/cron.php -v    # lancer une fois, en détail
 ```
+Une seule ligne suffit : `bin/cron.php` lance aussi, chacun dans son propre processus, la surveillance en direct des boîtes chez le fournisseur (`bin/watch.php`) et la sauvegarde quand elle est due (`bin/backup.php --if-due`). Chacun garde son verrou : une ancienne crontab qui les lance encore, ou le service `deploy/m4w-watch.service`, ne les fait jamais tourner deux fois. Avec `--no-spawn`, `cron.php` ne fait que la maintenance.
+
 La notice intégrée (Administration › Guide, chapitre Exploitation) donne ces commandes avec le compte et le chemin réels du serveur. Autre possibilité : le fichier `deploy/crontab`, à copier dans `/etc/cron.d/make4webmail` (le compte y figure en 6e colonne).
 Avec PHP-FPM, la file est aussi traitée après chaque requête. Un cron reste recommandé.
 
@@ -385,7 +385,7 @@ Fonctionnement :
 - Rotation : les N dernières sauvegardes sont gardées.
 - Envoi sous un nom temporaire, renommé une fois complet.
 - Historique, test de connexion et bouton « Sauvegarder maintenant ». Un échec est signalé dans la boîte des administrateurs.
-- La sauvegarde tourne dans sa propre tâche planifiée (`bin/backup.php --if-due`, installée par le script Debian) : elle ne retarde jamais le courrier.
+- La sauvegarde tourne dans son propre processus (`bin/backup.php --if-due`, lancé chaque minute par `bin/cron.php`) : elle ne retarde jamais le courrier.
 - Il faut sur le serveur un espace libre au moins égal à la taille de la sauvegarde ; la page l'indique.
 
 Restauration, sur le même serveur ou un nouveau (installé sans lancer l'assistant) :

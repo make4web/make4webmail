@@ -46,6 +46,9 @@ $lock = fopen(Config::storagePath('tmp') . '/watch.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
     exit(0); // already watching
 }
+ftruncate($lock, 0);
+fwrite($lock, (string) getmypid()); // who is watching (to stop it: kill that number)
+fflush($lock);
 
 /** @var array<int, array{client:\M4W\Mail\ImapClient, since:int}> $watch */
 $watch = [];
