@@ -20,6 +20,8 @@ require dirname(__DIR__) . '/app/bootstrap.php';
 
 use M4W\Core\Config;
 use M4W\Core\Settings;
+use M4W\Mail\ImapLimitException;
+use M4W\Service\ImapLimits;
 use M4W\Service\RemoteMailbox;
 
 $forever = in_array('--forever', $argv, true);
@@ -75,6 +77,11 @@ $open = static function (array $acc) use (&$watch, &$retryAt, $say): void {
         $c->idleStart();
         $watch[$id] = ['client' => $c, 'since' => time()];
         $say("#$id: watching");
+    } catch (ImapLimitException $e) {
+        // The provider limits this server (or as many connections as allowed are open): the
+        // scheduled passes keep fetching, the watch resumes after the pause.
+        $retryAt[$id] = max(time() + 60, $e->until + random_int(0, 30));
+        $say("#$id: {$e->kind}: " . $e->getMessage());
     } catch (Throwable $e) {
         $retryAt[$id] = time() + 60;
         $say("#$id: " . $e->getMessage());
@@ -104,6 +111,10 @@ while (time() < $deadline) {
         $beat = time();
         Settings::set('watch.last', time()); // shown by the supervision page
         Settings::set('watch.count', count($watch));
+        // The shared ledger seen from here (the web server may not see the same temporary
+        // folder): for the supervision page.
+        ImapLimits::heartbeat();
+        Settings::set('imap.report', json_encode(['at' => time(), 'hosts' => ImapLimits::report(RemoteMailbox::imapHosts())]));
     }
     if (!$watch) {
         sleep(min(5, max(1, $deadline - time())));

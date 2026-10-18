@@ -206,6 +206,14 @@ Limites des navigateurs :
 - le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
+**Limites de connexion chez le fournisseur** : OVH comme les autres limite les connexions IMAP d'une même adresse IP (par seconde, par minute, simultanées par boîte), sans publier ses chiffres. Toutes les instances installées sur un même serveur tiennent un registre commun (`/tmp/m4w-imap`, ou `'imap_ledger_dir'` dans `config/config.php`) :
+- les ouvertures de connexion sont étalées (par défaut 3 par seconde et 60 par minute pour les relèves) ;
+- les relèves en arrière-plan n'ouvrent pas plus de 8 connexions simultanées sur une même boîte ;
+- un refus du fournisseur (« too many connections », `[UNAVAILABLE]`, `BYE` dès l'accueil, refus répétés) met les relèves en pause : 5 minutes, puis le double à chaque refus, une heure au plus ;
+- un utilisateur qui lit son courrier n'est jamais mis en pause, seulement régulé.
+
+Les limites se règlent dans Administration → Serveur de messagerie. La page Supervision affiche une ligne par serveur IMAP : connexions ouvertes, instances, pointes sur 24 h, refus et pause en cours.
+
 ### Administration
 - **Trois rôles** :
   - **super administrateur** : tous les droits. C'est le compte créé à l'installation, pour qui installe et exploite la messagerie (le prestataire qui la gère pour son client) ;

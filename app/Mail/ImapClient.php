@@ -14,6 +14,8 @@ final class ImapClient
     /** @var resource|null */
     private $sock = null;
     private int $tag = 0;
+    /** @var ?\Closure called once, when the connection is closed (count of open connections: ImapLimits) */
+    public ?\Closure $onClose = null;
 
     public function __construct(
         private string $host,
@@ -38,11 +40,23 @@ final class ImapClient
         $remote = ($this->security === 'ssl' ? 'ssl://' : 'tcp://') . $target . ':' . $this->port;
         $sock = @stream_socket_client($remote, $errno, $errstr, $this->timeout, STREAM_CLIENT_CONNECT, $ctx);
         if (!$sock) {
+            // Refused or cut by the other side (not a name that does not resolve): possibly a block.
+            if (in_array($errno, [104, 111, 10054, 10061], true)) {
+                throw new ImapLimitException("IMAP: connexion refusée ($errstr)", 'refused');
+            }
             throw new \RuntimeException("IMAP: connexion impossible ($errstr)");
         }
         stream_set_timeout($sock, $this->timeout);
         $this->sock = $sock;
-        $greeting = $this->readLine();
+        try {
+            $greeting = $this->readLine();
+        } catch (\RuntimeException $e) {
+            throw new ImapLimitException('IMAP: connexion coupée dès l\'accueil', 'refused');
+        }
+        // A server that turns a connection away says so at once: "* BYE Too many connections".
+        if (str_starts_with($greeting, '* BYE')) {
+            throw new ImapLimitException('IMAP: ' . mb_substr(trim(substr($greeting, 5)), 0, 200), 'limit');
+        }
         if (!str_starts_with($greeting, '* OK') && !str_starts_with($greeting, '* PREAUTH')) {
             throw new \RuntimeException('IMAP: accueil inattendu');
         }
@@ -468,6 +482,28 @@ final class ImapClient
             @fclose($this->sock);
             $this->sock = null;
         }
+        $this->closed();
+    }
+
+    public function __destruct()
+    {
+        if (is_resource($this->sock)) {
+            @fclose($this->sock);
+            $this->sock = null;
+        }
+        $this->closed();
+    }
+
+    private function closed(): void
+    {
+        if ($this->onClose) {
+            $f = $this->onClose;
+            $this->onClose = null;
+            try {
+                $f();
+            } catch (\Throwable) {
+            }
+        }
     }
 
     public static function quote(string $s): string
@@ -510,6 +546,11 @@ final class ImapClient
             if (str_starts_with($line, $tag . ' ')) {
                 $status = strtoupper(substr($line, strlen($tag) + 1, 2));
                 if ($status !== 'OK' && !$quiet) {
+                    // The login refused for too many connections, not for the password (the answer
+                    // never contains the password: it may be shown).
+                    if (ImapLimitException::saysLimit(substr($line, strlen($tag) + 1))) {
+                        throw new ImapLimitException('IMAP: ' . mb_substr(substr($line, strlen($tag) + 1), 0, 200), 'limit');
+                    }
                     throw new \RuntimeException('IMAP: ' . ($secret ? 'authentification refusée' : substr($line, strlen($tag) + 1)));
                 }
                 break;

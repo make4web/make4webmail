@@ -73,6 +73,9 @@ final class Settings
         'webmail.leave_days'   => -1,
         'webmail.spam_folder'  => '',
         'webmail.verify_peer'  => 1,
+        'imap.max_per_second'  => 3,
+        'imap.max_per_minute'  => 60,
+        'imap.max_per_box'     => 8,
         // Incoming
         'inbound.listen'       => '0.0.0.0:2525',
         'inbound.max_size_mb'  => 35,

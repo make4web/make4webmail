@@ -44,6 +44,9 @@ while (true) {
         $out = static fn(string $l) => fwrite($c, $l . "\r\n");
         // A connection waiting in IDLE must not stop the others: with pcntl, each IMAP connection
         // is served by its own process (the state file is shared, written under a lock).
+        if ($srv === $imap) {
+            file_put_contents($stateFile . '.accepted', "1\n", FILE_APPEND | LOCK_EX); // connections made
+        }
         if ($srv === $imap && function_exists('pcntl_fork')) {
             pcntl_signal(SIGCHLD, SIG_IGN);
             $pid = pcntl_fork();
@@ -59,8 +62,32 @@ while (true) {
         }
         if ($srv === $imap) {
             // ---------------------------------------------------------------- IMAP
+            // Like a provider limiting this address: turned away at once ("imap_bye").
+            $bye = (string) ($load()['imap_bye'] ?? '');
+            if ($bye !== '') {
+                $out('* BYE ' . $bye);
+                fclose($c);
+                if (!empty($child)) {
+                    exit(0);
+                }
+                continue;
+            }
             $out('* OK fake IMAP ready');
             $user = null;
+            // Sessions open per login, limited like Dovecot's mail_max_userip_connections ("imap_limit").
+            $counted = null;
+            $sessions = static function (string $login, int $d) use ($stateFile): int {
+                $h = fopen($stateFile . '.sessions', 'c+');
+                flock($h, LOCK_EX);
+                $all = json_decode((string) stream_get_contents($h), true) ?: [];
+                $all[$login] = max(0, (int) ($all[$login] ?? 0) + $d);
+                ftruncate($h, 0);
+                rewind($h);
+                fwrite($h, json_encode($all));
+                flock($h, LOCK_UN);
+                fclose($h);
+                return $all[$login];
+            };
             $box = null;
             while (($line = fgets($c)) !== false) {
                 $line = rtrim($line, "\r\n");
@@ -71,6 +98,13 @@ while (true) {
                 if ($cmd === 'LOGIN') {
                     [$l, $p] = array_pad($quoted($args), 2, '');
                     if (($st['accounts'][$l] ?? null) === $p) {
+                        $max = (int) ($st['imap_limit'][$l] ?? 0);
+                        if ($max > 0 && $sessions($l, 0) >= $max) {
+                            $out("$tag NO [UNAVAILABLE] Maximum number of connections from user+IP exceeded (mail_max_userip_connections=$max)");
+                            continue;
+                        }
+                        $counted = $l;
+                        $sessions($l, 1);
                         $user = $l;
                         $out("$tag OK logged in");
                     } else {
@@ -273,6 +307,9 @@ while (true) {
                 } else {
                     $out("$tag BAD unknown command");
                 }
+            }
+            if ($counted !== null) {
+                $sessions($counted, -1);
             }
         } else {
             // ---------------------------------------------------------------- SMTP

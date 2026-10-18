@@ -13,7 +13,9 @@ $groups = ['server' => ['cron', 'queue', 'disk', 'backup', 'antivirus', 'remote'
     <div class="card h-100">
       <div class="card-header"><i class="bi bi-<?= $g === 'dns' ? 'globe2' : 'hdd-stack' ?> me-2 text-primary"></i><?= te('health.group_' . $g) ?></div>
       <ul class="list-group list-group-flush">
-      <?php $n = 0; foreach ($checks as $key => $c): if (!in_array(explode(':', $key)[0], $kinds, true)) { continue; } $n++; ?>
+      <?php $n = 0; foreach ($checks as $key => $c): $kind = explode(':', $key)[0];
+        // Server: every check that is not about the domains' DNS (a new one is never left out).
+        if ($g === 'server' ? in_array($kind, $groups['dns'], true) : !in_array($kind, $kinds, true)) { continue; } $n++; ?>
         <li class="list-group-item d-flex gap-3 align-items-start">
           <i class="bi bi-<?= $icon[$c['state']] ?> mt-1" role="img" aria-label="<?= te('health.state_' . $c['state']) ?>"></i>
           <div class="min-w-0 flex-grow-1"><div class="fw-medium"><?= e($c['label']) ?></div><div class="small text-muted text-break"><?= e($c['detail']) ?></div></div>

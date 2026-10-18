@@ -97,6 +97,8 @@ test('installer creates schema, domain, admin and signature', function () use ($
     Installer::install(['lang' => 'fr', 'brand' => 'Test Mail', 'domain' => 'test.local', 'admin_email' => 'admin@test.local',
         'admin_password' => 'Secret!Pass123', 'admin_name' => 'Alice Admin', 'db' => ['driver' => 'sqlite', 'path' => Config::storagePath('test.sqlite')]]);
     ok(Config::installed(), 'config not written');
+    // The suite's own ledger of connections to the providers (not the one of this server).
+    Config::write(['imap_ledger_dir' => dirname($config) . '/imap-ledger'] + require $config);
     $u = Users::findByEmail('admin@test.local');
     ok($u && $u['role'] === 'superadmin', 'who installs is the super administrator');
     eq(count(Folders::listWithCounts((int) $u['id'])), 6, 'default folders');
@@ -1877,6 +1879,8 @@ Settings::setMany([
     'mail.mode' => 'webmail', 'webmail.imap_host' => '127.0.0.1', 'webmail.imap_port' => $wm['imap'], 'webmail.imap_security' => 'none',
     'webmail.smtp_host' => '127.0.0.1', 'webmail.smtp_port' => $wm['smtp'], 'webmail.smtp_security' => 'none', 'webmail.verify_peer' => 0,
     'webmail.spam_folder' => 'Junk', 'webmail.leave_days' => -1,
+    // The suite connects far more often than a real server would: the limits have their own test.
+    'imap.max_per_second' => 50, 'imap.max_per_minute' => 1000, 'imap.max_per_box' => 50,
 ]);
 $wmSmtp = static function () use ($wm): array {
     $out = [];
@@ -2364,6 +2368,161 @@ test('new mail told by the provider (IMAP IDLE): fetched within seconds, not at 
         proc_terminate($proc);
         proc_close($proc);
         @unlink('/tmp/m4w-watch-' . getmypid() . '.log');
+    }
+});
+test('connections to the provider kept within its limits: paced, counted per mailbox, paused when refused (all instances)', function () use ($paul, $colState, $wm) {
+    $uid = (int) $paul['id'];
+    $acc = RemoteMailbox::find($uid);
+    $host = '127.0.0.1';
+    $accepted = static fn() => count(@file($wm['state'] . '.accepted') ?: []);
+    $ledger = static fn() => json_decode((string) @file_get_contents(M4W\Service\ImapLimits::dir() . '/' . $host . '.json'), true) ?: [];
+    $report = static fn() => M4W\Service\ImapLimits::report([$host => 1])[$host];
+    $limit = M4W\Mail\ImapLimitException::class;
+    $tryOpen = static function () use ($acc, $limit) {
+        try {
+            return RemoteMailbox::watchClient($acc);
+        } catch (M4W\Mail\ImapLimitException $e) {
+            return $e;
+        }
+    };
+    ok(str_starts_with(M4W\Service\ImapLimits::dir(), dirname(getenv('M4W_CONFIG'))), 'the suite has its own ledger: ' . M4W\Service\ImapLimits::dir() . ' ' . getenv('M4W_CONFIG'));
+    @unlink(M4W\Service\ImapLimits::dir() . '/' . $host . '.json');
+    try {
+        // Per second: 5 connections at 2 per second take two seconds, wherever they come from.
+        Settings::setMany(['imap.max_per_second' => 2, 'imap.max_per_box' => 50, 'imap.max_per_minute' => 1000]);
+        $t = microtime(true);
+        $open = [];
+        for ($i = 0; $i < 5; $i++) {
+            $open[] = RemoteMailbox::watchClient($acc);
+        }
+        $took = microtime(true) - $t;
+        ok($took >= 1.9 && $took < 6, 'paced: ' . round($took, 2) . ' s');
+        $r = $report();
+        eq([$r['open'], $r['box_max'], $r['instances'], $r['peaks']['second']], [5, 5, 1, 2], 'open connections counted, peak per second within the limit');
+        // Closed (or the process gone): no longer counted.
+        $open[0]->logout();
+        $open[1] = null;
+        eq($report()['open'], 3);
+        $l = $ledger();
+        $l['conns']['other:999999:dead'] = ['login' => 'paul@test.local', 'inst' => 'other', 'pid' => 999999, 'since' => time(), 'seen' => time()];
+        file_put_contents(M4W\Service\ImapLimits::dir() . '/' . $host . '.json', json_encode($l));
+        eq($report()['open'], 3, 'a connection of a process that is gone is dropped');
+        foreach ($open as $c) {
+            $c?->logout();
+        }
+        $open = [];
+        eq($report()['open'], 0);
+
+        // Per mailbox: the background passes do not open more than allowed; someone reading does.
+        Settings::setMany(['imap.max_per_second' => 50, 'imap.max_per_box' => 2]);
+        $open = [RemoteMailbox::watchClient($acc), RemoteMailbox::watchClient($acc)];
+        $before = $accepted();
+        $e = $tryOpen();
+        ok($e instanceof $limit && $e->kind === 'busy', 'a third one for the background: not tried');
+        eq($accepted(), $before, 'no connection made');
+        M4W\Service\ImapLimits::$background = false;
+        $c = $tryOpen();
+        ok($c instanceof M4W\Mail\ImapClient, 'someone waiting for their mail: connected anyway');
+        M4W\Service\ImapLimits::$background = null;
+        $c->logout();
+        // The supervision: close to the ceiling per mailbox.
+        [$state, $detail] = M4W\Service\ImapLimits::judge($host, $report());
+        eq($state, 'warn', $detail);
+        ok(str_contains($detail, '(limite 2)') || str_contains($detail, '(limit 2)'), $detail);
+        foreach ($open as $c) {
+            $c->logout();
+        }
+        $open = [];
+
+        // The provider refuses (too many connections for the mailbox): paused, then doubled.
+        Settings::set('imap.max_per_box', 50);
+        $colState(static function (array &$st) { $st['imap_limit']['paul@test.local'] = 1; });
+        $open = [RemoteMailbox::watchClient($acc)];
+        $e = $tryOpen();
+        ok($e instanceof $limit && $e->kind === 'limit' && str_contains($e->getMessage(), 'Maximum number of connections'), 'the answer is kept: ' . ($e instanceof Throwable ? $e->getMessage() : ''));
+        $pause = (int) $ledger()['pause']['paul@test.local'];
+        ok($pause >= time() + 290 && $pause <= time() + 300, 'paused 5 min');
+        ok(!isset($ledger()['pause']['*']), 'one mailbox: the others go on');
+        // A background pass now: not tried, its turn kept for the next pass, no error shown.
+        DB::run('UPDATE remote_accounts SET last_sync_at = 5 WHERE id = :i', ['i' => $acc['id']]);
+        $err = DB::value('SELECT last_error FROM remote_accounts WHERE id = :i', ['i' => $acc['id']]);
+        $before = $accepted();
+        $res = RemoteMailbox::sync(RemoteMailbox::find($uid));
+        ok($res['fetched'] === 0 && str_contains($res['error'], date('H:i', $pause)), $res['error']);
+        eq($accepted(), $before, 'the provider is left alone');
+        eq([(int) DB::value('SELECT last_sync_at FROM remote_accounts WHERE id = :i', ['i' => $acc['id']]), DB::value('SELECT last_error FROM remote_accounts WHERE id = :i', ['i' => $acc['id']])], [5, $err]);
+        $e = $tryOpen();
+        ok($e instanceof $limit && $e->kind === 'paused', 'the watcher waits too');
+        // Supervision: failing, with the provider's answer and the time it resumes.
+        $checks = M4W\Service\Health::checks(false);
+        ok(isset($checks['imap_limits:' . $host]) && $checks['imap_limits:' . $host]['state'] === 'fail', json_encode($checks['imap_limits:' . $host] ?? null));
+        ok(str_contains($checks['imap_limits:' . $host]['detail'], 'Maximum number of connections') && str_contains($checks['imap_limits:' . $host]['detail'], date('H:i', $pause)), $checks['imap_limits:' . $host]['detail']);
+        ok(str_contains($checks['imap_limits:' . $host]['label'], $host));
+        ok((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE action = 'imap.limited'") >= 1, 'logged');
+        // Someone reading: tried anyway; refused again → the pause doubles.
+        M4W\Service\ImapLimits::$background = false;
+        $e = $tryOpen();
+        M4W\Service\ImapLimits::$background = null;
+        ok($e instanceof $limit && $e->kind === 'limit');
+        ok((int) $ledger()['pause']['paul@test.local'] >= time() + 590, 'second refusal: 10 min');
+        // Over: the pause lifted (time passed), connections work again, the refusal still reported today.
+        $colState(static function (array &$st) { unset($st['imap_limit']); });
+        $l = $ledger();
+        $l['pause'] = [];
+        file_put_contents(M4W\Service\ImapLimits::dir() . '/' . $host . '.json', json_encode($l));
+        $c = $tryOpen();
+        ok($c instanceof M4W\Mail\ImapClient, 'resumed');
+        $c->logout();
+        ok(!isset($ledger()['strikes']['paul@test.local']), 'and the count of refusals starts again');
+        [$state, $detail] = M4W\Service\ImapLimits::judge($host, $report());
+        ok($state === 'warn' && str_contains($detail, 'Maximum number'), $detail);
+        foreach ($open as $c) {
+            $c->logout();
+        }
+        $open = [];
+
+        // The address itself turned away at the greeting: every mailbox of the server waits.
+        $colState(static function (array &$st) { $st['imap_bye'] = 'Too many connections from your IP'; });
+        $e = $tryOpen();
+        ok($e instanceof $limit && $e->kind === 'limit' && str_contains($e->getMessage(), 'Too many connections'), 'BYE at the greeting');
+        $colState(static function (array &$st) { unset($st['imap_bye']); });
+        // Several mailboxes limited within minutes: the whole server paused.
+        $l = $ledger();
+        foreach (['a@test.local', 'b@test.local'] as $who) {
+            $l['events'][] = ['at' => time(), 'kind' => 'limit', 'login' => $who, 'inst' => 'other', 'msg' => 'x'];
+        }
+        $l['pause'] = [];
+        file_put_contents(M4W\Service\ImapLimits::dir() . '/' . $host . '.json', json_encode($l));
+        $colState(static function (array &$st) { $st['imap_bye'] = 'Too many connections from your IP'; });
+        $tryOpen();
+        $colState(static function (array &$st) { unset($st['imap_bye']); });
+        ok((int) ($ledger()['pause']['*'] ?? 0) > time(), 'three mailboxes limited: the server paused');
+        // A connection refused once (network, wrong port): no pause.
+        $l = $ledger();
+        $l['pause'] = [];
+        $l['events'] = [];
+        $l['strikes'] = [];
+        file_put_contents(M4W\Service\ImapLimits::dir() . '/' . $host . '.json', json_encode($l));
+        $bad = $acc;
+        $bad['imap_port'] = 1;
+        DB::update('remote_accounts', ['imap_port' => 1, 'imap_host' => $host, 'imap_security' => 'none'], 'id = :i', ['i' => $acc['id']]);
+        try {
+            RemoteMailbox::watchClient(RemoteMailbox::find($uid));
+            ok(false, 'port 1 answered');
+        } catch (M4W\Mail\ImapLimitException $e) {
+            eq($e->kind, 'refused');
+        }
+        eq($ledger()['pause'] ?? [], [], 'refused once: not taken for a block');
+    } finally {
+        foreach ($open ?? [] as $c) {
+            $c?->logout();
+        }
+        M4W\Service\ImapLimits::$background = null;
+        DB::update('remote_accounts', ['imap_port' => $acc['imap_port'], 'imap_host' => $acc['imap_host'], 'imap_security' => $acc['imap_security']], 'id = :i', ['i' => $acc['id']]);
+        $colState(static function (array &$st) { unset($st['imap_limit'], $st['imap_bye']); });
+        Settings::setMany(['imap.max_per_second' => 50, 'imap.max_per_minute' => 1000, 'imap.max_per_box' => 50]);
+        @unlink(M4W\Service\ImapLimits::dir() . '/' . $host . '.json');
+        @unlink($wm['state'] . '.sessions');
     }
 });
 test('own folders: the same tree here and at the provider, messages filed alike both ways', function () use ($paul, $colState, $colMsg, $wm) {

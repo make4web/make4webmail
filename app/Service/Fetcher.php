@@ -72,7 +72,7 @@ final class Fetcher
         $error = '';
         try {
             $client = new ImapClient($acc['host'], (int) $acc['port'], $acc['security'], 30, true, self::assertPublicHost((string) $acc['host']));
-            $client->connect($acc['username'], Crypto::decrypt((string) $acc['password_enc']) ?? '');
+            ImapLimits::connect($client, (string) $acc['host'], (string) $acc['username'], Crypto::decrypt((string) $acc['password_enc']) ?? '');
             $info = $client->select($acc['remote_folder']);
             $lastUid = (int) $acc['last_uid'];
             if ((int) $acc['uid_validity'] !== $info['uidvalidity']) {

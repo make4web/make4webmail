@@ -272,7 +272,8 @@ final class RemoteMailbox
             throw new \RuntimeException(t('wm.no_imap'));
         }
         $c = new ImapClient($acc['imap_host'], (int) $acc['imap_port'], $acc['imap_security'] ?: 'ssl', 30, (bool) Settings::get('webmail.verify_peer', 1));
-        $c->connect($acc['login'], self::password($acc));
+        // Within what the provider accepts from this server (all instances together).
+        ImapLimits::connect($c, (string) $acc['imap_host'], (string) $acc['login'], self::password($acc));
         return $c;
     }
 
@@ -457,6 +458,14 @@ final class RemoteMailbox
                 }
             }
             $client->logout();
+        } catch (\M4W\Mail\ImapLimitException $e) {
+            if (in_array($e->kind, ['paused', 'busy'], true)) {
+                // Not even tried (the provider limits this server): the next pass tries again.
+                DB::update('remote_accounts', ['last_sync_at' => (int) $acc['last_sync_at']], 'id = :id', ['id' => $acc['id']]);
+                return ['fetched' => 0, 'error' => $e->getMessage()];
+            }
+            $client?->logout();
+            $error = mb_substr($e->getMessage(), 0, 500);
         } catch (\Throwable $e) {
             $client?->logout();
             $error = mb_substr($e->getMessage(), 0, 500);
@@ -1400,6 +1409,19 @@ final class RemoteMailbox
             default => '(user_id <> 0 AND forced = 1)',
         };
         return DB::all("SELECT * FROM remote_accounts WHERE enabled = 1 AND password_enc <> '' AND $which ORDER BY id");
+    }
+
+    /** @return array<string, int> provider IMAP server => mailboxes of this instance there (the ones fetched) */
+    public static function imapHosts(): array
+    {
+        $hosts = [];
+        foreach (self::watched() as $acc) {
+            $h = mb_strtolower((string) self::effective($acc)['imap_host']);
+            if ($h !== '') {
+                $hosts[$h] = ($hosts[$h] ?? 0) + 1;
+            }
+        }
+        return $hosts;
     }
 
     /** A connection to a mailbox's inbox, to wait on (IMAP IDLE). */
