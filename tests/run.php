@@ -2556,6 +2556,16 @@ test('one crontab line: bin/cron.php starts the live watch and the backup, each 
         $run();
         usleep(800000);
         eq((int) trim((string) @file_get_contents($lockFile)), $pid, 'one watch at a time');
+        // When it does not run, the supervision says why.
+        Settings::flush();
+        $why = static function (array $s) {
+            Settings::setMany(['watch.last' => 0] + $s);
+            return M4W\Service\Health::checks(false)['watch']['detail'] ?? '';
+        };
+        ok(str_contains($why(['watch.spawned' => -1]), 'exec'), 'exec disabled');
+        ok(str_contains($why(['watch.spawned' => time() - 3600, 'watch.error' => '']), 'bin/cron.php'), 'not started by cron.php');
+        ok(str_contains($why(['watch.spawned' => time(), 'watch.started' => time() - 900]), 'watch.log'), 'started, stopped at once');
+        ok(str_contains($why(['watch.spawned' => time(), 'watch.started' => time() - 10, 'watch.error' => json_encode(['at' => time(), 'why' => 'cannot open x/watch.lock (owner: root)'])]), 'owner: root'), 'its last error');
     } finally {
         if ($pid > 0) {
             posix_kill($pid, SIGTERM);
@@ -2868,6 +2878,43 @@ test('sessions: stored hashed, read back, refreshed sparingly, expired and purge
     eq([$h->validateId($id), $h->read($id)], [false, ''], 'destroyed at logout');
 });
 
+test('visitor address behind Cloudflare or a proxy: believed only from them, never from the visitor', function () {
+    $P = M4W\Core\Proxies::class;
+    $cf = '162.158.10.20';
+    $req = static fn(array $srv) => (new M4W\Core\Request('GET', '/', [], [], [], $srv))->ip();
+    Settings::setMany(['security.cloudflare' => 1, 'security.trusted_proxies' => '']);
+    try {
+        eq($req(['REMOTE_ADDR' => '203.0.113.5']), '203.0.113.5', 'direct');
+        eq($req(['REMOTE_ADDR' => '203.0.113.5', 'HTTP_CF_CONNECTING_IP' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.1']), '203.0.113.5', 'not from Cloudflare: its headers are not believed');
+        eq($req(['REMOTE_ADDR' => $cf, 'HTTP_CF_CONNECTING_IP' => '198.51.100.7', 'HTTP_X_FORWARDED_FOR' => '6.6.6.6, 198.51.100.7']), '198.51.100.7', 'through Cloudflare: the visitor');
+        eq($req(['REMOTE_ADDR' => '2a06:98c0:3600::103', 'HTTP_CF_CONNECTING_IP' => '2001:db8::5']), '2001:db8::5', 'Cloudflare in IPv6');
+        eq($req(['REMOTE_ADDR' => $cf, 'HTTP_X_FORWARDED_FOR' => '6.6.6.6, 198.51.100.8']), '198.51.100.8', 'without its header: the address Cloudflare added, not what the visitor wrote');
+        Settings::set('security.cloudflare', 0);
+        eq($req(['REMOTE_ADDR' => $cf, 'HTTP_CF_CONNECTING_IP' => '198.51.100.7']), $cf, 'turned off: the connection');
+        Settings::set('security.cloudflare', 1);
+        // A local nginx in front (behind Cloudflare too).
+        eq($req(['REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.9']), '127.0.0.1', 'undeclared proxy: its own address');
+        Settings::set('security.trusted_proxies', '127.0.0.1, 10.0.0.0/8');
+        eq($req(['REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '6.6.6.6, 198.51.100.9']), '198.51.100.9', 'declared: the last address before it, not the first one written');
+        eq($req(['REMOTE_ADDR' => '10.1.2.3', 'HTTP_X_FORWARDED_FOR' => '198.51.100.10, 10.0.0.4']), '198.51.100.10', 'a range, several proxies');
+        eq($req(['REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.11, ' . $cf, 'HTTP_CF_CONNECTING_IP' => '198.51.100.11']), '198.51.100.11', 'nginx then Cloudflare');
+        eq($req(['REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => 'nonsense']), '127.0.0.1', 'garbage ignored');
+        ok((new M4W\Core\Request('GET', '/', [], [], [], ['REMOTE_ADDR' => $cf, 'HTTP_X_FORWARDED_PROTO' => 'https']))->isSecure(), 'HTTPS told by Cloudflare');
+        ok(!(new M4W\Core\Request('GET', '/', [], [], [], ['REMOTE_ADDR' => '203.0.113.5', 'HTTP_X_FORWARDED_PROTO' => 'https']))->isSecure(), 'but not by anyone');
+        // Its list refreshed weekly; a broken page keeps the known one.
+        $n = $P::refreshCloudflare(static fn(string $u) => str_contains($u, 'v4') ? implode("\n", array_slice($P::CLOUDFLARE, 0, 15)) . "\n203.0.113.0/24\n" : "2400:cb00::/32\nnot-a-range\n");
+        eq($n, 17);
+        ok($P::isCloudflare('203.0.113.77'), 'the published list is used');
+        try {
+            $P::refreshCloudflare(static fn(string $u) => '<html>error</html>');
+            ok(false, 'accepted');
+        } catch (RuntimeException) {
+        }
+        ok($P::isCloudflare('203.0.113.77') && count($P::cloudflareRanges()) === 17, 'kept');
+    } finally {
+        Settings::setMany(['security.cloudflare' => 1, 'security.trusted_proxies' => '', 'security.cloudflare_ranges' => '']);
+    }
+});
 test('stay signed in on this device: longer limits for the device chosen, ordinary ones otherwise, ended at will', function () {
     $u = Users::find(Users::create(['email' => 'trust.me@test.local', 'password' => 'Secret!Pass123', 'first_name' => 'Trust']));
     $req = new M4W\Core\Request('POST', '/login', [], [], [], ['REMOTE_ADDR' => '198.51.100.21', 'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; Android 14) Chrome/130']);

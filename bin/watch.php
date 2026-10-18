@@ -42,10 +42,30 @@ $say = static function (string $m) use ($verbose): void {
 if (!Config::installed()) {
     exit(0);
 }
-$lock = fopen(Config::storagePath('tmp') . '/watch.lock', 'c');
-if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+// Why it stopped, for the supervision page (a fatal error, the lock it cannot open).
+$problem = static function (string $why): void {
+    try {
+        Settings::set('watch.error', json_encode(['at' => time(), 'why' => mb_substr($why, 0, 300)]));
+    } catch (Throwable) {
+    }
+    fwrite(STDERR, date('c') . ' watch: ' . $why . "\n");
+};
+register_shutdown_function(static function () use ($problem): void {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        $problem($e['message'] . ' (' . basename($e['file']) . ':' . $e['line'] . ')');
+    }
+});
+$lockFile = Config::storagePath('tmp') . '/watch.lock';
+$lock = @fopen($lockFile, 'c');
+if (!$lock) {
+    $problem('cannot open ' . $lockFile . ' (owner: ' . (function_exists('posix_getpwuid') && is_file($lockFile) ? (posix_getpwuid((int) fileowner($lockFile))['name'] ?? '?') : '?') . ')');
+    exit(1);
+}
+if (!flock($lock, LOCK_EX | LOCK_NB)) {
     exit(0); // already watching
 }
+Settings::set('watch.started', time());
 ftruncate($lock, 0);
 fwrite($lock, (string) getmypid()); // who is watching (to stop it: kill that number)
 fflush($lock);

@@ -22,6 +22,24 @@
     <div class="m4w-setting-row"><div class="label"><label for="sec-tdays"><?= te('admin.trusted_days') ?></label><small><?= te('admin.trusted_days_desc') ?></small></div><div class="input-group" style="max-width:180px"><input class="form-control" type="number" min="1" max="365" id="sec-tdays" name="trusted_days" value="<?= (int) S::get('security.trusted_days', 30) ?>"><span class="input-group-text"><?= te('admin.days') ?></span></div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.offline') ?><small><?= te('admin.offline_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="offline_enabled" value="1" aria-label="<?= te('admin.offline') ?>" <?= (int) S::get('offline.enabled', 1) ? 'checked' : '' ?>></div></div>
   </div>
+  <?php
+  $remote = $req->remoteAddr();
+  $seen = $req->ip();
+  $via = M4W\Core\Proxies::isCloudflare($remote) ? 'Cloudflare' : (M4W\Core\Proxies::trusted($remote) ? t('admin.proxy_declared') : '');
+  // A proxy that is not known here: its address is taken for the visitor's (alerts, lockouts).
+  $unknown = $seen === $remote && (($req->header('X-Forwarded-For') !== '' || $req->header('CF-Connecting-IP') !== '') || M4W\Core\Proxies::isCloudflare($remote));
+  ?>
+  <div class="m4w-section" id="proxies">
+    <div class="m4w-section-title"><i class="bi bi-diagram-3 me-2 text-primary"></i><?= te('admin.proxies') ?></div>
+    <p class="small text-muted"><?= te('admin.proxies_desc') ?></p>
+    <?php if ($unknown): ?>
+      <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i><div><?= te(M4W\Core\Proxies::isCloudflare($remote) ? 'admin.proxies_cf_off' : 'admin.proxies_unknown', ['remote' => $remote]) ?></div></div>
+    <?php else: ?>
+      <div class="alert alert-<?= $via !== '' ? 'success' : 'light' ?> small"><i class="bi bi-<?= $via !== '' ? 'check2-circle' : 'info-circle' ?>"></i><div><?= $via !== '' ? te('admin.proxies_seen', ['remote' => $remote, 'via' => $via, 'ip' => $seen]) : te('admin.proxies_direct', ['ip' => $seen]) ?></div></div>
+    <?php endif; ?>
+    <div class="m4w-setting-row"><div class="label"><?= te('admin.cloudflare') ?><small><?= te('admin.cloudflare_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="cloudflare" value="1" aria-label="<?= te('admin.cloudflare') ?>" <?= M4W\Core\Proxies::cloudflareOn() ? 'checked' : '' ?>></div></div>
+    <div class="m4w-setting-row"><div class="label"><label for="sec-proxies"><?= te('admin.trusted_proxies') ?></label><small><?= te('admin.trusted_proxies_desc') ?></small></div><div><input class="form-control m4w-code" id="sec-proxies" name="trusted_proxies" value="<?= e((string) S::get('security.trusted_proxies', '')) ?>" placeholder="127.0.0.1, 10.0.0.0/8"></div></div>
+  </div>
   <div class="m4w-section">
     <div class="m4w-section-title"><i class="bi bi-shield-lock me-2 text-primary"></i><?= te('admin.admin_access') ?></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.admin_users') ?><small><?= te('admin.admin_users_desc') ?></small></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="admin_users" value="1" aria-label="<?= te('admin.admin_users') ?>" <?= (int) S::get('roles.admin_users', 0) ? 'checked' : '' ?>></div></div>

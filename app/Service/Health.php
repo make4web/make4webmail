@@ -45,7 +45,7 @@ final class Health
         if (\M4W\Service\RemoteMailbox::watched()) {
             $wAge = $now - (int) Settings::get('watch.last', 0);
             $add('watch', $wAge < 180 ? 'ok' : 'warn', $wAge < 180 ? t('health.watch_ok', ['n' => (int) Settings::get('watch.count', 0)])
-                : t('health.watch_off', ['interval' => \M4W\Service\RemoteMailbox::interval()]), 'help#a-ops');
+                : t('health.watch_off', ['interval' => \M4W\Service\RemoteMailbox::interval()]) . ' ' . self::watchWhy($now), 'help#a-ops');
         }
 
         // Connections to the providers within their limits (per second, per minute, per mailbox,
@@ -161,6 +161,28 @@ final class Health
     }
 
     /** @return array<string,array{0:string,1:string}> */
+    /** Why the live watch does not run, as far as can be seen from here. */
+    private static function watchWhy(int $now): string
+    {
+        $spawned = (int) Settings::get('watch.spawned', 0);
+        $started = (int) Settings::get('watch.started', 0);
+        $err = json_decode((string) Settings::get('watch.error', ''), true);
+        $log = Config::storagePath('logs') . '/watch.log';
+        if ($spawned === -1) {
+            return t('health.watch_no_exec');
+        }
+        if (is_array($err) && (int) ($err['at'] ?? 0) > $now - 3600 && (int) $err['at'] >= $started) {
+            return t('health.watch_error', ['why' => (string) $err['why'], 'log' => $log]);
+        }
+        if ($spawned < $now - 300) {
+            return t('health.watch_not_spawned');
+        }
+        if ($started < $spawned - 120) {
+            return t('health.watch_not_started', ['log' => $log]);
+        }
+        return t('health.watch_stopped', ['log' => $log]);
+    }
+
     private static function dns(): array
     {
         $out = [];

@@ -22,14 +22,17 @@ use M4W\Service\Jobs;
 // up by a slow one): each keeps its own lock, so an older crontab still listing them, or the
 // systemd watch service, never runs them twice.
 if (!in_array('--no-spawn', $argv, true) && M4W\Core\Config::installed()) {
-    $spawn = static function (array $args, string $log): void {
-        if (function_exists('exec')) {
-            exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY], $args))) . ' >> ' . escapeshellarg($log) . ' 2>&1 < /dev/null &');
+    $spawn = static function (array $args, string $log): bool {
+        if (!function_exists('exec')) {
+            return false;
         }
+        exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY], $args))) . ' >> ' . escapeshellarg($log) . ' 2>&1 < /dev/null &');
+        return true;
     };
     try {
         if (M4W\Service\RemoteMailbox::watched()) {
-            $spawn([__DIR__ . '/watch.php'], '/dev/null');
+            // Its errors in storage/logs/watch.log; the supervision tells why it does not run.
+            Settings::set('watch.spawned', $spawn([__DIR__ . '/watch.php'], M4W\Core\Config::storagePath('logs') . '/watch.log') ? time() : -1);
         }
     } catch (Throwable $e) {
         error_log('[m4w] cron: ' . $e->getMessage()); // before the first migration
@@ -139,6 +142,11 @@ if ($hourly) {
         $job('URLhaus feed', static fn() => M4W\Service\LinkGuard::updateFeed());
     }
     $job('expired sessions', static fn() => M4W\Core\DbSessionHandler::purge());
+    // Cloudflare's addresses as it publishes them, once a week (the visitor's address behind it).
+    if (M4W\Core\Proxies::cloudflareOn() && (int) Settings::get('security.cloudflare_tried', 0) < $now - 7 * 86400) {
+        Settings::set('security.cloudflare_tried', $now);
+        $job('Cloudflare ranges', static fn() => M4W\Core\Proxies::refreshCloudflare());
+    }
     $job('unused file contents', static fn() => M4W\Service\Files::gcBlobs());
     $job('offline devices', static fn() => M4W\Service\Offline::gc());
     $job('delivery statuses', static fn() => M4W\Service\DeliveryReports::gc());
