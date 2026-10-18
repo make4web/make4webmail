@@ -2741,4 +2741,13 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'admin.trusted_proxies' => 'Autres proxys de confiance',
     'admin.trusted_proxies_desc' => 'Adresses ou plages (127.0.0.1, 10.0.0.0/8) d\'un nginx, HAProxy ou répartiteur placé devant le serveur : l\'adresse du visiteur est lue dans X-Forwarded-For, en partant de la fin.',
     'admin.proxies_bad' => '« :value » n\'est ni une adresse IP ni une plage (exemple : 10.0.0.0/8).',
+    'js.new_version' => 'Nouvelle version de l\'application installée (:version).',
+    'js.reload' => 'Recharger',
+    'notify.app_version' => 'Version de l\'application sur cet appareil',
+    'notify.app_version_desc' => 'Page et service worker (la partie qui affiche les notifications). Ils se mettent à jour d\'eux-mêmes ; s\'ils diffèrent de la version du serveur, touchez « Mettre à jour ».',
+    'notify.app_version_line' => 'Serveur : :server · page : :page · service worker : :sw',
+    'notify.app_update' => 'Mettre à jour',
+    'js.sw_none' => 'aucun',
+    'js.sw_pending' => '…',
+    'js.app_version_line' => 'Serveur : :server · page : :page · service worker : :sw',
 ];

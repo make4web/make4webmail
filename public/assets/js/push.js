@@ -60,7 +60,9 @@
   }
 
   if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register(M4W.url('sw.js'), { scope: M4W.url('') }).then(function (r) {
+    // The version in its address: each new version of the app installs its service worker (the
+    // part that shows the notifications), even when the file itself did not change.
+    navigator.serviceWorker.register(M4W.url('sw.js') + (M4W.version ? '?v=' + encodeURIComponent(M4W.version) : ''), { scope: M4W.url(''), updateViaCache: 'none' }).then(function (r) {
       reg = r; ready.resolve(r);
     }, function () { ready.reject(); });
   } else {
@@ -219,6 +221,32 @@
     function dismiss() { try { window.localStorage.setItem(key, '1'); } catch (e) {} $inv.addClass('d-none'); }
     $inv.on('click', '[data-invite-close]', dismiss).on('click', '[data-push-enable]', function () {
       enable().done(function () { M4W.toast(t('push_enabled'), 'success'); dismiss(); }).fail(function (msg) { if (msg) M4W.toast(msg, 'danger'); dismiss(); });
+    });
+  });
+
+  // Settings: the version of the page and of the service worker of this device, and a button to
+  // update both (the kept app files dropped, the service worker refreshed, the page reloaded).
+  $(function () {
+    var $v = $('[data-app-version]');
+    if (!$v.length) return;
+    var server = String($v.data('app-version')), answered = false;
+    var line = function (sw) { $v.text(M4W.t('app_version_line', { server: server, page: M4W.version || '?', sw: sw })); };
+    var ask = function () {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller || typeof MessageChannel === 'undefined') { line(M4W.t('sw_none')); return; }
+      var ch = new MessageChannel();
+      answered = false;
+      ch.port1.onmessage = function (e) { answered = true; line((e.data && e.data.version) || '?'); };
+      navigator.serviceWorker.controller.postMessage({ type: 'm4w-version' }, [ch.port2]);
+      setTimeout(function () { if (!answered) line('?'); }, 2000);
+    };
+    ask();
+    if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('controllerchange', ask);
+    $('[data-app-update]').on('click', function () {
+      var $b = $(this).prop('disabled', true);
+      var drop = window.caches ? caches.keys().then(function (keys) {
+        return Promise.all(keys.filter(function (k) { return /^m4w-(static|pages)/.test(k); }).map(function (k) { return caches.delete(k); }));
+      }) : Promise.resolve();
+      drop.then(function () { return ready.promise(); }).then(function (r) { return r.update(); }).catch(function () {}).then(function () { location.reload(); });
     });
   });
 })(jQuery, window, navigator);

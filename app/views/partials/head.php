@@ -11,6 +11,7 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <meta name="theme-color" content="<?= e(Settings::get('brand.primary', '#2563eb')) ?>">
 <meta name="csrf-token" content="<?= e(M4W\Core\Csrf::token()) ?>">
 <meta name="base-url" content="<?= e(url('/')) ?>">
+<meta name="m4w-version" content="<?= e(M4W_VERSION) ?>">
 <?php if (!empty($currentUser)): ?>
 <meta name="m4w-user" content="<?= (int) $currentUser['id'] ?>">
 <?php // Offline mode: one's own mailbox only (nothing of a delegated or shared mailbox kept on a device). ?>

@@ -2668,4 +2668,13 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'admin.trusted_proxies' => 'Other trusted proxies',
     'admin.trusted_proxies_desc' => 'Addresses or ranges (127.0.0.1, 10.0.0.0/8) of an nginx, HAProxy or load balancer in front of the server: the visitor\'s address is read from X-Forwarded-For, starting from its end.',
     'admin.proxies_bad' => '":value" is neither an IP address nor a range (example: 10.0.0.0/8).',
+    'js.new_version' => 'New version of the app installed (:version).',
+    'js.reload' => 'Reload',
+    'notify.app_version' => 'Version of the app on this device',
+    'notify.app_version_desc' => 'Page and service worker (the part that shows the notifications). They update by themselves; if they differ from the server\'s version, tap "Update".',
+    'notify.app_version_line' => 'Server: :server · page: :page · service worker: :sw',
+    'notify.app_update' => 'Update',
+    'js.sw_none' => 'none',
+    'js.sw_pending' => '…',
+    'js.app_version_line' => 'Server: :server · page: :page · service worker: :sw',
 ];
