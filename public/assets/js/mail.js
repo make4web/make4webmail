@@ -906,7 +906,7 @@
   function poll(first, force) {
     if (polling && !first) { pollAgain = true; pollForce = pollForce || !!force; return polling; }
     var q = { since: S.maxId }, onFolder = S.folder && !S.q ? S.folder : 0;
-    if (M4W.Notify && M4W.Notify.device()) q.device = M4W.Notify.device(); // heartbeat (WebPush::send)
+    if (M4W.Notify && M4W.Notify.device()) { q.device = M4W.Notify.device(); q.away = M4W.Notify.away(); } // heartbeat (WebPush::send)
     S.lastPoll = Date.now();
     if (force) q.force = 1;
     if (onFolder) q.folder = onFolder;

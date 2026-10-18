@@ -94,12 +94,22 @@
   function announce(n, open) {
     alert('new', +n.id).then(function (sounded) {
       if (sounded === null || document.hasFocus() || !('Notification' in window) || Notification.permission !== 'granted') return;
-      try {
-        var no = new Notification(M4W.t('notif_from', { name: n.from_name || n.from_email }), {
-          body: n.subject || M4W.t('no_subject'), tag: 'm4w-' + n.id, silent: !!sounded, icon: $('link[rel=apple-touch-icon]').attr('href')
-        });
-        no.onclick = function () { window.focus(); open(); no.close(); };
-      } catch (e) { /* not allowed here */ }
+      var title = M4W.t('notif_from', { name: n.from_name || n.from_email });
+      var opts = { body: n.subject || M4W.t('no_subject'), tag: 'm4w-' + n.id, silent: !!sounded, icon: $('link[rel=apple-touch-icon]').attr('href'),
+        data: { url: M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id } };
+      // Through the service worker: the only way on a phone (Android refuses new Notification()),
+      // and its click opens the message like a pushed one (sw.js).
+      var direct = function () {
+        try {
+          var no = new Notification(title, opts);
+          no.onclick = function () { window.focus(); open(); no.close(); };
+        } catch (e) { /* not allowed here */ }
+      };
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then(function (reg) { return reg.showNotification(title, opts); }).catch(direct);
+      } else {
+        direct();
+      }
     });
   }
 
@@ -120,6 +130,20 @@
   findDevice();
   setInterval(findDevice, 300000); // notifications turned on or off meanwhile
 
+  /**
+   * In the background (phone locked, another app or window in front, app closed): the server is
+   * told at once, so the system notifies this device from now on, with its own sound, and sends
+   * what it was holding for the page. A hidden page cannot show a notification on a phone; it
+   * could only make a sound.
+   */
+  function away() { return document.hidden ? 1 : 0; }
+  function tellAway() {
+    if (!device || !window.fetch) return;
+    try { fetch(M4W.url('api/stamp') + '?device=' + device + '&away=1', { credentials: 'same-origin', keepalive: true }); } catch (e) { /* closing */ }
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) tellAway(); });
+  window.addEventListener('pagehide', tellAway);
+
   /** Something arrived: the open page checks at once (mail.js sets its own way, see refresh). */
   var refresh = function () { if (M4W.mailRefresh) M4W.mailRefresh(); };
   if (navigator.serviceWorker) {
@@ -129,6 +153,11 @@
       if (d.type === 'm4w-alert') { pushSeen = Date.now(); alert(d.kind, d.id, true); M4W.Notify.refresh(); }
       // The app is on screen: no system notification, the page announces it once its list shows it.
       if (d.type === 'm4w-push') { if (d.id) expected[+d.id] = 1; M4W.Notify.refresh(); }
+      // In the background, still awake: the app's own sound now, the system's notification silent.
+      if (d.type === 'm4w-play' && e.ports && e.ports[0]) {
+        var port = e.ports[0], already = !!played[d.kind + ':' + (d.id || '')];
+        alert(d.kind, d.id).then(function (sounded) { port.postMessage({ played: already || sounded === true }); }, function () { port.postMessage({ played: false }); });
+      }
     });
   }
 
@@ -194,6 +223,8 @@
     play: play, alert: alert, announce: announce, inPeriod: inPeriod, setUnread: setUnread, tabBadge: tabBadge, cfg: cfg,
     /** The hash of this device's push subscription, sent with each check (heartbeat). */
     device: function () { return device; },
+    /** 1 when the page is hidden: its checks do not count as "open on this device". */
+    away: away,
     refresh: function () { refresh(); }
   };
 
@@ -227,7 +258,7 @@
       if (M4W.Offline && M4W.Offline.offline) return;
       if (checking) return; // one at a time (back in front, the timer, a push at once)
       checking = true;
-      M4W.get('api/unread', { since: since, device: device }, { silent: true, quiet: true }).always(function () { checking = false; }).done(function (r) {
+      M4W.get('api/unread', { since: since, device: device, away: away() }, { silent: true, quiet: true }).always(function () { checking = false; }).done(function (r) {
         var news = since ? (r.new || []).filter(function (x) { return !told[x.id]; }) : [];
         news.forEach(function (x) { told[x.id] = 1; });
         show(r.boxes, news.length > 0);
