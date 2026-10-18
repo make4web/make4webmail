@@ -900,21 +900,32 @@
   }
 
   // ------------------------------------------------------------- polling
+  // One check at a time: asked again while one runs (back in front, the timer and a push at
+  // once), it is made once more right after; each new message is told once.
+  var polling = null, pollAgain = false, pollForce = false, toasted = {};
   function poll(first, force) {
+    if (polling && !first) { pollAgain = true; pollForce = pollForce || !!force; return polling; }
     var q = { since: S.maxId }, onFolder = S.folder && !S.q ? S.folder : 0;
     if (M4W.Notify && M4W.Notify.device()) q.device = M4W.Notify.device(); // heartbeat (WebPush::send)
     S.lastPoll = Date.now();
     if (force) q.force = 1;
     if (onFolder) q.folder = onFolder;
-    return M4W.get('api/poll', q, { silent: true, quiet: true }).done(function (r) {
+    polling = M4W.get('api/poll', q, { silent: true, quiet: true });
+    polling.always(function () {
+      polling = null;
+      if (pollAgain) { var f = pollForce; pollAgain = pollForce = false; setTimeout(function () { poll(false, f); }, 0); }
+    });
+    return polling.done(function (r) {
       if (r.remote) renderRemote(r.remote);
       setFolders(r.folders, !first);
       if (r.boxes) setBoxes(r.boxes, !first);
       if (r.csrf) M4W.csrf(r.csrf);
-      if (!first && r.new && r.new.length) {
+      var fresh = (r.new || []).filter(function (x) { return !toasted[x.id]; });
+      fresh.forEach(function (x) { toasted[x.id] = 1; });
+      if (!first && fresh.length) {
         S.fresh = S.fresh || {};
-        r.new.forEach(function (x) { if (!S.fresh[x.id]) S.fresh[x.id] = 1; });
-        var n = r.new[0];
+        fresh.forEach(function (x) { if (!S.fresh[x.id]) S.fresh[x.id] = 1; });
+        var n = fresh[0];
         M4W.toast(t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || t('no_subject')), 'info', {
           action: { label: t('open'), fn: function () { go(+n.folder_id || S.byRole.inbox.id, +n.id); } }
         });

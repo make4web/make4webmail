@@ -272,7 +272,8 @@ final class RemoteMailbox
             throw new \RuntimeException(t('wm.no_imap'));
         }
         $c = new ImapClient($acc['imap_host'], (int) $acc['imap_port'], $acc['imap_security'] ?: 'ssl', 30, (bool) Settings::get('webmail.verify_peer', 1));
-        $c->connect($acc['login'], self::password($acc));
+        // Within what the provider accepts from this server (all instances together).
+        ImapLimits::connect($c, (string) $acc['imap_host'], (string) $acc['login'], self::password($acc));
         return $c;
     }
 
@@ -376,7 +377,11 @@ final class RemoteMailbox
     // --------------------------------------------------------------- sync
 
     /** Pull new messages of one account. @return array{fetched:int,error:string} */
-    public static function sync(array $acc, int $max = 200): array
+    /**
+     * @param bool $quick only the new mail of the inbox, at once (the provider just told of it,
+     *        see bin/watch.php); everything else at the next full pass, whose schedule is kept.
+     */
+    public static function sync(array $acc, int $max = 200, bool $quick = false): array
     {
         // The collector account belongs to nobody: its messages are dispatched by recipient.
         $user = (int) $acc['user_id'] === Collector::ACCOUNT ? null : Users::find((int) $acc['user_id']);
@@ -394,6 +399,13 @@ final class RemoteMailbox
         $client = null;
         try {
             $client = self::imap($acc);
+            if ($quick) {
+                $fetched += self::pullFolder($client, $acc, $user, 'INBOX', 'inbox', $max);
+                $client->logout();
+                // The full pass keeps its pace (only claimed for the time of this one).
+                DB::update('remote_accounts', ['last_sync_at' => (int) $acc['last_sync_at'], 'last_error' => '', 'last_ok_at' => time()], 'id = :id', ['id' => $acc['id']]);
+                return ['fetched' => $fetched, 'error' => ''];
+            }
             if ($user !== null) {
                 try {
                     self::repairHistory($client, $acc);
@@ -446,11 +458,20 @@ final class RemoteMailbox
                 }
             }
             $client->logout();
+        } catch (\M4W\Mail\ImapLimitException $e) {
+            if (in_array($e->kind, ['paused', 'busy'], true)) {
+                // Not even tried (the provider limits this server): the next pass tries again.
+                DB::update('remote_accounts', ['last_sync_at' => (int) $acc['last_sync_at']], 'id = :id', ['id' => $acc['id']]);
+                return ['fetched' => 0, 'error' => $e->getMessage()];
+            }
+            $client?->logout();
+            $error = mb_substr($e->getMessage(), 0, 500);
         } catch (\Throwable $e) {
             $client?->logout();
             $error = mb_substr($e->getMessage(), 0, 500);
         }
-        DB::update('remote_accounts', ['last_error' => $error] + ($error === '' ? ['last_ok_at' => time()] : []), 'id = :id', ['id' => $acc['id']]);
+        DB::update('remote_accounts', ['last_error' => $error] + ($error === '' ? ['last_ok_at' => time()] : [])
+            + ($quick ? ['last_sync_at' => (int) $acc['last_sync_at']] : []), 'id = :id', ['id' => $acc['id']]);
         return ['fetched' => $fetched, 'error' => $error];
     }
 
@@ -1377,6 +1398,45 @@ final class RemoteMailbox
             $n += self::sync($acc)['fetched'];
         }
         return $n;
+    }
+
+    /** Mailboxes the scheduler fetches (see syncAll): the ones watched for new mail (bin/watch.php). */
+    public static function watched(): array
+    {
+        $which = match (true) {
+            self::active() => 'user_id <> 0',
+            Collector::active() => '(user_id = 0 OR forced = 1)',
+            default => '(user_id <> 0 AND forced = 1)',
+        };
+        return DB::all("SELECT * FROM remote_accounts WHERE enabled = 1 AND password_enc <> '' AND $which ORDER BY id");
+    }
+
+    /** @return array<string, int> provider IMAP server => mailboxes of this instance there (the ones fetched) */
+    public static function imapHosts(): array
+    {
+        $hosts = [];
+        foreach (self::watched() as $acc) {
+            $h = mb_strtolower((string) self::effective($acc)['imap_host']);
+            if ($h !== '') {
+                $hosts[$h] = ($hosts[$h] ?? 0) + 1;
+            }
+        }
+        return $hosts;
+    }
+
+    /** A connection to a mailbox's inbox, to wait on (IMAP IDLE). */
+    public static function watchClient(array $acc): ImapClient
+    {
+        $c = self::imap($acc);
+        $c->select('INBOX');
+        return $c;
+    }
+
+    /** The provider told of new mail: fetched now (the inbox only). */
+    public static function wake(int $accountId): int
+    {
+        $acc = DB::one('SELECT * FROM remote_accounts WHERE id = :id', ['id' => $accountId]);
+        return $acc ? self::sync($acc, 200, true)['fetched'] : 0;
     }
 
     /** Opportunistic sync when someone looks at the mailbox (no scheduler needed for reading). */

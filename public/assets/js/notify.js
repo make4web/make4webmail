@@ -222,10 +222,14 @@
     $(document).on('pointerdown keydown', function () {
       if (pulseSince && Date.now() - pulseSince > 1000) { $('[data-boxes-elsewhere]').removeClass('m4w-pulse'); pulseSince = 0; }
     });
+    var checking = false, told = {};
     function check() {
       if (M4W.Offline && M4W.Offline.offline) return;
-      M4W.get('api/unread', { since: since, device: device }, { silent: true, quiet: true }).done(function (r) {
-        var news = since ? (r.new || []) : [];
+      if (checking) return; // one at a time (back in front, the timer, a push at once)
+      checking = true;
+      M4W.get('api/unread', { since: since, device: device }, { silent: true, quiet: true }).always(function () { checking = false; }).done(function (r) {
+        var news = since ? (r.new || []).filter(function (x) { return !told[x.id]; }) : [];
+        news.forEach(function (x) { told[x.id] = 1; });
         show(r.boxes, news.length > 0);
         since = r.max_id || since;
         if (news.length) {

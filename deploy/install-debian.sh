@@ -173,8 +173,9 @@ step "Scheduled task"
 CRON_FILE=/etc/cron.d/make4webmail
 CRON_LINE="* * * * * $RUN_USER $PHP_BIN $DIR/bin/cron.php >/dev/null 2>&1"
 BACKUP_LINE="* * * * * $RUN_USER $PHP_BIN $DIR/bin/backup.php --if-due >>$DIR/storage/logs/backup.log 2>&1"
+WATCH_LINE="* * * * * $RUN_USER $PHP_BIN $DIR/bin/watch.php >/dev/null 2>&1"
 if [[ $CHECK_ONLY -eq 0 ]]; then
-    printf '# Make4WebMail scheduler: outgoing queue, scheduled sends, external accounts, images, file expiry, purge.\nSHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n%s\n# Backups (Administration > Files > Backup): runs when due, in its own process.\n%s\n' "$CRON_LINE" "$BACKUP_LINE" > "$CRON_FILE"
+    printf '# Make4WebMail scheduler: outgoing queue, scheduled sends, external accounts, images, file expiry, purge.\nSHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n%s\n# New mail at the providers known at once (IMAP IDLE, 58 s per run).\n%s\n# Backups (Administration > Files > Backup): runs when due, in its own process.\n%s\n' "$CRON_LINE" "$WATCH_LINE" "$BACKUP_LINE" > "$CRON_FILE"
     chmod 644 "$CRON_FILE"
     svc cron >/dev/null 2>&1 || yellow "Could not start cron."
 fi

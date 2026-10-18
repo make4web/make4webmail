@@ -79,6 +79,13 @@ $show = static fn(string $modes): string => ' data-modes="' . $modes . '"' . (in
   <div class="card mb-4"><div class="card-header"><i class="bi bi-arrow-repeat me-2 text-primary"></i><?= te('wm.check_title') ?></div><div class="card-body">
     <p class="small text-muted"><?= te('wm.check_desc') ?></p>
     <div class="row g-3"><div class="col-md-6"><label class="form-label" for="wm-interval"><?= te('wm.interval') ?></label><div class="input-group"><input class="form-control" type="number" min="1" max="15" id="wm-interval" name="wm_interval" value="<?= M4W\Service\RemoteMailbox::interval() ?>"><span class="input-group-text">min</span></div><div class="form-text"><?= te('wm.interval_hint') ?></div></div></div>
+    <div class="fw-semibold small mt-4 mb-1"><?= te('wm.limits_title') ?></div>
+    <p class="small text-muted mb-2"><?= te('wm.limits_hint') ?></p>
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label" for="wm-per-second"><?= te('wm.max_per_second') ?></label><input class="form-control" type="number" min="1" max="50" id="wm-per-second" name="wm_per_second" value="<?= M4W\Service\ImapLimits::perSecond() ?>"></div>
+      <div class="col-md-4"><label class="form-label" for="wm-per-minute"><?= te('wm.max_per_minute') ?></label><input class="form-control" type="number" min="5" max="1000" id="wm-per-minute" name="wm_per_minute" value="<?= M4W\Service\ImapLimits::perMinute() ?>"></div>
+      <div class="col-md-4"><label class="form-label" for="wm-per-box"><?= te('wm.max_per_box') ?></label><input class="form-control" type="number" min="1" max="50" id="wm-per-box" name="wm_per_box" value="<?= M4W\Service\ImapLimits::perBox() ?>"></div>
+    </div>
   </div></div>
 
   <div class="card mb-4"<?= $show('webmail collector') ?>><div class="card-header"><i class="bi bi-window-stack me-2 text-primary"></i><?= te('wm.provider_title') ?></div><div class="card-body">

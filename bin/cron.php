@@ -40,6 +40,12 @@ $job('search index', static fn() => M4W\Service\Search::ready() ? 'ready' : (M4W
 // The queue first: what the provider sync or the rules add is taken in the same run.
 $job('queue', static fn() => M4W\Service\Transport::processQueue(500, 20));
 $job('provider sync', static fn() => M4W\Service\RemoteMailbox::syncAll());
+// The connections to the providers as this server sees them (all instances): for the supervision.
+$job('provider connections', static function () {
+    $hosts = M4W\Service\RemoteMailbox::imapHosts();
+    M4W\Core\Settings::set('imap.report', json_encode(['at' => time(), 'hosts' => M4W\Service\ImapLimits::report($hosts)]));
+    return count($hosts) . ' server(s)';
+});
 $job('mail pictures', static fn() => M4W\Service\MailAssets::processPending(200));
 $job('spreadsheets saved', static fn() => M4W\Service\Sheet::housekeeping());
 $job('documents saved', static fn() => M4W\Service\DocEdit::housekeeping());
