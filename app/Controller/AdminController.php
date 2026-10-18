@@ -1205,15 +1205,32 @@ final class AdminController extends Controller
             'guard.on_burst' => $r->str('guard_on_burst') === 'lock' ? 'lock' : 'block_send',
             'guard.new_login_mail' => $r->bool('guard_login_mail') ? 1 : 0,
             'guard.alert_admins_all' => $r->bool('guard_admins_all') ? 1 : 0,
+            'security.cloudflare' => $r->bool('cloudflare') ? 1 : 0,
         ];
+        // Proxies in front of the server: addresses or ranges only.
+        $proxies = [];
+        foreach (preg_split('/[\s,;]+/', $r->str('trusted_proxies')) ?: [] as $c) {
+            [$net, $bits] = array_pad(explode('/', $c, 2), 2, null);
+            if ($c !== '' && filter_var($net, FILTER_VALIDATE_IP) && ($bits === null || (ctype_digit($bits) && (int) $bits <= (str_contains($net, ':') ? 128 : 32)))) {
+                $proxies[] = $c;
+            } elseif ($c !== '') {
+                return $this->back('/admin/security', 'danger', t('admin.proxies_bad', ['value' => $c]));
+            }
+        }
+        $values['security.trusted_proxies'] = implode(', ', $proxies);
         if ($values['security.allowed_ips_admin'] !== '') {
+            // The address of this request as the new proxy settings will see it.
+            $before = ['security.cloudflare' => Settings::get('security.cloudflare', 1), 'security.trusted_proxies' => Settings::get('security.trusted_proxies', '')];
+            Settings::setMany(['security.cloudflare' => $values['security.cloudflare'], 'security.trusted_proxies' => $values['security.trusted_proxies']]);
+            $ip = \M4W\Core\Proxies::client($this->req->remoteAddr(), $this->req->header('X-Forwarded-For'), $this->req->header('CF-Connecting-IP'));
             $ok = false;
             foreach (preg_split('/[\s,;]+/', $values['security.allowed_ips_admin']) ?: [] as $c) {
-                if ($c !== '' && \M4W\Core\App::ipInCidr($this->req->ip(), $c)) {
+                if ($c !== '' && \M4W\Core\App::ipInCidr($ip, $c)) {
                     $ok = true;
                 }
             }
             if (!$ok) {
+                Settings::setMany($before);
                 return $this->back('/admin/security', 'danger', t('admin.ip_lockout'));
             }
         }

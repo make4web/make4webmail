@@ -133,23 +133,22 @@ final class Request
 
     private function fromTrustedProxy(): bool
     {
-        $proxies = (array) Config::get('trusted_proxies', []);
-        return in_array($this->server['REMOTE_ADDR'] ?? '', $proxies, true);
+        return Proxies::trusted((string) ($this->server['REMOTE_ADDR'] ?? ''));
     }
 
+    private ?string $clientIp = null;
+
+    /** The visitor's address, through the proxies known here (Cloudflare, nginx…: see Proxies). */
     public function ip(): string
     {
-        $ip = (string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0');
-        if ($this->fromTrustedProxy()) {
-            $fwd = $this->header('X-Forwarded-For');
-            if ($fwd !== '') {
-                $first = trim(explode(',', $fwd)[0]);
-                if (filter_var($first, FILTER_VALIDATE_IP)) {
-                    $ip = $first;
-                }
-            }
-        }
-        return $ip;
+        return $this->clientIp ??= Proxies::client((string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0'),
+            $this->header('X-Forwarded-For'), $this->header('CF-Connecting-IP'));
+    }
+
+    /** The address the connection itself comes from (the proxy, when there is one). */
+    public function remoteAddr(): string
+    {
+        return (string) ($this->server['REMOTE_ADDR'] ?? '0.0.0.0');
     }
 
     public function userAgent(): string

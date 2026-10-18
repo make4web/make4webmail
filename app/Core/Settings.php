@@ -90,6 +90,8 @@ final class Settings
         'security.session_absolute'  => 720, // minutes from sign-in, whatever happens
         'security.session_keepalive' => 1,   // an open app (even in the background) is not idle
         'security.session_persist'   => 1,   // the session outlives closing the browser / app
+        'security.cloudflare'        => 1,   // behind Cloudflare: the visitor's address in CF-Connecting-IP
+        'security.trusted_proxies'   => '',  // other proxies in front (addresses or ranges)
         'security.trusted_enabled'   => 1,   // "stay signed in on this device" offered at sign-in
         'security.trusted_idle_days' => 7,   // such a device unused this long: sign in again
         'security.trusted_days'      => 30,  // and in any case this long after signing in
