@@ -614,7 +614,7 @@
       + rcpt + '<div class="m4w-msg-snippet">' + esc(msg.snippet) + '</div></div>'
       + '<div class="d-flex align-items-start gap-1"><div class="m4w-msg-date pt-1">' + (msg.attachments.some(function (a) { return !a.inline; }) ? '<i class="bi bi-paperclip me-1"></i>' : '') + esc(M4W.date(msg.date)) + '<div class="small-2 d-none d-md-block">' + esc(M4W.relative(msg.date)) + '</div></div>'
       + '<span class="m4w-msg-actions-inline d-flex"><button class="btn btn-ghost btn-icon btn-sm" data-msg-act="star" title="' + esc(t('star')) + '"><i class="bi bi-star' + (msg.flagged ? '-fill text-warning' : '') + '"></i></button>'
-      + '<button class="btn btn-ghost btn-icon btn-sm" data-msg-act="reply" title="' + esc(t('reply')) + '"><i class="bi bi-reply"></i></button>'
+      + '<button class="btn btn-ghost btn-icon btn-sm" data-msg-act="reply_all" title="' + esc(t('reply_all')) + '"><i class="bi bi-reply-all"></i></button>'
       + '<span class="dropdown"><button class="btn btn-ghost btn-icon btn-sm" data-bs-toggle="dropdown" aria-label="' + esc(t('more_actions')) + '"><i class="bi bi-three-dots-vertical"></i></button><span class="dropdown-menu dropdown-menu-end">'
       + '<button class="dropdown-item" data-msg-act="reply"><i class="bi bi-reply"></i>' + esc(t('reply')) + '</button>'
       + '<button class="dropdown-item" data-msg-act="reply_all"><i class="bi bi-reply-all"></i>' + esc(t('reply_all')) + '</button>'
@@ -777,8 +777,8 @@
       thread.forEach(function (m, i) { body += messageCard(m, i === thread.length - 1 || m.unread || thread.length === 1); });
     }
     if (!inTrash) {
-      body += '<div class="m4w-quick-reply"><button class="btn btn-light" data-msg-act="reply" data-msg-id="' + last.id + '"><i class="bi bi-reply me-1"></i>' + esc(t('reply')) + '</button>'
-        + ((last.to.length + last.cc.length) > 1 ? '<button class="btn btn-light" data-msg-act="reply_all" data-msg-id="' + last.id + '"><i class="bi bi-reply-all me-1"></i>' + esc(t('reply_all')) + '</button>' : '')
+      body += '<div class="m4w-quick-reply"><button class="btn btn-light" data-msg-act="reply_all" data-msg-id="' + last.id + '"><i class="bi bi-reply-all me-1"></i>' + esc(t('reply_all')) + '</button>'
+        + '<button class="btn btn-light" data-msg-act="reply" data-msg-id="' + last.id + '"><i class="bi bi-reply me-1"></i>' + esc(t('reply')) + '</button>'
         + '<button class="btn btn-light" data-msg-act="forward" data-msg-id="' + last.id + '"><i class="bi bi-forward me-1"></i>' + esc(t('forward')) + '</button></div>';
     }
     var $c = $('#m4w-reader-content');
