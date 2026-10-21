@@ -600,5 +600,11 @@ final class App
         if ($res->getHeader('Cache-Control') === null) {
             $res->header('Cache-Control', 'no-store, private');
         }
+        // A proxy must not rewrite the pages: Cloudflare otherwise hides every e-mail address
+        // ("[email protected]", to be decoded by a script of its own that the CSP refuses) and
+        // adds its own scripts.
+        if (!str_contains((string) $res->getHeader('Cache-Control'), 'no-transform')) {
+            $res->header('Cache-Control', $res->getHeader('Cache-Control') . ', no-transform');
+        }
     }
 }
