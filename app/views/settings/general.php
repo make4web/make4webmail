@@ -120,6 +120,10 @@
     </div>
   </div></div>
   <?php endforeach; ?>
+  <div class="m4w-setting-row"><div class="label"><?= te('notify.app_version') ?><small><?= te('notify.app_version_desc') ?></small></div><div>
+    <div class="small m4w-code mb-2" data-app-version="<?= e(M4W_VERSION) ?>"><?= te('notify.app_version_line', ['server' => M4W_VERSION, 'page' => '…', 'sw' => '…']) ?></div>
+    <button type="button" class="btn btn-light btn-sm" data-app-update><i class="bi bi-arrow-repeat me-1"></i><?= te('notify.app_update') ?></button>
+  </div></div>
   <div class="m4w-setting-row"><div class="label"><?= te('notify.android_title') ?><small><?= te('notify.android_desc') ?></small></div><div>
     <a class="btn btn-light" href="#" download data-sound-download><i class="bi bi-download me-1"></i><?= te('notify.android_save') ?></a>
     <ol class="small text-muted mt-2 mb-0 ps-3">

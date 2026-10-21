@@ -10,7 +10,14 @@
 var STATIC = 'm4w-static-v2', PAGES = 'm4w-pages-v1'; // v2: drops manifests kept by older versions
 var PAGE_NAMES = ['mail', 'calendar'];
 
+/** The version of the app that installed this service worker (sw.js?v=…). */
+var VERSION = new URL(self.location.href).searchParams.get('v') || '';
+
 self.addEventListener('install', function () { self.skipWaiting(); });
+// Asked by the settings page: which version shows the notifications on this device.
+self.addEventListener('message', function (event) {
+  if (event.data && event.data.type === 'm4w-version' && event.ports && event.ports[0]) event.ports[0].postMessage({ version: VERSION });
+});
 self.addEventListener('activate', function (event) {
   event.waitUntil(caches.keys().then(function (keys) {
     return Promise.all(keys.filter(function (k) { return /^m4w-/.test(k) && k !== STATIC && k !== PAGES; }).map(function (k) { return caches.delete(k); }));

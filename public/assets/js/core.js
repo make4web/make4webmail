@@ -19,6 +19,43 @@
     if (query) { var q = $.param(query); if (q) u += (u.indexOf('?') === -1 ? '?' : '&') + q; }
     return u;
   };
+  /**
+   * The version of the app this page runs. An app left open (for days on a phone, back from
+   * the background without reloading) keeps its old code: when the server answers with another
+   * version, the page reloads itself where nothing is being written, else offers to.
+   */
+  M4W.version = $('meta[name="m4w-version"]').attr('content') || '';
+  var newer = '';
+  function safeToReload() {
+    var page = location.pathname.slice(BASE.length).replace(/^\/|\/$/g, '');
+    return !$('.m4w-compose, .m4w-editor-overlay').length && ['', 'mail', 'calendar', 'settings', 'files'].indexOf(page) !== -1
+      && !$('input:focus, textarea:focus, [contenteditable]:focus').length;
+  }
+  function reloadNow() {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+      navigator.serviceWorker.getRegistration().then(function (r) { return r && r.update(); }).catch(function () {}).then(function () { location.reload(); });
+    } else {
+      location.reload();
+    }
+  }
+  M4W.updateNow = reloadNow;
+  M4W.newVersion = function (v) {
+    if (!v || !M4W.version || v === M4W.version || newer === v) return;
+    newer = v;
+    // Never in a loop (a page kept somewhere on the way, served again after the reload).
+    var tried = null;
+    try { tried = JSON.parse(sessionStorage.getItem('m4w.reloadedFor') || 'null'); } catch (e) { /* private browsing */ }
+    var again = tried && tried.v === v && Date.now() - tried.at < 600000;
+    try { sessionStorage.setItem('m4w.reloadedFor', JSON.stringify({ v: v, at: again ? tried.at : Date.now() })); } catch (e) { /* private browsing */ }
+    if (!again && safeToReload()) { reloadNow(); return; }
+    if (M4W.toast) M4W.toast(M4W.t('new_version', { version: v }), 'info', { duration: 600000, action: { label: M4W.t('reload'), fn: reloadNow } });
+    // Or when leaving the page in the background, if it is safe by then.
+    document.addEventListener('visibilitychange', function () { if (document.hidden && safeToReload()) reloadNow(); });
+  };
+  $(document).ajaxComplete(function (e, xhr) {
+    try { M4W.newVersion(xhr && xhr.getResponseHeader && xhr.getResponseHeader('X-M4W-Version')); } catch (err) { /* ignore */ }
+  });
+
   M4W.csrf = function (v) { if (v) { CSRF = v; $('meta[name="csrf-token"]').attr('content', v); $('input[name=_csrf]').val(v); } return CSRF; };
 
   M4W.esc = function (s) {

@@ -1395,7 +1395,8 @@
     $(document).on('keydown', function (e) {
       if (S.prefs.shortcuts === 0) return;
       var $t = $(e.target);
-      if ($t.is('input, textarea, select, [contenteditable=true]') || $t.closest('[contenteditable=true], .modal.show, .m4w-compose').length) {
+      // (A ticked box or a pressed button keeps the shortcuts: only where one types.)
+      if ($t.is('input:not([type=checkbox]):not([type=radio]):not([type=button]), textarea, select, [contenteditable=true]') || $t.closest('[contenteditable=true], .modal.show, .m4w-compose').length) {
         if (e.key === 'Escape' && $t.is('#m4w-search')) $t.trigger('blur');
         return;
       }
@@ -1420,7 +1421,7 @@
         case 'x': if (S.items[S.cursor]) toggleSelect(S.items[S.cursor].id); break;
         case 's': if (ids[0]) toggleStar(ids[0]); break;
         case 'e': bulk('archive', ids); break;
-        case '#': case 'Delete': bulk('delete', ids); break;
+        case '#': case 'Delete': case 'Backspace': e.preventDefault(); bulk('delete', ids); break; // Backspace: the "delete" key of a Mac
         case '!': bulk('spam', ids); break;
         case 'r': if (S.activeId) M4W.Compose.open({ mode: 'reply', id: lastThreadId() }); break;
         case 'a': if (S.activeId) M4W.Compose.open({ mode: 'reply_all', id: lastThreadId() }); break;

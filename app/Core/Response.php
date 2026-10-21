@@ -94,6 +94,8 @@ final class Response
     {
         if (!headers_sent()) {
             header_remove('X-Powered-By');
+            // The version on the server: an open app (often for days on a phone) sees it changed.
+            header('X-M4W-Version: ' . M4W_VERSION);
             http_response_code($this->status);
             foreach ($this->headers as $k => $v) {
                 header($k . ': ' . $v);
