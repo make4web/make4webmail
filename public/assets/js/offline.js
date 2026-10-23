@@ -34,13 +34,29 @@
   function dbName(uid) { return 'm4w-offline-' + uid; }
   function db() {
     if (!dbp) {
-      dbp = new Promise(function (resolve, reject) {
-        var r = indexedDB.open(dbName(USER), 1);
-        r.onupgradeneeded = function () { ['meta', 'data', 'queue'].forEach(function (n) { if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); }); };
-        r.onsuccess = function () { resolve(r.result); };
-        r.onerror = function () { reject(r.error); };
-        r.onblocked = function () { reject(new Error('blocked')); };
-      });
+      var STORES = ['meta', 'data', 'queue'];
+      var open = function (version) {
+        return new Promise(function (resolve, reject) {
+          var r = version ? indexedDB.open(dbName(USER), version) : indexedDB.open(dbName(USER));
+          r.onupgradeneeded = function () { STORES.forEach(function (n) { if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); }); };
+          r.onsuccess = function () {
+            var d = r.result;
+            // A store missing (a database left half made, by an interrupted first opening):
+            // opened again one version higher, which creates it.
+            if (STORES.some(function (n) { return !d.objectStoreNames.contains(n); })) {
+              var next = d.version + 1;
+              d.close();
+              open(next).then(resolve, reject);
+              return;
+            }
+            resolve(d);
+          };
+          r.onerror = function () { reject(r.error); };
+          r.onblocked = function () { reject(new Error('blocked')); };
+        });
+      };
+      // The current version, whatever it is (a repaired database is above 1).
+      dbp = open(0);
     }
     return dbp;
   }
