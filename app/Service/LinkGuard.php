@@ -21,7 +21,8 @@ use M4W\Mail\LinkCheck;
  */
 final class LinkGuard
 {
-    public const URLHAUS_URL = 'https://urlhaus.abuse.ch/downloads/text_online/';
+    /** abuse.ch closed its public download (HTTP 410): the API, with a free Auth-Key. */
+    public const URLHAUS_URL = 'https://urlhaus-api.abuse.ch/v1/urls/recent/';
     private const SB_URL = 'https://safebrowsing.googleapis.com/v4/threatMatches:find';
     private const WR_URL = 'https://webrisk.googleapis.com/v1/uris:search';
 
@@ -259,17 +260,36 @@ final class LinkGuard
         return count(self::feed());
     }
 
+    public static function urlhausKey(): string
+    {
+        return Settings::secret('security.urlhaus_key');
+    }
+
     public static function updateFeed(?string $body = null): int
     {
         if ($body === null) {
+            if (self::urlhausKey() === '') {
+                throw new \RuntimeException(t('admin.links_urlhaus_nokey'));
+            }
             $ch = curl_init(self::URLHAUS_URL);
             $proxy = trim((string) Config::get('outbound_proxy', ''));
-            curl_setopt_array($ch, ($proxy !== '' ? [CURLOPT_PROXY => $proxy] : []) + [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS]);
+            curl_setopt_array($ch, ($proxy !== '' ? [CURLOPT_PROXY => $proxy] : []) + [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_HTTPHEADER => ['Auth-Key: ' . self::urlhausKey()]]);
             $body = curl_exec($ch);
             $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
             if (!is_string($body) || $code !== 200) {
+                // Refused (key wrong or withdrawn, address gone): not tried again for a week.
+                if (in_array($code, [401, 403, 404, 410], true)) {
+                    Settings::set('security.urlhaus_refused', time());
+                }
                 throw new \RuntimeException('download failed (HTTP ' . $code . ')');
+            }
+            Settings::set('security.urlhaus_refused', 0);
+            // The API's answer: the recent addresses, the ones still online kept.
+            $j = json_decode($body, true);
+            if (is_array($j) && isset($j['urls'])) {
+                $body = implode("\n", array_map(static fn($u) => (string) ($u['url'] ?? ''), array_filter((array) $j['urls'], static fn($u) => ($u['url_status'] ?? 'online') === 'online')));
             }
         }
         $set = [];

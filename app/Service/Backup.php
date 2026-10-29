@@ -133,52 +133,96 @@ final class Backup
             'password' => Settings::secret('backup.password'),
             'path' => '/' . trim((string) Settings::get('backup.path', '/'), '/'),
             'verify' => (int) Settings::get('backup.tls_verify', 0) === 1,
+            'retry' => true,
         ];
     }
 
+    /** @var ?callable fn(int $sent, int $total): progress of the upload under way (see run) */
+    private static $progress = null;
+
+    /**
+     * FTP and FTPS through one connection kept for every step (logging in once, as FileZilla
+     * does: servers that limit connections, or ask the data connection to reuse the TLS
+     * session, refused the many short ones). Passive mode (PASV, the server's own address kept
+     * when it answers with an inner one), implicit FTPS on port 990, a transfer that stalls is
+     * cut after two minutes, and what the server said is given with any error.
+     */
     private static function ftp(array $c): array
     {
-        $base = 'ftp://' . $c['host'] . ':' . $c['port'] . rtrim($c['path'], '/') . '/';
-        // QUOTE commands run from the login folder: they take the folder's path.
-        $rel = trim($c['path'], '/');
-        $q = static fn(string $name) => ($rel !== '' ? $rel . '/' : '') . $name;
-        $curl = static function (string $url, array $opts) use ($c): string {
-            $ch = curl_init($url);
+        $implicit = $c['protocol'] === 'ftps' && (int) $c['port'] === 990;
+        $base = ($implicit ? 'ftps://' : 'ftp://') . $c['host'] . ':' . $c['port'] . rtrim($c['path'], '/') . '/';
+        // DELE, RNFR and RNTO are sent once in the backup folder (after the transfer step, which
+        // goes there), whether the connection is new or kept from the previous step.
+        $ch = curl_init();
+        $curl = static function (string $url, array $opts, string $what = '') use ($c, $ch): string {
+            curl_reset($ch);
+            $log = fopen('php://temp', 'w+');
             curl_setopt_array($ch, $opts + [
+                CURLOPT_URL => $url,
                 CURLOPT_USERPWD => $c['user'] . ':' . $c['password'],
                 CURLOPT_PROXY => '', CURLOPT_NOPROXY => '*', // a backup disk is reached directly
-                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15, CURLOPT_TIMEOUT => 0,
+                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 20, CURLOPT_TIMEOUT => 0,
+                CURLOPT_LOW_SPEED_LIMIT => 1, CURLOPT_LOW_SPEED_TIME => 120,
                 CURLOPT_FTP_CREATE_MISSING_DIRS => CURLFTP_CREATE_DIR,
                 CURLOPT_PROTOCOLS => CURLPROTO_FTP | CURLPROTO_FTPS,
+                CURLOPT_FTP_USE_EPSV => false, CURLOPT_FTP_SKIP_PASV_IP => true,
+                CURLOPT_VERBOSE => true, CURLOPT_STDERR => $log,
             ] + ($c['protocol'] === 'ftps' ? [
                 CURLOPT_USE_SSL => CURLUSESSL_ALL, CURLOPT_FTPSSLAUTH => CURLFTPAUTH_TLS,
                 CURLOPT_SSL_VERIFYPEER => $c['verify'], CURLOPT_SSL_VERIFYHOST => $c['verify'] ? 2 : 0,
             ] : []));
             $out = curl_exec($ch);
-            $err = curl_error($ch);
-            curl_close($ch);
             if ($out === false) {
-                throw new \RuntimeException(($c['protocol'] === 'ftps' ? 'FTPS' : 'FTP') . ' : ' . $err);
+                $err = curl_error($ch);
+                rewind($log);
+                // The last words of the server (never the password).
+                $said = array_values(array_filter(array_map('trim', explode("\n", (string) stream_get_contents($log))), static fn($l) => str_starts_with($l, '< ') && !str_contains($l, 'PASS')));
+                fclose($log);
+                throw new \RuntimeException(($what !== '' ? $what . ' — ' : '') . ($c['protocol'] === 'ftps' ? 'FTPS' : 'FTP') . ' : ' . $err
+                    . ($said ? ' · ' . t('backup.server_said') . ' « ' . implode(' / ', array_slice($said, -3)) . ' »' : ''));
             }
+            fclose($log);
             return (string) $out;
         };
-        return [
-            'put' => static function (string $local, string $name) use ($curl, $base): void {
-                $in = fopen($local, 'rb');
+        // A cut connection or a timeout is tried again (a new connection), twice, then given up.
+        $again = static function (callable $fn) use ($c) {
+            for ($i = 0; ; $i++) {
                 try {
-                    $curl($base . rawurlencode($name), [CURLOPT_UPLOAD => true, CURLOPT_INFILE => $in, CURLOPT_INFILESIZE => filesize($local)]);
-                } finally {
-                    fclose($in);
+                    return $fn();
+                } catch (\RuntimeException $e) {
+                    if ($i >= 2 || empty($c['retry']) || preg_match('/\b5[0-9]{2}\b|Login|login|denied|incorrect/', $e->getMessage())) {
+                        throw $e;
+                    }
+                    sleep($i ? 30 : 10);
                 }
+            }
+        };
+        return [
+            'put' => static function (string $local, string $name) use ($curl, $base, $again): void {
+                $again(static function () use ($curl, $base, $local, $name) {
+                    $in = fopen($local, 'rb');
+                    $size = (int) filesize($local);
+                    try {
+                        $curl($base . rawurlencode($name), [CURLOPT_UPLOAD => true, CURLOPT_INFILE => $in, CURLOPT_INFILESIZE => $size,
+                            CURLOPT_NOPROGRESS => self::$progress === null, CURLOPT_XFERINFOFUNCTION => static function ($h, $dt, $d, $ut, $u) use ($size) {
+                                if (self::$progress) {
+                                    (self::$progress)((int) $u, $size);
+                                }
+                                return 0;
+                            }], t('backup.step_upload'));
+                    } finally {
+                        fclose($in);
+                    }
+                });
             },
-            'list' => static fn(): array => array_values(array_filter(array_map(static fn($l) => basename(trim($l)), explode("\n", $curl($base, [CURLOPT_DIRLISTONLY => true]))))),
-            'delete' => static function (string $name) use ($curl, $base, $q): void {
-                $curl($base, [CURLOPT_QUOTE => ['DELE ' . $q($name)], CURLOPT_NOBODY => true]);
+            'list' => static fn(): array => $again(static fn() => array_values(array_filter(array_map(static fn($l) => basename(trim($l)), explode("\n", $curl($base, [CURLOPT_DIRLISTONLY => true], t('backup.step_list'))))))),
+            'delete' => static function (string $name) use ($curl, $base): void {
+                $curl($base, [CURLOPT_POSTQUOTE => ['DELE ' . $name], CURLOPT_NOBODY => true], t('backup.step_delete'));
             },
-            'rename' => static function (string $from, string $to) use ($curl, $base, $q): void {
-                $curl($base, [CURLOPT_QUOTE => ['RNFR ' . $q($from), 'RNTO ' . $q($to)], CURLOPT_NOBODY => true]);
+            'rename' => static function (string $from, string $to) use ($curl, $base, $again): void {
+                $again(static fn() => $curl($base, [CURLOPT_POSTQUOTE => ['RNFR ' . $from, 'RNTO ' . $to], CURLOPT_NOBODY => true], t('backup.step_rename')));
             },
-            'close' => static fn() => null,
+            'close' => static fn() => curl_close($ch),
         ];
     }
 
@@ -242,12 +286,16 @@ final class Backup
     public static function test(?array $cfg = null): string
     {
         try {
-            $r = self::remote($cfg);
+            // The test answers at once: no second try.
+            $r = self::remote(['retry' => false] + ($cfg ?? self::config()));
             $tmp = (string) tempnam(sys_get_temp_dir(), 'm4wt');
             file_put_contents($tmp, 'Make4WebMail backup test ' . date('c'));
-            $name = '.m4w-test-' . bin2hex(random_bytes(4));
-            $r['put']($tmp, $name);
-            @unlink($tmp);
+            $name = 'm4w-test-' . bin2hex(random_bytes(4)) . '.txt';
+            try {
+                $r['put']($tmp, $name);
+            } finally {
+                @unlink($tmp);
+            }
             $found = in_array($name, $r['list'](), true);
             $r['delete']($name);
             $r['close']();
@@ -290,14 +338,28 @@ final class Backup
         $local = Config::storagePath('tmp/' . $name);
         $res = ['status' => 'ok', 'message' => '', 'size' => 0, 'file' => $name];
         try {
+            // Each step said in the list of backups, which the page refreshes while it runs.
+            $step = static fn(string $m) => DB::update('backup_runs', ['message' => mb_substr($m, 0, 500)], 'id = :id', ['id' => $runId]);
             self::checkSpace();
+            $step(t('backup.step_build'));
             $b = new self();
             $entries = $b->build($local, Settings::secret('backup.zip_password') ?: null, $started);
             $res['size'] = (int) filesize($local);
+            DB::update('backup_runs', ['size' => $res['size'], 'entries' => $entries], 'id = :id', ['id' => $runId]);
+            $step(t('backup.step_connect', ['host' => (string) self::config()['host']]));
             $r = self::remote();
+            $said = 0;
+            self::$progress = static function (int $sent, int $total) use ($step, &$said): void {
+                if (time() - $said >= 2 && $total > 0) {
+                    $said = time();
+                    $step(t('backup.step_sending', ['pct' => (int) floor($sent * 100 / $total), 'sent' => format_bytes($sent), 'total' => format_bytes($total)]));
+                }
+            };
             // Sent under a temporary name, renamed once complete: a cut transfer never looks like a backup.
             $r['put']($local, $name . '.part');
+            self::$progress = null;
             $r['rename']($name . '.part', $name);
+            $step(t('backup.step_rotate'));
             $keep = max(1, (int) Settings::get('backup.keep', 7));
             foreach (array_slice(self::remoteList($r), $keep) as $old) {
                 $r['delete']($old);
@@ -306,6 +368,7 @@ final class Backup
             $res['message'] = t('backup.done', ['n' => $entries]);
             DB::update('backup_runs', ['entries' => $entries], 'id = :id', ['id' => $runId]);
         } catch (\Throwable $e) {
+            self::$progress = null;
             $res['status'] = 'failed';
             $res['message'] = mb_substr($e->getMessage(), 0, 500);
             error_log('[m4w] backup: ' . $e->getMessage());
@@ -591,6 +654,22 @@ final class Backup
     }
 
     /** Last runs for the administration. */
+    /** For the page while a backup runs: the latest runs, and whether one was asked for. */
+    public static function status(): array
+    {
+        $runs = [];
+        foreach (self::history(10) as $h) {
+            $d = (int) ($h['finished_at'] ?: time()) - (int) $h['started_at'];
+            $runs[] = [
+                'id' => (int) $h['id'], 'status' => (string) $h['status'], 'status_label' => t('backup.s_' . $h['status']),
+                'date' => format_datetime((int) $h['started_at']), 'origin' => t('backup.o_' . $h['origin']), 'file' => (string) $h['file'],
+                'size' => $h['size'] ? format_bytes((int) $h['size']) : '—', 'message' => (string) $h['message'],
+                'duration' => gmdate($d >= 3600 ? 'G\h i\m\i\n' : 'i\m\i\n s\s', max(0, $d)), 'running' => $h['status'] === 'running',
+            ];
+        }
+        return ['runs' => $runs, 'requested' => (int) Settings::get('backup.requested', 0) === 1];
+    }
+
     public static function history(int $limit = 10): array
     {
         return DB::all('SELECT * FROM backup_runs ORDER BY id DESC LIMIT ' . max(1, $limit));

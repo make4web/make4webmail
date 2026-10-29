@@ -94,7 +94,7 @@ $bkDays = (string) S::get('backup.days', '1234567');
         </div>
         <input class="form-control m4w-code" name="path" value="<?= e((string) S::get('backup.path')) ?>" aria-label="<?= te('backup.path') ?>" placeholder="/make4webmail">
         <div class="form-check"><input class="form-check-input" type="checkbox" name="tls_verify" value="1" id="bk-tls" <?= $bk['verify'] ? 'checked' : '' ?>><label class="form-check-label small" for="bk-tls"><?= te('backup.tls_verify') ?></label></div>
-        <div><button type="button" class="btn btn-light btn-sm" data-remote-action="<?= e(url('admin/files/backup/test')) ?>"><i class="bi bi-plug me-1"></i><?= te('backup.test') ?></button> <span class="small" data-remote-result role="status"></span></div>
+        <div><button type="button" class="btn btn-light btn-sm" data-remote-form data-remote-action="<?= e(url('admin/files/backup/test')) ?>"><i class="bi bi-plug me-1"></i><?= te('backup.test') ?></button> <span class="small" data-remote-result role="status"></span></div>
       </div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('backup.schedule') ?><small><?= te('backup.schedule_hint') ?></small></div>
       <div class="d-flex flex-column gap-2">
@@ -118,22 +118,25 @@ $bkDays = (string) S::get('backup.days', '1234567');
     <button class="btn btn-light" name="now" value="1"><i class="bi bi-cloud-arrow-up me-1"></i><?= te('backup.now') ?></button>
   </div>
 </form>
-<?php if ($bkHist): ?>
-<div class="table-responsive mb-4"><table class="table table-sm align-middle m4w-table">
-  <thead><tr><th><?= te('backup.h_date') ?></th><th><?= te('backup.h_status') ?></th><th class="d-none d-md-table-cell"><?= te('backup.h_file') ?></th><th class="text-end"><?= te('backup.h_size') ?></th><th class="d-none d-lg-table-cell"><?= te('backup.h_duration') ?></th></tr></thead>
-  <tbody>
-  <?php foreach ($bkHist as $h): ?>
-    <tr>
-      <td class="small text-nowrap"><?= e(format_datetime((int) $h['started_at'])) ?> <span class="text-muted">· <?= te('backup.o_' . $h['origin']) ?></span></td>
-      <td><span class="badge <?= ['ok' => 'badge-soft-success', 'failed' => 'badge-soft-danger', 'running' => 'badge-soft-warning'][$h['status']] ?? 'badge-soft-secondary' ?>"><?= te('backup.s_' . $h['status']) ?></span><?php if ($h['status'] === 'failed'): ?><div class="small text-danger mt-1"><?= e($h['message']) ?></div><?php endif; ?></td>
-      <td class="small m4w-code d-none d-md-table-cell"><?= e($h['file']) ?></td>
-      <td class="small text-end text-nowrap"><?= $h['size'] ? e(format_bytes((int) $h['size'])) : '—' ?></td>
-      <td class="small d-none d-lg-table-cell"><?= $h['finished_at'] ? e(gmdate((int) $h['finished_at'] - (int) $h['started_at'] >= 3600 ? 'G\h i\m\i\n' : 'i\m\i\n s\s', (int) $h['finished_at'] - (int) $h['started_at'])) : '…' ?></td>
-    </tr>
-  <?php endforeach; ?>
-  </tbody>
-</table></div>
-<?php endif; ?>
+<?php $bkStatus = M4W\Service\Backup::status(); $bkActive = $bkStatus['requested'] || array_filter($bkStatus['runs'], static fn($x) => $x['running']); ?>
+<div class="mb-4" data-backup-list="admin/files/backup/status" data-active="<?= $bkActive ? 1 : 0 ?>">
+  <div class="alert alert-info small py-2<?= $bkStatus['requested'] ? '' : ' d-none' ?>" data-backup-waiting><span class="spinner-border spinner-border-sm me-2"></span><?= te('backup.waiting') ?></div>
+  <div class="table-responsive<?= $bkStatus['runs'] ? '' : ' d-none' ?>"><table class="table table-sm align-middle m4w-table">
+    <thead><tr><th><?= te('backup.h_date') ?></th><th><?= te('backup.h_status') ?></th><th class="d-none d-md-table-cell"><?= te('backup.h_file') ?></th><th class="text-end"><?= te('backup.h_size') ?></th><th class="d-none d-lg-table-cell"><?= te('backup.h_duration') ?></th></tr></thead>
+    <tbody data-backup-rows>
+    <?php foreach ($bkStatus['runs'] as $h): ?>
+      <tr>
+        <td class="small text-nowrap"><?= e($h['date']) ?> <span class="text-muted">· <?= e($h['origin']) ?></span></td>
+        <td><span class="badge <?= ['ok' => 'badge-soft-success', 'failed' => 'badge-soft-danger', 'running' => 'badge-soft-warning'][$h['status']] ?? 'badge-soft-secondary' ?>"><?php if ($h['running']): ?><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span><?php endif; ?><?= e($h['status_label']) ?></span>
+          <?php if ($h['message'] !== ''): ?><div class="small mt-1 <?= $h['status'] === 'failed' ? 'text-danger' : 'text-muted' ?> text-break"><?= e($h['message']) ?></div><?php endif; ?></td>
+        <td class="small m4w-code d-none d-md-table-cell"><?= e($h['file']) ?></td>
+        <td class="small text-end text-nowrap"><?= e($h['size']) ?></td>
+        <td class="small d-none d-lg-table-cell"><?= e($h['duration']) ?></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table></div>
+</div>
 
 <h2 class="h5 mt-5 mb-1" id="archive"><?= te('admin.files_archive') ?></h2>
 <p class="small text-muted mb-3"><?= te('admin.files_archive_desc') ?></p>

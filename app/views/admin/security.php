@@ -122,6 +122,11 @@ ls -l /var/run/clamav/</pre></details>
       </div></div>
     <?php $uu = (int) S::get('security.urlhaus_updated', 0); ?>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.links_urlhaus') ?><small><?= $uu ? te('admin.links_urlhaus_state', ['n' => number_format(M4W\Service\LinkGuard::feedSize(), 0, ',', ' '), 'date' => format_datetime($uu, false)]) : te('admin.links_urlhaus_never') ?></small></div><div class="d-flex align-items-center gap-3"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="urlhaus" value="1" aria-label="<?= te('admin.links_urlhaus') ?>" <?= S::get('security.urlhaus') ? 'checked' : '' ?>></div><button class="btn btn-light btn-sm" name="urlhaus_update" value="1"><i class="bi bi-arrow-repeat me-1"></i><?= te('admin.disp_update_now') ?></button></div></div>
+    <div class="m4w-setting-row"><div class="label"><label for="sec-uhk"><?= te('admin.links_urlhaus_key') ?></label><small><?= te('admin.links_urlhaus_key_desc') ?></small></div><div style="max-width:420px">
+      <input class="form-control m4w-code" type="password" id="sec-uhk" name="urlhaus_key" autocomplete="off" placeholder="<?= M4W\Service\LinkGuard::urlhausKey() !== '' ? te('admin.links_sb_key_set') : 'Auth-Key' ?>">
+      <?php if (M4W\Service\LinkGuard::urlhausKey() !== ''): ?><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="urlhaus_key_clear" value="1" id="sec-uhk-c"><label class="form-check-label small" for="sec-uhk-c"><?= te('admin.links_sb_clear') ?></label></div><?php endif; ?>
+      <?php if ((int) S::get('security.urlhaus_refused', 0) > time() - 7 * 86400): ?><div class="small text-warning mt-1"><?= te('admin.links_urlhaus_refused') ?></div><?php endif; ?>
+    </div></div>
     <div class="m4w-setting-row"><div class="label"><?= te('admin.links_block') ?><small><?= te('admin.links_block_desc') ?></small></div><div><textarea class="form-control m4w-code m4w-code-short" style="min-width:min(380px,70vw)" rows="3" name="link_block" aria-label="<?= te('admin.links_block') ?>"><?= e(S::get('security.link_block')) ?></textarea></div></div>
   </div>
   <div class="m4w-section" id="disposable">
