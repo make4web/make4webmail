@@ -154,7 +154,12 @@ final class Backup
         // DELE, RNFR and RNTO are sent once in the backup folder (after the transfer step, which
         // goes there), whether the connection is new or kept from the previous step.
         $ch = curl_init();
-        $curl = static function (string $url, array $opts, string $what = '') use ($c, $ch): string {
+        // Passive mode: the address the server gives for the transfers is used, except a private
+        // one (a server behind a router): its own address then. Some servers give another
+        // machine on purpose (Online.net dedibackup): what worked is kept for next time.
+        $pasvKey = 'backup.pasv_ip.' . md5($c['host']);
+        $skipIp = (string) Settings::get($pasvKey, '') === 'control';
+        $curl = static function (string $url, array $opts, string $what = '', bool $retried = false) use ($c, $ch, $pasvKey, &$skipIp, &$curl): string {
             curl_reset($ch);
             $log = fopen('php://temp', 'w+');
             curl_setopt_array($ch, $opts + [
@@ -165,13 +170,31 @@ final class Backup
                 CURLOPT_LOW_SPEED_LIMIT => 1, CURLOPT_LOW_SPEED_TIME => 120,
                 CURLOPT_FTP_CREATE_MISSING_DIRS => CURLFTP_CREATE_DIR,
                 CURLOPT_PROTOCOLS => CURLPROTO_FTP | CURLPROTO_FTPS,
-                CURLOPT_FTP_USE_EPSV => false, CURLOPT_FTP_SKIP_PASV_IP => true,
+                CURLOPT_FTP_USE_EPSV => false, CURLOPT_FTP_SKIP_PASV_IP => $skipIp,
                 CURLOPT_VERBOSE => true, CURLOPT_STDERR => $log,
             ] + ($c['protocol'] === 'ftps' ? [
                 CURLOPT_USE_SSL => CURLUSESSL_ALL, CURLOPT_FTPSSLAUTH => CURLFTPAUTH_TLS,
                 CURLOPT_SSL_VERIFYPEER => $c['verify'], CURLOPT_SSL_VERIFYHOST => $c['verify'] ? 2 : 0,
             ] : []));
+            if (isset($opts[CURLOPT_INFILE])) {
+                rewind($opts[CURLOPT_INFILE]);
+            }
             $out = curl_exec($ch);
+            if ($out === false && !$retried && in_array(curl_errno($ch), [7, 28, 30], true)) {
+                rewind($log);
+                $dialog = (string) stream_get_contents($log);
+                // Logged in, then the transfer could not be reached: the other passive address.
+                if (preg_match('/227 Entering Passive Mode \((\d+),(\d+),(\d+),(\d+),/i', $dialog, $m)) {
+                    $private = !filter_var("$m[1].$m[2].$m[3].$m[4]", FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+                    if (!$skipIp || !$private) {
+                        $skipIp = !$skipIp;
+                        fclose($log);
+                        $res = $curl($url, $opts, $what, true);
+                        Settings::set($pasvKey, $skipIp ? 'control' : 'reply');
+                        return $res;
+                    }
+                }
+            }
             if ($out === false) {
                 $err = curl_error($ch);
                 rewind($log);
