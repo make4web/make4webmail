@@ -2777,4 +2777,9 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'admin.links_urlhaus_key_desc' => 'abuse.ch a fermé le téléchargement public d\'URLhaus : la liste n\'est plus fournie qu\'avec une clé gratuite, à créer sur auth.abuse.ch. Sans clé, URLhaus n\'est pas consulté, et les autres protections des liens continuent.',
     'admin.links_urlhaus_nokey' => 'Aucune clé abuse.ch : la liste URLhaus n\'est plus publique (ajoutez une Auth-Key dans Sécurité).',
     'admin.links_urlhaus_refused' => 'abuse.ch a refusé la dernière demande (clé incorrecte ou retirée) : nouvel essai dans une semaine, ou dès qu\'une clé est enregistrée.',
+    'js.toobig_paste' => 'Une fois le fichier déposé sur le service, collez ici le lien obtenu :',
+    'js.toobig_add' => 'Ajouter au message',
+    'js.toobig_bad_link' => 'Collez un lien complet commençant par https://',
+    'js.toobig_link_label' => 'Télécharger le fichier',
+    'js.toobig_added' => 'Lien de téléchargement ajouté au message.',
 ];

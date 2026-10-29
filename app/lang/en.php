@@ -2704,4 +2704,9 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'admin.links_urlhaus_key_desc' => 'abuse.ch closed URLhaus\' public download: the list is only given with a free key, made on auth.abuse.ch. Without a key URLhaus is not used; the other link protections go on.',
     'admin.links_urlhaus_nokey' => 'No abuse.ch key: the URLhaus list is no longer public (add an Auth-Key in Security).',
     'admin.links_urlhaus_refused' => 'abuse.ch refused the last request (key wrong or withdrawn): tried again in a week, or as soon as a key is saved.',
+    'js.toobig_paste' => 'Once the file is on the service, paste the link it gave here:',
+    'js.toobig_add' => 'Add to the message',
+    'js.toobig_bad_link' => 'Paste a full link starting with https://',
+    'js.toobig_link_label' => 'Download the file',
+    'js.toobig_added' => 'Download link added to the message.',
 ];

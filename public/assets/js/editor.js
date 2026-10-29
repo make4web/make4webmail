@@ -130,6 +130,14 @@
     if (atStart) ed.editor.scrollTop = 0;
     return this;
   };
+  /** A block added to the text, before the signature and the quoted message (or at the end). */
+  Editor.prototype.insertBlock = function (html) {
+    var $b = $(this.ed.editor), $before = $b.children('[data-m4w-sig-preview], [data-m4w-quote], .m4w-signature').first();
+    if ($before.length) $before.before(html); else $b.append(html);
+    if (this.ed.synchronizeValues) this.ed.synchronizeValues();
+    if (this.ed.e) this.ed.e.fire('change');
+    return this;
+  };
   /** jQuery-wrapped editable element (for inserting display-only blocks). */
   Editor.prototype.body = function () { return $(this.ed.editor); };
   Editor.prototype.exec = function (cmd) {
