@@ -134,6 +134,9 @@ final class DeliveryReports
             $anyFailed = $anyFailed || $state === 'failed';
             $detail = trim(implode(' · ', array_filter([$code, $diag, $remote !== '' ? $remote : null])));
             self::set($userId, $msgid, self::xtextDecode($r[1]), $state, $detail, true);
+            if ($state === 'failed' && HardBounces::isHard('550 ' . $code . ' ' . $diag)) {
+                HardBounces::record(self::xtextDecode($r[1]), trim($code . ' ' . $diag), 'dsn');
+            }
         }
         if (!$seen) {
             return null;

@@ -510,6 +510,8 @@ final class App
         $r->get('/admin/logs', [Controller\AdminController::class, 'logs'], $admin);
         $r->post('/admin/queue/retry', [Controller\AdminController::class, 'retryQueue'], $admin);
         $r->post('/admin/queue/delete', [Controller\AdminController::class, 'deleteQueue'], $admin);
+        $r->post('/admin/bounces/remove', [Controller\AdminController::class, 'removeBounce'], $admin);
+        $r->post('/admin/bounces/add', [Controller\AdminController::class, 'addBounce'], $admin);
     }
 
     /**

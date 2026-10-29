@@ -1,14 +1,31 @@
 <div class="m4w-page-header"><div><h1><?= te('admin.logs_title') ?></h1><p><?= te('admin.logs_desc') ?></p></div></div>
 <ul class="nav nav-tabs mb-3">
-  <?php foreach (['mail' => 'admin.logs_mail', 'queue' => 'admin.logs_queue', 'audit' => 'admin.logs_audit'] as $k => $l): ?>
+  <?php foreach (['mail' => 'admin.logs_mail', 'queue' => 'admin.logs_queue', 'bounces' => 'bounce.tab', 'audit' => 'admin.logs_audit'] as $k => $l): ?>
   <li class="nav-item"><a class="nav-link <?= $tab === $k ? 'active' : '' ?>" href="<?= e(url('admin/logs', ['tab' => $k])) ?>"><?= te($l) ?><?= $k === 'queue' && ($n = count(array_filter($queue, static fn($q) => $q['status'] !== 'sent'))) ? ' <span class="badge badge-soft-warning">' . $n . '</span>' : '' ?></a></li>
   <?php endforeach; ?>
 </ul>
 <?php if ($tab !== 'queue'): ?>
 <form class="m4w-filterbar" method="get"><input type="hidden" name="tab" value="<?= e($tab) ?>"><div class="position-relative flex-grow-1" style="max-width:380px"><i class="bi bi-search position-absolute text-muted" style="left:.8rem;top:50%;transform:translateY(-50%)"></i><input class="form-control ps-5" name="q" value="<?= e($q) ?>" placeholder="<?= te('admin.logs_search') ?>"></div></form>
 <?php endif; ?>
+<?php if ($tab === 'bounces'): ?>
+<p class="small text-muted"><?= te('bounce.desc') ?></p>
+<form class="d-flex flex-wrap gap-2 mb-3" method="post" action="<?= e(url('admin/bounces/add')) ?>"><?= csrf_field() ?>
+  <input class="form-control" style="max-width:280px" type="email" name="email" required placeholder="adresse@exemple.fr" aria-label="<?= te('mail.to') ?>">
+  <input class="form-control" style="max-width:320px" name="note" maxlength="200" placeholder="<?= te('bounce.note') ?>" aria-label="<?= te('bounce.note') ?>">
+  <button class="btn btn-light"><i class="bi bi-plus-lg me-1"></i><?= te('bounce.add') ?></button>
+</form>
+<?php endif; ?>
 <div class="m4w-table-card"><div class="table-responsive">
-<?php if ($tab === 'mail'): ?>
+<?php if ($tab === 'bounces'): ?>
+  <table class="table table-hover small"><thead><tr><th><?= te('mail.to') ?></th><th><?= te('bounce.reason') ?></th><th><?= te('bounce.first') ?></th><th><?= te('bounce.last') ?></th><th></th></tr></thead><tbody>
+  <?php foreach ($bounces as $bo): ?>
+    <tr><td class="m4w-code text-break"><?= e($bo['email']) ?></td><td class="text-break text-muted"><?= e($bo['reason']) ?> <span class="badge badge-soft"><?= e($bo['source']) ?></span></td>
+      <td class="text-nowrap"><?= e(format_datetime((int) $bo['first_at'])) ?></td><td class="text-nowrap"><?= e(format_datetime((int) $bo['last_at'])) ?><?= (int) $bo['hits'] > 1 ? ' · ×' . (int) $bo['hits'] : '' ?></td>
+      <td class="text-end"><form method="post" action="<?= e(url('admin/bounces/remove')) ?>" data-confirm="<?= te('bounce.remove_confirm', ['email' => $bo['email']]) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $bo['id'] ?>"><button class="btn btn-ghost btn-sm text-danger"><?= te('bounce.remove') ?></button></form></td></tr>
+  <?php endforeach; ?>
+  <?php if (!$bounces): ?><tr><td colspan="5" class="text-center text-muted py-4"><?= te('common.none') ?></td></tr><?php endif; ?>
+  </tbody></table>
+<?php elseif ($tab === 'mail'): ?>
   <table class="table table-hover small"><thead><tr><th><?= te('mail.date') ?></th><th></th><th><?= te('mail.from') ?></th><th><?= te('mail.to') ?></th><th><?= te('mail.subject') ?></th><th><?= te('mail.size') ?></th><th><?= te('admin.status') ?></th></tr></thead><tbody>
   <?php foreach ($mail as $l): ?>
     <tr><td class="text-nowrap text-muted"><?= e(format_datetime((int) $l['created_at'])) ?></td>

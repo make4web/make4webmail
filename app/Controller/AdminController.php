@@ -1285,7 +1285,21 @@ final class AdminController extends Controller
         $mail = DB::all('SELECT * FROM mail_log' . ($q !== '' ? ' WHERE LOWER(sender) LIKE :q OR LOWER(recipients) LIKE :q OR LOWER(subject) LIKE :q' : '') . ' ORDER BY id DESC LIMIT 200', $p);
         $audit = DB::all('SELECT a.*, u.email FROM audit_log a LEFT JOIN users u ON u.id = a.user_id' . ($q !== '' ? ' WHERE LOWER(a.action) LIKE :q OR LOWER(a.target) LIKE :q OR LOWER(u.email) LIKE :q OR a.ip LIKE :q' : '') . ' ORDER BY a.id DESC LIMIT 200', $p);
         $queue = DB::all('SELECT * FROM mail_queue ORDER BY id DESC LIMIT 200');
-        return $this->page('logs', compact('tab', 'mail', 'audit', 'queue', 'q'));
+        $bounces = \M4W\Service\HardBounces::all($tab === 'bounces' ? $q : '');
+        return $this->page('logs', compact('tab', 'mail', 'audit', 'queue', 'q', 'bounces'));
+    }
+
+    /** An address refused for good that exists again: it may be written to again. */
+    public function removeBounce(): Response
+    {
+        $email = \M4W\Service\HardBounces::remove($this->req->int('id'));
+        return $this->back('/admin/logs?tab=bounces', 'success', $email ? t('bounce.removed', ['email' => $email]) : t('settings.saved'));
+    }
+
+    public function addBounce(): Response
+    {
+        $ok = \M4W\Service\HardBounces::addByHand($this->req->str('email'), $this->req->str('note'));
+        return $this->back('/admin/logs?tab=bounces', $ok ? 'success' : 'danger', $ok ? t('settings.saved') : t('compose.invalid_recipient', ['email' => $this->req->str('email')]));
     }
 
     public function retryQueue(): Response
