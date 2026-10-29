@@ -2792,6 +2792,34 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     eq((int) DB::value('SELECT COUNT(*) FROM provider_copies'), 0);
 });
 
+test('hard bounces: an address that does not exist is never written to again, until an administrator removes it', function () use ($paul) {
+    $H = M4W\Service\HardBounces::class;
+    foreach (['SMTP 550 5.1.1 <a@x.fr>: Recipient address rejected: User unknown', '550 No such user here', 'SMTP 554 5.1.2 domain does not exist', '550 5.1.10 RESOLVER.ADR.RecipientNotFound'] as $a) {
+        ok($H::isHard($a), $a);
+    }
+    foreach (['SMTP 550 5.7.1 Message rejected as spam', '552 5.2.2 Mailbox full', '450 4.1.1 user unknown (try later)', 'SMTP 550 5.7.26 DMARC', 'Aucun serveur MX pour x.fr', '421 4.7.0 try again later'] as $a) {
+        ok(!$H::isHard($a), $a);
+    }
+    $H::fromFailures(['gone@ext.example' => 'SMTP 550 5.1.1 user unknown', 'spam@ext.example' => 'SMTP 550 5.7.1 spam']);
+    eq(array_keys($H::among(['GONE@ext.example', 'spam@ext.example', 'other@ext.example'])), ['gone@ext.example'], 'only the address that does not exist');
+    // Never tried again: refused at once, before any connection.
+    $res = M4W\Service\Transport::send("From: paul@test.local\r\nTo: gone@ext.example\r\nSubject: x\r\n\r\nx\r\n", 'paul@test.local', ['gone@ext.example'], null, false);
+    ok($res['sent'] === [] && str_contains($res['failed']['gone@ext.example'] ?? '', 'gone@ext.example'), json_encode($res));
+    try {
+        M4W\Service\Composer::send($paul, ['to' => 'Gone <gone@ext.example>', 'subject' => 'x', 'html' => '<p>x</p>']);
+        ok(false, 'sent');
+    } catch (InvalidArgumentException $e) {
+        ok(str_contains($e->getMessage(), 'gone@ext.example'), 'the person writing is told at once');
+    }
+    // A non-delivery report saying so is remembered too; twice: counted, kept once.
+    $H::record('gone@ext.example', '5.1.1 again', 'dsn');
+    eq([(int) DB::value("SELECT COUNT(*) FROM hard_bounces WHERE email = 'gone@ext.example'"), (int) DB::value("SELECT hits FROM hard_bounces WHERE email = 'gone@ext.example'")], [1, 2]);
+    // Removed by an administrator: written to again.
+    $H::remove((int) DB::value("SELECT id FROM hard_bounces WHERE email = 'gone@ext.example'"));
+    eq($H::among(['gone@ext.example']), [], 'removed');
+    ok($H::addByHand('closed@ext.example', '') && !$H::addByHand('not an address', ''), 'added by hand, checked');
+    DB::delete('hard_bounces', '1 = 1');
+});
 test('delivery reports: asked when sending, delivered / delayed / refused shown with the message sent', function () use ($paul, $wmSmtp) {
     Settings::set('mail.mode', 'server');
     $uid = (int) $paul['id'];

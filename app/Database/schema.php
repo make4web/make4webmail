@@ -1093,4 +1093,17 @@ static function (): void {
 // phone locked often cannot keep an ordinary session from going idle).
 "ALTER TABLE user_sessions ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0",
 ],
+46 => [
+// Addresses that do not exist (hard bounces): never written to again, until an administrator
+// removes them (see HardBounces).
+"CREATE TABLE hard_bounces (
+  id {PK},
+  email VARCHAR(190) NOT NULL UNIQUE,
+  reason VARCHAR(500) NOT NULL DEFAULT '',
+  source VARCHAR(20) NOT NULL DEFAULT 'smtp',
+  first_at INTEGER NOT NULL DEFAULT 0,
+  last_at INTEGER NOT NULL DEFAULT 0,
+  hits INTEGER NOT NULL DEFAULT 1
+) {OPT}",
+],
 ];

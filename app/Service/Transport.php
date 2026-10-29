@@ -40,7 +40,12 @@ final class Transport
         }
         $local = [];
         $remote = [];
+        // Addresses known not to exist: never tried again (refused here, for each one).
+        $gone = HardBounces::among($recipients);
         foreach (array_unique($recipients) as $r) {
+            if (isset($gone[mb_strtolower($r)])) {
+                continue;
+            }
             if ($collector) {
                 // Mailboxes only exist here: colleagues are served at once, without using the
                 // provider's hourly quota. Other addresses of the domain stay at the provider.
@@ -56,6 +61,11 @@ final class Transport
         }
         $sent = [];
         $failed = [];
+        foreach (array_unique($recipients) as $r) {
+            if (isset($gone[mb_strtolower($r)])) {
+                $failed[$r] = t('bounce.refused', ['email' => $r, 'date' => format_datetime((int) $gone[mb_strtolower($r)]['first_at'], false)]);
+            }
+        }
         $deferred = [];
         $retryAt = 0;
         $localSent = [];
@@ -79,6 +89,12 @@ final class Transport
             };
             $sent = array_merge($sent, $r['sent']);
             $failed += $r['failed'];
+            // The address does not exist: remembered (the refusals given above are not new).
+            try {
+                HardBounces::fromFailures($r['failed']);
+            } catch (\Throwable $e) {
+                error_log('[m4w] hard bounces: ' . $e->getMessage());
+            }
             $deferred = $r['deferred'] ?? [];
             $retryAt = (int) ($r['retry_at'] ?? 0);
             $heldNote = (string) ($r['note'] ?? Collector::HELD);

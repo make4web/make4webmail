@@ -61,6 +61,9 @@ final class Composer
             if (count($b->envelopeRecipients()) > 500) {
                 throw new \InvalidArgumentException(t('compose.too_many'));
             }
+            if ($gone = HardBounces::among($b->envelopeRecipients())) {
+                throw new \InvalidArgumentException(t('bounce.compose', ['emails' => implode(', ', array_keys($gone))]));
+            }
         }
 
         // Threading.
