@@ -136,7 +136,10 @@ if ($hourly) {
         $job('disposable domains', static fn() => M4W\Service\Senders::update());
     }
     $job('link guard gc', static fn() => M4W\Service\LinkGuard::gc());
-    if ((int) Settings::get('security.urlhaus', 1) && (int) Settings::get('security.urlhaus_updated', 0) < $now - 86400
+    // Only with an abuse.ch key (its public download is closed); refused: once a week at most.
+    if ((int) Settings::get('security.urlhaus', 1) && M4W\Service\LinkGuard::urlhausKey() !== ''
+        && (int) Settings::get('security.urlhaus_refused', 0) < $now - 7 * 86400
+        && (int) Settings::get('security.urlhaus_updated', 0) < $now - 86400
         && (int) Settings::get('security.urlhaus_tried', 0) < $now - 6 * 3600) {
         Settings::set('security.urlhaus_tried', $now);
         $job('URLhaus feed', static fn() => M4W\Service\LinkGuard::updateFeed());

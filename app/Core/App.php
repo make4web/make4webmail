@@ -391,6 +391,7 @@ final class App
         $r->post('/admin/files/office-test', [Controller\AdminController::class, 'officeTest'], $super);
         $r->post('/admin/files/backup', [Controller\AdminController::class, 'saveBackup'], $super);
         $r->post('/admin/files/backup/test', [Controller\AdminController::class, 'testBackup'], $super);
+        $r->get('/admin/files/backup/status', [Controller\AdminController::class, 'backupStatus'], $super);
         $r->get('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $super);
         $r->post('/admin/files/archive/{id}', [Controller\AdminController::class, 'archivedFile'], $super);
 

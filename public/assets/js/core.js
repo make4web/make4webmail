@@ -209,10 +209,29 @@
       + '<div class="modal-header"><h2 class="modal-title fs-5" id="m4w-toobig-title"><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>' + M4W.esc(M4W.t('toobig_title')) + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + M4W.esc(M4W.t('close')) + '"></button></div>'
       + '<div class="modal-body"><p>' + M4W.esc(what) + '</p><p class="small text-muted">' + M4W.esc(M4W.t('toobig_how')) + '</p>'
       + (list ? '<div class="d-grid gap-2 m4w-transfer-list">' + list + '</div>' : '')
+      // Back from the service with its link: pasted here, added to the message being written.
+      + (list && M4W.Compose && M4W.Compose.current() ? '<label class="form-label small mt-3 mb-1" for="m4w-toobig-link">' + M4W.esc(M4W.t('toobig_paste')) + '</label>'
+        + '<div class="input-group"><input class="form-control" type="url" id="m4w-toobig-link" placeholder="https://…" inputmode="url"><button class="btn btn-primary" type="button" data-toobig-add>' + M4W.esc(M4W.t('toobig_add')) + '</button></div>'
+        + '<div class="small text-danger mt-1 d-none" data-toobig-bad>' + M4W.esc(M4W.t('toobig_bad_link')) + '</div>' : '')
       + (info.file_id ? '<a class="btn btn-soft w-100 mt-3" href="' + M4W.esc(M4W.url('files/file/' + info.file_id)) + '"><i class="bi bi-download me-2"></i>' + M4W.esc(M4W.t('toobig_download')) + '</a>' : '')
       + '<p class="small text-muted mt-3 mb-0"><i class="bi bi-shield-lock me-1"></i>' + M4W.esc(M4W.t('toobig_internal')) + '</p></div>'
       + '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">' + M4W.esc(M4W.t('close')) + '</button></div>'
       + '</div></div></div>').appendTo(document.body).on('hidden.bs.modal', function () { $m.remove(); });
+    var add = function () {
+      var url = String($m.find('#m4w-toobig-link').val() || '').trim(), host = '';
+      try { var u = new URL(url); host = u.protocol === 'https:' ? u.hostname.replace(/^www\./, '') : ''; } catch (e) { host = ''; }
+      $m.find('[data-toobig-bad]').toggleClass('d-none', !!host);
+      var c = M4W.Compose.current();
+      if (!host || !c || !c.editor) return;
+      // The service it comes from, by its address (else its domain).
+      var via = services.filter(function (s) { try { return new URL(s.url).hostname.replace(/^www\./, '').split('.').slice(-2).join('.') === host.split('.').slice(-2).join('.'); } catch (e) { return false; } })[0];
+      c.editor.insertBlock('<p>&#128206; ' + (info.name ? '<strong>' + M4W.esc(info.name) + '</strong>' + (info.size ? ' (' + M4W.esc(M4W.bytes(info.size)) + ')' : '') + ' — ' : '')
+        + '<a href="' + M4W.esc(url) + '">' + M4W.esc(M4W.t('toobig_link_label')) + '</a> <span style="color:#6b7280">(' + M4W.esc(via ? via.name : host) + ')</span></p>');
+      if (c.touch) c.touch();
+      bootstrap.Modal.getOrCreateInstance($m[0]).hide();
+      M4W.toast(M4W.t('toobig_added'), 'success');
+    };
+    $m.on('click', '[data-toobig-add]', add).on('keydown', '#m4w-toobig-link', function (e) { if (e.key === 'Enter') { e.preventDefault(); add(); } });
     bootstrap.Modal.getOrCreateInstance($m[0]).show();
   };
   M4W.post = function (p, d, o) { return M4W.api('POST', p, d, o); };

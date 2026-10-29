@@ -985,10 +985,33 @@ final class AdminController extends Controller
         return $this->back('/admin/files#backup', 'success', t('settings.saved'));
     }
 
+    /** The list of backups, refreshed by the page while one runs or waits (AJAX). */
+    public function backupStatus(): Response
+    {
+        \M4W\Core\Session::close();
+        return $this->ok(\M4W\Service\Backup::status());
+    }
+
     /** Backup server reachable and writable (AJAX, saved settings). */
     public function testBackup(): Response
     {
-        $e = \M4W\Service\Backup::test();
+        // What is in the form (saved or not): the password typed, else the one kept.
+        $r = $this->req;
+        $cfg = null;
+        if ($r->str('host') !== '' || $r->str('protocol') === 'local') {
+            $protocol = in_array($r->str('protocol'), \M4W\Service\Backup::PROTOCOLS, true) ? $r->str('protocol') : 'sftp';
+            $host = trim($r->str('host'));
+            $path = '/' . trim(str_replace('\\', '/', $r->str('path')), '/');
+            if (($host !== '' && !preg_match('/^[a-z0-9.\-]+$/i', $host)) || preg_match('/[\x00-\x1f]|\.\./', $path)
+                || ($protocol === 'local' && \M4W\Service\Backup::unsafeLocalPath($path))) {
+                return $this->fail(t('backup.invalid'));
+            }
+            $cfg = ['protocol' => $protocol, 'host' => mb_strtolower($host), 'port' => $r->int('port') ?: ($protocol === 'sftp' ? 22 : 21),
+                'user' => $r->str('user'), 'password' => $r->raw('password') !== '' ? $r->raw('password') : Settings::secret('backup.password'),
+                'path' => $path, 'verify' => $r->bool('tls_verify')];
+        }
+        \M4W\Core\Session::close();
+        $e = \M4W\Service\Backup::test($cfg);
         return $e === '' ? $this->ok(['message' => t('backup.test_ok')]) : $this->fail($e);
     }
 
@@ -1241,6 +1264,13 @@ final class AdminController extends Controller
             \M4W\Service\LinkGuard::setApiKey($key);
         } elseif ($r->bool('safebrowsing_clear')) {
             \M4W\Service\LinkGuard::setApiKey('');
+        }
+        $uk = trim($r->str('urlhaus_key'));
+        if ($uk !== '' && preg_match('/^[A-Za-z0-9_\-]{16,128}$/', $uk)) {
+            Settings::setSecret('security.urlhaus_key', $uk);
+            Settings::setMany(['security.urlhaus_refused' => 0, 'security.urlhaus_tried' => 0]);
+        } elseif ($r->bool('urlhaus_key_clear')) {
+            Settings::set('security.urlhaus_key', '');
         }
         if ($r->bool('urlhaus_update')) {
             try {

@@ -91,7 +91,8 @@
       if (!$r.length) $r = $b.closest('.card-body, .m4w-setting-row, .m4w-section').find('[data-remote-result]').first();
       $b.prop('disabled', true);
       $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');
-      $.ajax({ url: $b.data('remote-action'), method: 'POST', dataType: 'json', headers: { 'X-CSRF-Token': M4W.csrf(), 'X-Requested-With': 'XMLHttpRequest' } })
+      // data-remote-form: what is typed in the form is tried, saved or not.
+      $.ajax({ url: $b.data('remote-action'), method: 'POST', dataType: 'json', data: $b.is('[data-remote-form]') ? $b.closest('form').find(':input').not('[name=_csrf]').serialize() : undefined, headers: { 'X-CSRF-Token': M4W.csrf(), 'X-Requested-With': 'XMLHttpRequest' } })
         .done(function (res) {
           var details = [res.imap ? 'IMAP : ' + res.imap : '', res.smtp ? 'SMTP : ' + res.smtp : ''].filter(Boolean).join(' · ');
           var ok = res.ok && !details;
@@ -540,4 +541,32 @@
     });
     apply();
   }
+
+  // Backups: the list follows a backup under way (step, upload percentage), or one asked for
+  // and waiting for the scheduled task, then shows how it ended.
+  $(function () {
+    var $box = $('[data-backup-list]');
+    if (!$box.length) return;
+    var badge = { ok: 'badge-soft-success', failed: 'badge-soft-danger', running: 'badge-soft-warning' };
+    var esc = M4W.esc, timer = null;
+    function render(r) {
+      $box.find('[data-backup-waiting]').toggleClass('d-none', !r.requested);
+      $box.find('.table-responsive').toggleClass('d-none', !r.runs.length);
+      $box.find('[data-backup-rows]').html(r.runs.map(function (h) {
+        return '<tr><td class="small text-nowrap">' + esc(h.date) + ' <span class="text-muted">· ' + esc(h.origin) + '</span></td>'
+          + '<td><span class="badge ' + (badge[h.status] || 'badge-soft-secondary') + '">' + (h.running ? '<span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>' : '') + esc(h.status_label) + '</span>'
+          + (h.message ? '<div class="small mt-1 text-break ' + (h.status === 'failed' ? 'text-danger' : 'text-muted') + '">' + esc(h.message) + '</div>' : '') + '</td>'
+          + '<td class="small m4w-code d-none d-md-table-cell">' + esc(h.file) + '</td><td class="small text-end text-nowrap">' + esc(h.size) + '</td>'
+          + '<td class="small d-none d-lg-table-cell">' + esc(h.duration) + '</td></tr>';
+      }).join(''));
+    }
+    function check() {
+      M4W.get($box.data('backup-list'), {}, { silent: true, quiet: true }).done(function (r) {
+        render(r);
+        var active = r.requested || r.runs.some(function (h) { return h.running; });
+        timer = setTimeout(check, active ? 2000 : 30000);
+      }).fail(function () { timer = setTimeout(check, 10000); });
+    }
+    timer = setTimeout(check, +$box.data('active') ? 1000 : 30000);
+  });
 })(jQuery, window, document);
