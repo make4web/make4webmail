@@ -711,4 +711,47 @@
     if ($w.attr('data-mode')) setMode($w.attr('data-mode'), false);
     poll();
   });
+  // Administration: live activity of the mail apps service.
+  $('[data-maild-activity]').each(function () {
+    var $c = $(this), data = null, tab = 'events', timer = null;
+    function match(o) {
+      var q = String($c.find('[data-mact-filter]').val() || '').toLowerCase().trim();
+      return !q || JSON.stringify(o).toLowerCase().indexOf(q) !== -1;
+    }
+    function render() {
+      if (!data) return;
+      var fails = $c.find('[data-mact-fails]').prop('checked');
+      $c.find('[data-mact-state]').html((data.listening ? '<span class="text-success">●</span> ' : '<span class="text-danger">●</span> ')
+        + M4W.esc(M4W.t('mact_state', { n: data.connections, time: data.now })));
+      var ev = (data.events || []).filter(function (e) { return (!fails || e.kind === 'fail') && match(e); });
+      $c.find('[data-mact-pane=events] tbody').html(ev.length ? ev.map(function (e) {
+        var icon = e.kind === 'fail' ? 'bi-x-circle-fill text-danger' : 'bi-check-circle-fill text-success';
+        return '<tr><td class="text-nowrap">' + M4W.esc(e.time) + '</td><td>' + M4W.esc(e.who || '') + '</td><td><i class="bi ' + icon + ' me-1"></i>' + M4W.esc(e.text) + '</td><td><code>' + M4W.esc(e.ip || '') + '</code></td></tr>';
+      }).join('') : '<tr><td colspan="4" class="text-muted">' + M4W.esc(M4W.t('mact_none')) + '</td></tr>');
+      var bans = (data.bans || []).filter(match);
+      if (bans.length && !fails) {
+        $c.find('[data-mact-pane=events] tbody').prepend(bans.map(function (b) {
+          return '<tr class="table-warning"><td class="text-nowrap">→ ' + M4W.esc(b.until) + '</td><td></td><td><i class="bi bi-slash-circle me-1"></i>' + M4W.esc(M4W.t('mact_banned', { why: b.why })) + '</td><td><code>' + M4W.esc(b.ip) + '</code></td></tr>';
+        }).join(''));
+      }
+      var dv = (data.devices || []).filter(match);
+      $c.find('[data-mact-pane=devices] tbody').html(dv.length ? dv.map(function (d) {
+        var what = ['mail', 'calendar', 'contacts'].filter(function (k) { return d[k]; }).map(function (k) { return M4W.t('sync_what_' + k); }).join(', ');
+        return '<tr><td>' + M4W.esc(d.who) + '</td><td title="' + M4W.esc(d.agent) + '">' + M4W.esc(d.name) + '<div class="text-muted">' + M4W.esc(M4W.t('mact_since', { date: d.since })) + '</div></td><td>' + M4W.esc(what || M4W.t('mact_folders_only')) + '</td><td class="text-nowrap">' + M4W.esc(d.last_time) + '</td><td><code>' + M4W.esc(d.ip) + '</code></td></tr>';
+      }).join('') : '<tr><td colspan="5" class="text-muted">' + M4W.esc(M4W.t('mact_no_device')) + '</td></tr>');
+      $c.find('[data-mact-pane=journal] pre').text((data.journal || []).filter(match).map(function (l) { return l.time + '  ' + l.text; }).join('\n') || M4W.t('mact_none'));
+    }
+    function poll() {
+      clearTimeout(timer);
+      if (document.hidden) { timer = setTimeout(poll, 5000); return; }
+      $.getJSON($c.data('maild-activity')).done(function (r) { data = r; render(); }).always(function () { timer = setTimeout(poll, 5000); });
+    }
+    $c.on('click', '[data-mact-tab]', function () {
+      tab = this.getAttribute('data-mact-tab');
+      $c.find('[data-mact-tab]').removeClass('active').filter(this).addClass('active');
+      $c.find('[data-mact-pane]').addClass('d-none').filter('[data-mact-pane=' + tab + ']').removeClass('d-none');
+    });
+    $c.on('input change', '[data-mact-filter], [data-mact-fails]', render);
+    poll();
+  });
 })(jQuery, window, document);

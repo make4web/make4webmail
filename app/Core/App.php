@@ -511,6 +511,7 @@ final class App
         $r->post('/admin/mail/maild/setup', [Controller\AdminController::class, 'maildSetup'], $super);
         $r->get('/admin/mail/maild/setup', [Controller\AdminController::class, 'maildSetupStatus'], $super);
         $r->post('/admin/mail/maild/check', [Controller\AdminController::class, 'maildCheck'], $super);
+        $r->get('/admin/mail/maild/activity', [Controller\AdminController::class, 'maildActivity'], $super);
         $r->post('/admin/mail/maild/unban', [Controller\AdminController::class, 'maildUnban'], $super);
         $r->get('/admin/mail/maild/dns', [Controller\AdminController::class, 'maildDns'], $super);
         $r->post('/admin/mail/maild/dns', [Controller\AdminController::class, 'maildDnsFix'], $super);

@@ -155,7 +155,7 @@ final class Server
             'SendMail', 'SmartReply', 'SmartForward' => $this->send($cmd, $xml, $body, $q, $h),
             'Settings' => $this->settings($xml),
             'GetAttachment' => $this->getAttachment((string) ($q['AttachmentName'] ?? '')),
-            'Search' => ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', [['Search:Status', '1'], ['Search:Total', '0']]]]]]],
+            'Search' => $this->search($xml),
             default => null,
         };
         if ($out === null) {
@@ -786,6 +786,37 @@ final class Server
             $out[] = ['AirSync:MoreAvailable', ''];
         }
         return ['AirSync:Collection', $out];
+    }
+
+    // ------------------------------------------------------------------ Search: the address book while typing
+
+    /**
+     * The "GAL" the phone asks while one types a recipient: one's contacts (those collected from
+     * mail too) and the people of the webmail, as the web's own suggestions.
+     */
+    private function search(?array $x): array
+    {
+        $store = W::child($x, 'Store');
+        if (strcasecmp(W::text($store, 'Name'), 'GAL') !== 0) {
+            return ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', [['Search:Status', '1'], ['Search:Total', '0']]]]]]];
+        }
+        $q = trim(W::text($store, 'Query'));
+        [$from, $to] = array_map('intval', explode('-', W::text(W::child($store, 'Options'), 'Range', '0-49')) + [0, 49]);
+        $found = mb_strlen($q) >= 1 ? \M4W\Service\Contacts::suggest($this->uid, $q, 100) : [];
+        $total = count($found);
+        $results = [];
+        foreach (array_slice($found, $from, max(1, $to - $from + 1)) as $c) {
+            $name = trim((string) $c['name']) ?: (string) $c['email'];
+            $parts = preg_split('/\s+/', $name, 2) ?: [];
+            $props = [['GAL:DisplayName', $name], ['GAL:EmailAddress', (string) $c['email']], ['GAL:FirstName', (string) ($parts[0] ?? '')], ['GAL:LastName', (string) ($parts[1] ?? '')]];
+            if (!empty($c['title'])) {
+                $props[] = ['GAL:Title', (string) $c['title']];
+            }
+            $results[] = ['Search:Result', [['Search:Properties', array_values(array_filter($props, static fn($p) => $p[1] !== ''))]]];
+        }
+        $last = $results ? $from + count($results) - 1 : 0;
+        return ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', array_merge([['Search:Status', '1']], $results,
+            $results ? [['Search:Range', $from . '-' . $last]] : [], [['Search:Total', (string) $total]])]]]]];
     }
 
     // ------------------------------------------------------------------ Ping: waits for a change

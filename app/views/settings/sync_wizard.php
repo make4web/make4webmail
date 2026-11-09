@@ -2,7 +2,7 @@
 /**
  * Phone and computer set-up with the mail apps service: Exchange (ActiveSync) or IMAP first,
  * then an app password, the steps of each app, and what the server sees of the attempts.
- * @var array $passwords @var ?array $created @var string $dav @var string $login @var string $mode
+ * @var array $passwords @var ?array $created @var string $dav @var string $login @var string $mode @var string $modeSeen
  */
 $mg = M4W\Service\MailGateway::config();
 $field = static function (string $label, string $value, bool $copy = true): string {
@@ -24,6 +24,7 @@ $pwNote = '<dt>' . te('dav.password') . '</dt><dd>' . te('sync.pw_field') . '</d
           <div class="d-flex align-items-center gap-2 mb-1"><i class="bi bi-envelope-at text-primary fs-5"></i><span class="fw-semibold"><?= te('sync.imap_title') ?></span></div>
           <div class="small text-muted"><?= te('sync.imap_desc') ?></div></button></div>
       </div>
+      <?php if (!empty($modeSeen)): ?><p class="small text-success mt-3 mb-0"><i class="bi bi-check-circle me-1"></i><?= te('sync.mode_seen_' . $modeSeen) ?></p><?php endif; ?>
     </div>
   </div>
 

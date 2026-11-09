@@ -905,6 +905,20 @@ final class AdminController extends Controller
         return $this->ok(['records' => \M4W\Service\MailGateway::dnsChecks(), 'api' => true, 'message' => t('cf.dns_fixed', ['n' => count($done)])]);
     }
 
+    /** Live: who uses the mail apps service, refusals, phones, and the service's journal (AJAX). */
+    public function maildActivity(): Response
+    {
+        \M4W\Core\Session::close();
+        $a = \M4W\Service\MailAppsActivity::collect(null, time() - max(1, min(48, $this->req->int('hours', 24))) * 3600);
+        $bans = [];
+        foreach (\M4W\Service\MailGateway::bans() as $ip => $b) {
+            $bans[] = ['ip' => \M4W\Service\MailAppsActivity::plainIp((string) $ip), 'raw' => (string) $ip, 'until' => date('d/m H:i', (int) $b['until']), 'why' => (string) ($b['why'] ?? '')];
+        }
+        $st = \M4W\Service\MailGateway::status();
+        return $this->ok(['events' => $a['events'], 'devices' => $a['devices'], 'bans' => $bans, 'journal' => \M4W\Service\MailAppsActivity::journal(),
+            'connections' => (int) ($st['connections'] ?? 0), 'listening' => !empty($st['listening']), 'now' => date('H:i:s')]);
+    }
+
     public function maildUnban(): Response
     {
         $ip = trim($this->req->str('ip'));

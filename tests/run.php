@@ -3141,6 +3141,11 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         ok($bobCard !== null, 'the directory on the phone');
         $r = $pimSync($kd, $W::text($r, 'SyncKey'), [['AirSync:Change', [['AirSync:ServerId', $W::text($bobCard, 'ServerId')], ['AirSync:ApplicationData', [['Contacts:FirstName', 'Pirate']]]]]]);
         ok((bool) $W::child($W::child($r, 'Commands'), 'Change') && DB::value("SELECT first_name FROM users WHERE email = 'bob@test.local'") !== 'Pirate', 'directory read only: the server copy sent back');
+        // Typing a recipient: the phone asks the "GAL" (contacts, collected addresses, colleagues).
+        $sr = $eas('Search', ['Search:Search', [['Search:Store', [['Search:Name', 'GAL'], ['Search:Query', 'pau'], ['Search:Options', [['Search:Range', '0-9']]]]]]]);
+        $store = $W::child($W::child($sr, 'Response'), 'Store');
+        $hit = $W::child($W::child($store, 'Result'), 'Properties');
+        ok((int) $W::text($store, 'Total') >= 1 && $W::text($hit, 'GAL:EmailAddress') === 'paul@ext.example' && $W::text($hit, 'GAL:DisplayName') === 'Paul Martin', 'recipients suggested while typing: ' . json_encode($store));
         // IMAP still served on the same port.
         $c3 = $client();
         $c3->connect('bob@test.local', $pw);
