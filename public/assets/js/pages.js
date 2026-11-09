@@ -635,4 +635,9 @@
     }
     timer = setTimeout(check, +$box.data('active') ? 1000 : 30000);
   });
+  // Profile photo: sent as soon as it is chosen.
+  $(document).on('change', '[data-avatar-input]', function () {
+    var form = document.getElementById(this.getAttribute('form'));
+    if (this.files && this.files.length && form) { $(this).closest('label').addClass('disabled'); form.submit(); }
+  });
 })(jQuery, window, document);

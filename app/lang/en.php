@@ -2807,4 +2807,11 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'maild.inst_users' => ':n account(s)',
     'maild.inst_late' => 'out of date',
     'maild.inst_late_desc' => 'Update the instances that are behind to v:v: their users are served with their own code.',
+    'avatar.choose' => 'Add a photo',
+    'avatar.change' => 'Change the photo',
+    'avatar.remove' => 'Remove',
+    'avatar.hint' => 'Seen by the users of this webmail, everywhere instead of your initials. JPEG, PNG, WebP or GIF, cropped to a square.',
+    'avatar.bad' => 'Picture not recognised (JPEG, PNG, WebP or GIF, 15 MB at most).',
+    'avatar.saved' => 'Profile photo saved.',
+    'avatar.removed' => 'Profile photo removed.',
 ];

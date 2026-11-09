@@ -38,7 +38,7 @@
   <tbody>
   <?php foreach ($directory as $d): $name = $d['display_name'] ?: trim($d['first_name'] . ' ' . $d['last_name']) ?: $d['email']; ?>
     <tr data-filter-text="<?= e(mb_strtolower($name . ' ' . $d['email'] . ' ' . $d['job_title'] . ' ' . $d['department'])) ?>">
-      <td><div class="m4w-user-cell"><span class="m4w-avatar" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($name)) ?></span><div><div class="fw-medium"><?= e($name) ?></div><div class="small text-muted"><?= e($d['email']) ?></div></div></div></td>
+      <td><div class="m4w-user-cell"><?= avatar_html((string) $name, (string) $d['email']) ?><div><div class="fw-medium"><?= e($name) ?></div><div class="small text-muted"><?= e($d['email']) ?></div></div></div></td>
       <td><div><?= e($d['job_title']) ?></div><div class="small text-muted"><?= e($d['department']) ?></div></td>
       <td class="small"><?= e($d['phone']) ?><?= $d['mobile'] ? '<br>' . e($d['mobile']) : '' ?></td>
       <td class="text-end"><a class="btn btn-soft btn-sm" href="<?= e(url('mail', ['compose' => 1, 'to' => $d['email']])) ?>"><i class="bi bi-envelope me-1"></i><?= te('contacts.write') ?></a></td>
@@ -62,7 +62,7 @@
   <?php foreach ($contacts as $c): $name = $c['name'] ?: $c['email']; ?>
     <tr>
       <td><input type="checkbox" class="form-check-input" name="ids[]" value="<?= (int) $c['id'] ?>"></td>
-      <td><div class="m4w-user-cell"><span class="m4w-avatar" style="background:<?= e(avatar_color($c['email'])) ?>"><?= e(initials($name)) ?></span><div><div class="fw-medium"><?= e($name) ?><?= $c['is_favorite'] ? ' <i class="bi bi-star-fill text-warning small"></i>' : '' ?><?= $c['auto_collected'] ? ' <span class="badge badge-soft-secondary ms-1">' . te('contacts.auto') . '</span>' : '' ?></div><div class="small text-muted"><?= e($c['email']) ?></div></div></div></td>
+      <td><div class="m4w-user-cell"><?= avatar_html((string) $name, (string) $c['email']) ?><div><div class="fw-medium"><?= e($name) ?><?= $c['is_favorite'] ? ' <i class="bi bi-star-fill text-warning small"></i>' : '' ?><?= $c['auto_collected'] ? ' <span class="badge badge-soft-secondary ms-1">' . te('contacts.auto') . '</span>' : '' ?></div><div class="small text-muted"><?= e($c['email']) ?></div></div></div></td>
       <td class="d-none d-md-table-cell"><?= e($c['company']) ?></td>
       <td class="d-none d-md-table-cell small"><?= e($c['phone']) ?></td>
       <td class="text-end text-nowrap">

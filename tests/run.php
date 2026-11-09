@@ -5788,6 +5788,28 @@ test('app icon: the logo with an envelope of the primary colour, background afte
     Settings::setMany(array_combine($keys, $keep));
 });
 
+test('profile photo: a square JPEG kept, shown instead of initials, removed', function () use ($bob) {
+    $uid = (int) $bob['id'];
+    $im = imagecreatetruecolor(400, 300);
+    imagefill($im, 0, 0, imagecolorallocate($im, 200, 30, 30));
+    $src = tempnam(sys_get_temp_dir(), 'av');
+    imagepng($im, $src);
+    M4W\Service\Avatars::save($uid, $src);
+    $info = getimagesize(M4W\Service\Avatars::file($uid));
+    eq([$info[0], $info[1], $info[2]], [256, 256, IMAGETYPE_JPEG], 'square JPEG');
+    $html = (new ReflectionFunction('avatar_html'))->invoke('Bob', 'BOB@test.local', 'sm');
+    ok(str_contains($html, 'has-photo') && str_contains($html, 'api/avatar/' . $uid . '?v='), 'photo instead of initials: ' . $html);
+    file_put_contents($src, 'not a picture');
+    try {
+        M4W\Service\Avatars::save($uid, $src);
+        ok(false, 'anything accepted');
+    } catch (RuntimeException) {
+    }
+    M4W\Service\Avatars::delete($uid);
+    ok(!is_file(M4W\Service\Avatars::file($uid)) && (int) DB::value('SELECT avatar_at FROM users WHERE id = :i', ['i' => $uid]) === 0, 'removed');
+    unlink($src);
+});
+
 test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {
     $u = Users::find(Users::create(['email' => 'count.me@test.local', 'password' => 'Secret!Pass123']));
     $uid = (int) $u['id'];

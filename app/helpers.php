@@ -186,3 +186,19 @@ function shared_dir(string $name): string
     }
     return rtrim($base, '/') . '/' . $name;
 }
+
+/**
+ * A person's round badge: their profile photo when they have one in this webmail, else their
+ * initials on their colour (and back to the initials if the photo does not load).
+ */
+function avatar_html(string $name, string $email, string $cls = '', string $attrs = ''): string
+{
+    $initials = e(initials($name !== '' ? $name : $email));
+    $bg = e(avatar_color($email));
+    $photo = \M4W\Service\Avatars::urlFor($email);
+    if ($photo !== '') {
+        return '<span class="m4w-avatar has-logo has-photo ' . e($cls) . '" data-bg="' . $bg . '" data-initials="' . $initials . '"' . $attrs . '><img src="' . e($photo) . '" alt="" loading="lazy" decoding="async"></span>';
+    }
+    return '<span class="m4w-avatar ' . e($cls) . '" style="background:' . $bg . '"' . $attrs . '>' . $initials . '</span>';
+}
+

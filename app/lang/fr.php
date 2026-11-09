@@ -2880,4 +2880,11 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'maild.inst_users' => ':n compte(s)',
     'maild.inst_late' => 'pas à jour',
     'maild.inst_late_desc' => 'Mettez à jour les instances en retard vers la v:v : leurs utilisateurs sont servis avec leur propre code.',
+    'avatar.choose' => 'Ajouter une photo',
+    'avatar.change' => 'Changer la photo',
+    'avatar.remove' => 'Retirer',
+    'avatar.hint' => 'Vue par les utilisateurs de ce webmail, partout à la place de vos initiales. JPEG, PNG, WebP ou GIF, recadrée en carré.',
+    'avatar.bad' => 'Image non reconnue (JPEG, PNG, WebP ou GIF, 15 Mo au plus).',
+    'avatar.saved' => 'Photo de profil enregistrée.',
+    'avatar.removed' => 'Photo de profil retirée.',
 ];

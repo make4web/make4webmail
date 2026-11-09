@@ -47,6 +47,40 @@ final class SettingsController extends Controller
         return $this->page('general', ['languages' => I18n::LANGUAGES]);
     }
 
+    /** The profile photo, sent from Profile & preferences. */
+    public function saveAvatar(): Response
+    {
+        $u = $this->user();
+        $f = $this->req->files['photo'] ?? null;
+        if (!is_array($f) || ($f['error'] ?? 1) !== UPLOAD_ERR_OK || (int) $f['size'] > 15 * 1048576 || !is_uploaded_file((string) $f['tmp_name'])) {
+            return $this->back('/settings', 'danger', t('avatar.bad'));
+        }
+        try {
+            \M4W\Service\Avatars::save((int) $u['id'], (string) $f['tmp_name']);
+        } catch (\RuntimeException $e) {
+            return $this->back('/settings', 'danger', $e->getMessage());
+        }
+        return $this->back('/settings', 'success', t('avatar.saved'));
+    }
+
+    public function deleteAvatar(): Response
+    {
+        \M4W\Service\Avatars::delete((int) $this->user()['id']);
+        return $this->back('/settings', 'success', t('avatar.removed'));
+    }
+
+    /** A user's photo, for the signed-in users of this webmail (the address carries its version). */
+    public function avatar(string $id): Response
+    {
+        $this->user();
+        \M4W\Core\Session::close();
+        $f = \M4W\Service\Avatars::file((int) $id);
+        if (!ctype_digit($id) || !is_file($f)) {
+            return new Response('', 404);
+        }
+        return new Response((string) file_get_contents($f), 200, ['Content-Type' => 'image/jpeg', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, max-age=31536000, immutable']);
+    }
+
     public function saveGeneral(): Response
     {
         $u = $this->user();

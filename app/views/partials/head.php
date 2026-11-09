@@ -14,6 +14,7 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <meta name="m4w-version" content="<?= e(M4W_VERSION) ?>">
 <?php if (!empty($currentUser)): ?>
 <meta name="m4w-user" content="<?= (int) $currentUser['id'] ?>">
+<meta name="m4w-photos" content="<?= e(json_encode((object) M4W\Service\Avatars::map(), JSON_UNESCAPED_SLASHES)) ?>">
 <?php // Offline mode: one's own mailbox only (nothing of a delegated or shared mailbox kept on a device). ?>
 <meta name="m4w-offline" content="<?= M4W\Service\Offline::enabled() && empty($delegation) && empty($sharedBox) ? 1 : 0 ?>">
 <?php endif; ?>
