@@ -503,6 +503,7 @@ final class App
         $r->get('/admin/meetings', [Controller\AdminController::class, 'meetings'], $super);
         $r->post('/admin/meetings', [Controller\AdminController::class, 'saveMeetings'], $super);
         $r->post('/admin/meetings/test', [Controller\AdminController::class, 'testMeeting'], $super);
+        $r->post('/admin/mail/maild', [Controller\AdminController::class, 'saveMaild'], $super);
         $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
         $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $super);

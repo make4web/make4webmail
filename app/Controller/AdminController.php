@@ -792,6 +792,27 @@ final class AdminController extends Controller
         return $this->page('mail', ['dkimPublic' => $dkimPublic, 'domains' => $domains, 'hasPassword' => Settings::get('smtp.password', '') !== '', 'linked' => $linked, 'collector' => $collector]);
     }
 
+    /** IMAP for mail apps: this instance in or out; the name, port and certificate for every instance. */
+    public function saveMaild(): Response
+    {
+        $r = $this->req;
+        $host = mb_strtolower(trim($r->str('host')));
+        $path = static fn(string $p) => preg_match('#^/[\w./@+-]+$#', $p) && !str_contains($p, '..') ? $p : '';
+        if (!preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/', $host)) {
+            return $this->back('/admin/mail#maild', 'danger', t('maild.bad_host'));
+        }
+        Settings::set('maild.enabled', $r->bool('enabled') ? 1 : 0);
+        \M4W\Service\MailGateway::saveConfig(['host' => $host, 'imap_port' => max(1024, min(65535, $r->int('imap_port', 51993))),
+            'cert' => $path($r->str('cert')), 'key' => $path($r->str('key'))]);
+        \M4W\Service\MailGateway::tick();
+        // Started just now: a few seconds for it to say whether it listens.
+        for ($i = 0; $i < 30 && $r->bool('enabled') && empty(\M4W\Service\MailGateway::status()['listening']); $i++) {
+            usleep(100000);
+        }
+        Audit::log('admin.maild_saved', $host);
+        return $this->back('/admin/mail#maild', 'success', t('settings.saved'));
+    }
+
     public function saveMail(): Response
     {
         $r = $this->req;

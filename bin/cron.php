@@ -39,6 +39,15 @@ if (!in_array('--no-spawn', $argv, true) && M4W\Core\Config::installed()) {
     }
     $spawn([__DIR__ . '/backup.php', '--if-due'], M4W\Core\Config::storagePath('logs') . '/backup.log');
 }
+// IMAP for mail apps, shared by the instances of the server: this one in the common register,
+// the service started if stopped (see MailGateway).
+if (!in_array('--no-spawn', $argv, true) && M4W\Core\Config::installed()) {
+    try {
+        M4W\Service\MailGateway::tick();
+    } catch (Throwable $e) {
+        error_log('[m4w] mail gateway: ' . $e->getMessage());
+    }
+}
 if (in_array('--spawn-only', $argv, true)) {
     exit(0);
 }

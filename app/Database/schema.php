@@ -1106,4 +1106,15 @@ static function (): void {
   hits INTEGER NOT NULL DEFAULT 1
 ) {OPT}",
 ],
+47 => [
+// IMAP for mail apps (bin/maild.php, ImapServer): a UID per folder, given on first sight, the
+// \Deleted mark until EXPUNGE, and the size of the message as IMAP counts it (CRLF).
+"ALTER TABLE folders ADD COLUMN uid_next INTEGER NOT NULL DEFAULT 1",
+"ALTER TABLE folders ADD COLUMN uid_validity INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE messages ADD COLUMN imap_uid INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE messages ADD COLUMN imap_folder INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE messages ADD COLUMN imap_size INTEGER NOT NULL DEFAULT 0",
+"ALTER TABLE messages ADD COLUMN imap_deleted INTEGER NOT NULL DEFAULT 0",
+"CREATE INDEX messages_imap ON messages(folder_id, imap_uid)",
+],
 ];
