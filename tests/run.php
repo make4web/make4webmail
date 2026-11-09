@@ -3053,6 +3053,9 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $c3 = $client();
         $c3->connect('bob@test.local', $pw);
         ok(isset($c3->folders()['INBOX']), 'IMAP on the same port');
+        // The log tells each ActiveSync request: what the phone sent, what it got.
+        $log = (string) file_get_contents($dir . '/maild.log');
+        ok((bool) preg_match('/activesync Sync \{Change \d+\} → 200 \[status 1/u', $log) && str_contains($log, 'activesync FolderSync → 200 [status 1; Add '), 'ActiveSync log: ' . substr($log, -1500));
         $c3->logout();
         // A service started from older code gives way to the newer version at the next task.
         $st = json_decode((string) file_get_contents($dir . '/maild-status.json'), true);

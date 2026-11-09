@@ -42,6 +42,39 @@ final class Server
         return ['MS-Server-ActiveSync' => '14.1', 'MS-ASProtocolVersions' => self::VERSIONS, 'MS-ASProtocolCommands' => self::COMMANDS, 'Allow' => 'OPTIONS,POST', 'Public' => 'OPTIONS,POST'];
     }
 
+    /** For the service's log: the statuses inside an answer and how many items it carries. */
+    public static function summary(string $wbxml, bool $answer = true): string
+    {
+        $doc = W::decode($wbxml);
+        if ($doc === null) {
+            return '';
+        }
+        $st = [];
+        $n = ['Add' => 0, 'Change' => 0, 'Delete' => 0];
+        $walk = static function (array $node) use (&$walk, &$st, &$n): void {
+            $short = substr($node[0], strrpos($node[0], ':') + 1);
+            if ($short === 'Status' && is_string($node[1])) {
+                $st[] = $node[1];
+            }
+            if (isset($n[$short]) && is_array($node[1])) {
+                $n[$short]++;
+            }
+            if (is_array($node[1]) && !isset($node[1]['opaque'])) {
+                foreach ($node[1] as $c) {
+                    if (is_array($c)) {
+                        $walk($c);
+                    }
+                }
+            }
+        };
+        $walk($doc);
+        $items = implode(' ', array_map(static fn($k, $v) => "$k $v", array_keys(array_filter($n)), array_filter($n)));
+        if (!$answer) {
+            return $items !== '' ? '{' . $items . '}' : '';
+        }
+        return '[status ' . implode(',', array_unique($st) ?: ['-']) . ($items !== '' ? '; ' . $items : '') . ']';
+    }
+
     /** Command codes of the encoded query (MS-ASHTTP 2.2.1.1.1.1.2). */
     private const CMD_CODES = [0 => 'Sync', 1 => 'SendMail', 2 => 'SmartForward', 3 => 'SmartReply', 4 => 'GetAttachment', 9 => 'FolderSync',
         10 => 'FolderCreate', 11 => 'FolderDelete', 12 => 'FolderUpdate', 13 => 'MoveItems', 14 => 'GetItemEstimate', 15 => 'MeetingResponse',
