@@ -17,8 +17,8 @@ use Sabre\VObject\Component\VCard;
  */
 final class CardDavBackend extends AbstractBackend
 {
-    private const MINE = 1;
-    private const DIRECTORY = 2;
+    public const MINE = 1;
+    public const DIRECTORY = 2;
 
     public function __construct(private readonly array $user)
     {

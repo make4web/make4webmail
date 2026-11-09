@@ -5,7 +5,7 @@ $u = $user ?? ['id' => 0, 'email' => '', 'display_name' => '', 'first_name' => '
 <div class="m4w-page-header">
   <div class="d-flex align-items-center gap-3">
     <a class="btn btn-ghost btn-icon" href="<?= e(url('admin/users')) ?>" aria-label="<?= te('common.back') ?>"><i class="bi bi-arrow-left"></i></a>
-    <?php if (!$isNew): ?><span class="m4w-avatar lg" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span><?php endif; ?>
+    <?php if (!$isNew): ?><?= avatar_html((string) $u['name'], (string) $u['email'], 'lg') ?><?php endif; ?>
     <div><h1><?= $isNew ? te('admin.new_user') : e($u['name']) ?></h1><p class="mb-0"><?= $isNew ? te('admin.new_user_desc') : e($u['email']) . ' · ' . te('admin.created_on', ['date' => format_datetime((int) $u['created_at'], false)]) ?></p></div>
   </div>
 </div>

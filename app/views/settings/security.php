@@ -113,7 +113,7 @@
     <div class="small fw-semibold mb-1"><?= te('deleg.my_delegates') ?></div>
     <div class="d-flex flex-wrap gap-2 mb-2">
       <?php foreach ($delegates as $d): $dn = $d['display_name'] ?: $d['email']; ?>
-      <span class="m4w-chip"><span class="m4w-avatar sm" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($dn)) ?></span><?= e($dn) ?></span>
+      <span class="m4w-chip"><?= avatar_html((string) $dn, (string) $d['email'], 'sm') ?><?= e($dn) ?></span>
       <?php endforeach; ?>
     </div>
     <?php endif; ?>

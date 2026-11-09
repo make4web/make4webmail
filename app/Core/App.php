@@ -271,6 +271,7 @@ final class App
         $r->post('/api/messages/action', [Controller\MailController::class, 'action']);
         $r->get('/api/messages/{id}', [Controller\MailController::class, 'show']);
         $r->get('/api/messages/{id}/body', [Controller\MailController::class, 'body']);
+        $r->get('/api/avatar/{id}', [Controller\SettingsController::class, 'avatar']);
         $r->get('/api/bimi/{domain}', [Controller\MailController::class, 'bimi']);
         $r->get('/go', [Controller\LinkController::class, 'go']);
         $r->get('/api/messages/{id}/part/{part}', [Controller\MailController::class, 'part']);
@@ -415,6 +416,7 @@ final class App
         $r->post('/api/calendar/import', [Controller\CalendarController::class, 'import']);
         $r->post('/api/calendar/respond', [Controller\CalendarController::class, 'respond']);
         $r->get('/settings/sync', [Controller\CalendarController::class, 'sync']);
+        $r->get('/settings/sync/diagnose', [Controller\CalendarController::class, 'syncDiagnose']);
         $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
         $r->post('/settings/sync/meetings', [Controller\CalendarController::class, 'saveMeetingLinks']);
         $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);
@@ -423,6 +425,8 @@ final class App
         // User settings
         $r->get('/settings', [Controller\SettingsController::class, 'general']);
         $r->post('/settings', [Controller\SettingsController::class, 'saveGeneral']);
+        $r->post('/settings/avatar', [Controller\SettingsController::class, 'saveAvatar']);
+        $r->post('/settings/avatar/delete', [Controller\SettingsController::class, 'deleteAvatar']);
         $r->post('/settings/notifications', [Controller\SettingsController::class, 'saveNotifications']);
         $r->post('/settings/sound', [Controller\SettingsController::class, 'uploadSound']);
         $r->post('/settings/sound/delete', [Controller\SettingsController::class, 'deleteSound']);

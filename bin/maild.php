@@ -185,12 +185,40 @@ function maild_tls($c, string $ip, array $cfg, string $dir): bool
 function maild_login(string $dir, string $ip, string $email, string $pw, ?array &$instance, string $proto): ?array
 {
     $found = null;
+    $candidates = [];
     foreach (glob($dir . '/instances/*.json') ?: [] as $f) {
         $i = json_decode((string) @file_get_contents($f), true);
         if (is_array($i) && (int) ($i['at'] ?? 0) > time() - 600 && is_file(($i['root'] ?? '') . '/app/bootstrap.php')
-            && in_array(hash('sha256', strtolower(trim($email))), (array) ($i['users'] ?? []), true)) {
-            $found = $i;
-            break;
+            && in_array(hash('sha256', strtolower(trim($email))), (array) ($i['users'] ?? []), true)
+            && ($instance === null || ($i['root'] === $instance['root'] && $i['config'] === $instance['config']))) {
+            $candidates[] = $i;
+        }
+    }
+    // Several instances know the address (a copy for tests, two webmails for one domain): the one
+    // where this password is an app password, each tried in a process of its own (one instance's
+    // code per process). None: the first one, to say why.
+    $found = $candidates[0] ?? null;
+    if (count($candidates) > 1) {
+        foreach ($candidates as $cand) {
+            $pid = pcntl_fork();
+            if ($pid === 0) {
+                putenv('M4W_CONFIG=' . $cand['config']);
+                chdir($cand['root']);
+                (static function (string $file): void {
+                    require $file;
+                })($cand['root'] . '/app/bootstrap.php');
+                $u = \M4W\Service\Users::findByEmail(strtolower(trim($email)));
+                $ok = $u && \M4W\Core\Database::value('SELECT 1 FROM app_passwords WHERE user_id = :u AND hash = :h', ['u' => $u['id'], 'h' => \M4W\Dav\AppPasswords::hash($pw)]);
+                posix_kill(getmypid(), $ok ? SIGUSR1 : SIGUSR2); // no shutdown of the instance in this copy
+                exit(1);
+            }
+            if ($pid > 0) {
+                pcntl_waitpid($pid, $st);
+                if (pcntl_wifsignaled($st) && pcntl_wtermsig($st) === SIGUSR1) {
+                    $found = $cand;
+                    break;
+                }
+            }
         }
     }
     $user = null;
@@ -207,8 +235,10 @@ function maild_login(string $dir, string $ip, string $email, string $pw, ?array 
         $user = \M4W\Mail\ImapServer::authenticate($email, $pw, $ip, $proto);
     }
     if (!$user) {
-        $why = $found ? (class_exists(\M4W\Dav\AppPasswords::class, false) ? \M4W\Dav\AppPasswords::$refusal : '') : 'no instance knows it';
-        maild_log($dir, "$ip $proto login refused for " . substr($email, 0, 80) . ($why !== '' ? " ($why)" : ''));
+        // (An instance not yet updated has no reason to give.)
+        $why = $found ? (property_exists('M4W\Dav\AppPasswords', 'refusal') ? \M4W\Dav\AppPasswords::$refusal : '') : 'no instance knows it';
+        $names = implode(', ', array_map(static fn($i) => basename($i['root']) . (count($candidates) > 1 ? ' ' . basename(dirname($i['config'])) : ''), $candidates));
+        maild_log($dir, "$ip $proto login refused for " . substr($email, 0, 80) . ($why !== '' ? " ($why)" : '') . ($names !== '' ? " [$names]" : ''));
         maild_fail($dir, $ip, $proto . ' login ' . substr($email, 0, 80));
         sleep(random_int(2, 4)); // slow guessing down
         return null;

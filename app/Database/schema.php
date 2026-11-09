@@ -1144,4 +1144,8 @@ static function (): void {
 ) {OPT}",
 "CREATE UNIQUE INDEX eas_states_key ON eas_states(device, collection)",
 ],
+49 => [
+// Profile photo (storage/avatars/<id>.jpg), its time as version of its address.
+"ALTER TABLE users ADD COLUMN avatar_at INTEGER NOT NULL DEFAULT 0",
+],
 ];

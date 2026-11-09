@@ -25,6 +25,8 @@
    * version, the page reloads itself where nothing is being written, else offers to.
    */
   M4W.version = $('meta[name="m4w-version"]').attr('content') || '';
+  /** Profile photos of the users of this webmail: address => URL. */
+  try { M4W.photos = JSON.parse($('meta[name="m4w-photos"]').attr('content') || '{}') || {}; } catch (e) { M4W.photos = {}; }
   var newer = '';
   function safeToReload() {
     var page = location.pathname.slice(BASE.length).replace(/^\/|\/$/g, '');
@@ -83,6 +85,11 @@
    */
   M4W.avatar = function (name, email, cls, logo, verified) {
     var initials = M4W.esc(M4W.initials(name || email)), bg = M4W.color(email || name);
+    var photo = email && M4W.photos ? M4W.photos[String(email).toLowerCase()] : '';
+    if (photo && /^(\/|https:\/\/)/.test(photo)) {
+      return '<span class="m4w-avatar has-logo has-photo ' + (cls || '') + '" data-bg="' + bg + '" data-initials="' + initials + '">'
+        + '<img src="' + M4W.esc(photo) + '" alt="" loading="lazy" decoding="async"></span>';
+    }
     if (logo && /^[a-z0-9.-]{1,190}$/.test(logo)) {
       var tip = M4W.t(verified ? 'bimi_vmc' : 'bimi_logo', { domain: logo });
       return '<span class="m4w-avatar has-logo ' + (cls || '') + (verified ? ' is-verified' : '') + '" data-bg="' + bg + '" data-initials="' + initials + '" title="' + M4W.esc(tip) + '">'

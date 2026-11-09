@@ -45,7 +45,7 @@ $elsewhere = array_sum($boxCounts); ?>
   <?php if ($deleg): ?>
   <form method="post" action="<?= e(url('delegation/close')) ?>" class="m4w-deleg-pill" role="status">
     <?= csrf_field() ?>
-    <span class="m4w-avatar sm" style="background:<?= e(avatar_color($deleg['email'])) ?>" aria-hidden="true"><?= e(initials($deleg['name'] ?: $deleg['email'])) ?></span>
+    <?= avatar_html((string) $deleg['name'], (string) $deleg['email'], 'sm', ' aria-hidden="true"') ?>
     <span class="text-truncate"><span class="m4w-deleg-label"><?= te('deleg.mailbox_of') ?></span> <strong><?= e($deleg['name'] ?: $deleg['email']) ?></strong></span>
     <button class="btn btn-sm" type="submit" title="<?= te('deleg.back_mine') ?>"><i class="bi bi-box-arrow-left"></i><span class="m4w-hide-xs ms-1"><?= te('deleg.back_mine_short') ?></span><span class="m4w-new-badge ms-1<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0" title="<?= te('shared.unread_title') ?>"><?= (int) $boxCounts[0] ?></span></button>
   </form>
@@ -125,12 +125,12 @@ $elsewhere = array_sum($boxCounts); ?>
     </div>
     <div class="dropdown">
       <button class="m4w-avatar-btn ms-1" type="button" data-bs-toggle="dropdown" aria-label="<?= te('nav.account') ?>">
-        <span class="m4w-avatar" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span>
+        <?= avatar_html((string) $u['name'], (string) $u['email']) ?>
         <span class="m4w-new-badge m4w-avatar-badge<?= $elsewhere ? '' : ' d-none' ?>" data-boxes-elsewhere title="<?= te('shared.unread_all') ?>"><?= $elsewhere ?></span>
       </button>
       <div class="dropdown-menu dropdown-menu-end" style="width:300px">
         <div class="d-flex align-items-center gap-3 p-2 pb-3">
-          <span class="m4w-avatar lg" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span>
+          <?= avatar_html((string) $u['name'], (string) $u['email'], 'lg') ?>
           <div class="min-w-0"><div class="fw-semibold text-truncate"><?= e($u['name']) ?></div><div class="small text-muted text-truncate"><?= e($u['email']) ?></div></div>
         </div>
         <div class="dropdown-divider"></div>
@@ -139,7 +139,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <?php endif; ?>
         <h6 class="dropdown-header"><?= te('shared.menu') ?></h6>
         <?php if ($shared || $deleg): ?>
-        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="0"><button class="dropdown-item" type="submit"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span><span class="text-truncate flex-grow-1"><?= te('shared.my_box') ?></span><span class="m4w-new-badge ms-2<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0"><?= (int) $boxCounts[0] ?></span></button></form>
+        <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="0"><button class="dropdown-item" type="submit"><?= avatar_html((string) $u['name'], (string) $u['email'], 'sm me-2') ?><span class="text-truncate flex-grow-1"><?= te('shared.my_box') ?></span><span class="m4w-new-badge ms-2<?= $boxCounts[0] ? '' : ' d-none' ?>" data-box-unread="0"><?= (int) $boxCounts[0] ?></span></button></form>
         <?php endif; ?>
         <?php foreach ($myBoxes as $mb): $mbn = $mb['display_name'] ?: $mb['email']; $isCur = $shared && (int) $shared['id'] === (int) $mb['id']; ?>
         <form method="post" action="<?= e(url('mailbox/switch')) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $mb['id'] ?>"><button class="dropdown-item<?= $isCur ? ' active' : '' ?>" type="submit"<?= $isCur ? ' aria-current="true"' : '' ?>><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($mb['email'])) ?>"><?= e(initials($mbn)) ?></span><span class="min-w-0 flex-grow-1"><span class="d-block text-truncate"><?= e($mbn) ?></span><small class="d-block text-truncate text-muted"><?= e($mb['email']) ?></small></span><span class="m4w-new-badge ms-2<?= (int) $mb['unread'] ? '' : ' d-none' ?>" data-box-unread="<?= (int) $mb['id'] ?>"><?= (int) $mb['unread'] ?></span></button></form>
@@ -149,7 +149,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <?php if ($delegatedTo || is_admin($u)): ?>
         <h6 class="dropdown-header"><?= te('deleg.mailboxes') ?></h6>
         <?php foreach ($delegatedTo as $d): $dn = $d['display_name'] ?: trim($d['first_name'] . ' ' . $d['last_name']) ?: $d['email']; ?>
-        <button class="dropdown-item" type="button" data-open-mailbox="<?= (int) $d['id'] ?>" data-name="<?= e($dn) ?>" data-email="<?= e($d['email']) ?>" data-reason="0"><span class="m4w-avatar sm me-2" style="background:<?= e(avatar_color($d['email'])) ?>"><?= e(initials($dn)) ?></span><span class="text-truncate"><?= e($dn) ?></span></button>
+        <button class="dropdown-item" type="button" data-open-mailbox="<?= (int) $d['id'] ?>" data-name="<?= e($dn) ?>" data-email="<?= e($d['email']) ?>" data-reason="0"><?= avatar_html((string) $dn, (string) $d['email'], 'sm me-2') ?><span class="text-truncate"><?= e($dn) ?></span></button>
         <?php endforeach; ?>
         <?php if (is_superadmin($u) && M4W\Service\Delegation::adminsByDefault()): ?>
         <a class="dropdown-item" href="<?= e(url('admin/users')) ?>"><i class="bi bi-person-badge"></i><?= te('deleg.open_other') ?></a>

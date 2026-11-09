@@ -6,10 +6,15 @@
   <?= csrf_field() ?>
   <div class="m4w-section">
     <div class="d-flex align-items-center gap-3 mb-4">
-      <span class="m4w-avatar xl" style="background:<?= e(avatar_color($u['email'])) ?>"><?= e(initials($u['name'])) ?></span>
+      <?= avatar_html((string) $u['name'], (string) $u['email'], 'xl') ?>
       <div>
         <div class="fw-semibold fs-5"><?= e($u['name']) ?></div>
         <div class="text-muted"><?= e($u['email']) ?></div>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          <label class="btn btn-light btn-sm mb-0"><i class="bi bi-camera me-1"></i><?= te((int) ($u['avatar_at'] ?? 0) ? 'avatar.change' : 'avatar.choose') ?><input type="file" class="d-none" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" form="avatar-form" data-avatar-input></label>
+          <?php if ((int) ($u['avatar_at'] ?? 0)): ?><button class="btn btn-light btn-sm" form="avatar-del"><i class="bi bi-trash me-1"></i><?= te('avatar.remove') ?></button><?php endif; ?>
+        </div>
+        <div class="small text-muted mt-1"><?= te('avatar.hint') ?></div>
         <div class="small text-muted mt-1"><?= e($u['job_title']) ?><?= $u['department'] ? ' · ' . e($u['department']) : '' ?> <i class="bi bi-info-circle ms-1" role="img" tabindex="0" data-bs-toggle="tooltip" title="<?= te('settings.admin_managed') ?>" aria-label="<?= te('settings.admin_managed') ?>"></i></div>
       </div>
     </div>
@@ -199,3 +204,5 @@
   <?php endif; ?>
 </div>
 <?php endif; ?>
+<form method="post" action="<?= e(url('settings/avatar')) ?>" enctype="multipart/form-data" id="avatar-form"><?= csrf_field() ?></form>
+<form method="post" action="<?= e(url('settings/avatar/delete')) ?>" id="avatar-del"><?= csrf_field() ?></form>

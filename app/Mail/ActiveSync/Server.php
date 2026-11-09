@@ -5,6 +5,9 @@ namespace M4W\Mail\ActiveSync;
 
 use M4W\Core\Database as DB;
 use M4W\Mail\ActiveSync\Wbxml as W;
+use M4W\Dav\CalDavBackend;
+use M4W\Dav\CardDavBackend;
+use M4W\Service\Calendar;
 use M4W\Service\Composer;
 use M4W\Service\Folders;
 use M4W\Service\Mailbox;
@@ -242,7 +245,7 @@ final class Server
             }
             $out[(string) $f['id']] = [Folders::displayName($f), $f['parent_id'] !== null ? (string) $f['parent_id'] : '0', self::TYPES[$f['role'] ?? ''] ?? 12];
         }
-        return $out;
+        return $out + $this->pimFolders();
     }
 
     private function folderNode(string $tag, string $id, array $f): array
@@ -309,8 +312,12 @@ final class Server
 
     // ------------------------------------------------------------------ messages
 
-    private function stamp(int $folderId): string
+    private function stamp(int|string $folderId): string
     {
+        if ($this->isPim((string) $folderId)) {
+            return $this->pimStamp((string) $folderId);
+        }
+        $folderId = (int) $folderId;
         $s = DB::one('SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s, COALESCE(SUM(is_read + 2 * is_flagged), 0) AS f FROM messages WHERE user_id = :u AND folder_id = :f',
             ['u' => $this->uid, 'f' => $folderId]);
         return implode('|', array_map('strval', (array) $s));
@@ -418,6 +425,9 @@ final class Server
 
     private function syncCollection(array $c, int $window): array
     {
+        if ($this->isPim(W::text($c, 'CollectionId'))) {
+            return $this->syncPim($c, $window);
+        }
         $fid = (int) W::text($c, 'CollectionId');
         $key = (int) W::text($c, 'SyncKey', '0');
         $window = max(1, min(100, (int) W::text($c, 'WindowSize', (string) $window)));
@@ -529,17 +539,253 @@ final class Server
     {
         $out = [];
         foreach (W::children(W::child($x, 'Collections'), 'Collection') as $c) {
-            $fid = (int) W::text($c, 'CollectionId');
+            $fid = W::text($c, 'CollectionId');
             $st = $this->state('F' . $fid);
             $have = $st['data'];
             $filter = (int) W::text(W::child($c, 'Options'), 'FilterType', (string) ($have['#filter'] ?? 0));
             unset($have['#filter']);
-            $now = $this->current($fid, $filter);
+            $pim = $this->isPim($fid);
+            if ($pim && !isset($this->pimFolders()[$fid])) {
+                $out[] = ['GetItemEstimate:Response', [['GetItemEstimate:Status', '2']]];
+                continue;
+            }
+            $now = $pim ? $this->pimItems($fid, $filter) : $this->current((int) $fid, $filter);
             $n = count(array_diff_key($have, $now)) + count(array_filter($now, static fn($sig, $id) => ($have[$id] ?? null) !== $sig, ARRAY_FILTER_USE_BOTH));
-            $out[] = ['GetItemEstimate:Response', [['GetItemEstimate:Status', Folders::find($this->uid, $fid) ? '1' : '2'],
+            $out[] = ['GetItemEstimate:Response', [['GetItemEstimate:Status', $pim || Folders::find($this->uid, (int) $fid) ? '1' : '2'],
                 ['GetItemEstimate:Collection', [['GetItemEstimate:CollectionId', (string) $fid], ['GetItemEstimate:Estimate', (string) $n]]]]];
         }
         return ['GetItemEstimate:GetItemEstimate', $out];
+    }
+
+    // ------------------------------------------------------------------ calendars and contacts
+
+    private ?CalDavBackend $caldav = null;
+    private ?CardDavBackend $carddav = null;
+    private ?array $pimFolders = null;
+
+    private function isPim(string $col): bool
+    {
+        return (bool) preg_match('/^(c\d+|k[12])$/', $col);
+    }
+
+    private function caldav(): CalDavBackend
+    {
+        return $this->caldav ??= new CalDavBackend($this->user);
+    }
+
+    private function carddav(): CardDavBackend
+    {
+        return $this->carddav ??= new CardDavBackend($this->user);
+    }
+
+    private function book(string $col): int
+    {
+        return $col === 'k1' ? CardDavBackend::MINE : CardDavBackend::DIRECTORY;
+    }
+
+    /** The calendars one sees (rooms aside: booked from events) and the two address books. */
+    private function pimFolders(): array
+    {
+        if ($this->pimFolders === null) {
+            $this->pimFolders = [];
+            $default = (int) Calendar::defaultFor($this->uid)['id'];
+            foreach (Calendar::forUser($this->user) as $id => $c) {
+                if ($c['kind'] === 'room') {
+                    continue;
+                }
+                $name = (string) $c['name'];
+                if (!$c['mine'] && $c['owner_id'] && ($o = \M4W\Service\Users::find((int) $c['owner_id']))) {
+                    $name .= ' (' . ($o['display_name'] ?: trim($o['first_name'] . ' ' . $o['last_name']) ?: $o['email']) . ')';
+                }
+                $this->pimFolders['c' . $id] = [$name, '0', (int) $id === $default ? 8 : 13];
+            }
+            $this->pimFolders['k1'] = [t('dav.my_contacts'), '0', 9];
+            $this->pimFolders['k2'] = [t('dav.directory'), '0', 14];
+        }
+        return $this->pimFolders;
+    }
+
+    private function pimStamp(string $col): string
+    {
+        if ($col[0] === 'c') {
+            return (string) DB::value('SELECT ctag FROM calendars WHERE id = :id', ['id' => (int) substr($col, 1)]);
+        }
+        $r = $col === 'k1'
+            ? DB::one('SELECT COUNT(*) n, MAX(updated_at) t, MAX(id) i FROM contacts WHERE user_id = :u AND auto_collected = 0', ['u' => $this->uid])
+            : DB::one("SELECT COUNT(*) n, MAX(updated_at) t, MAX(id) i FROM users WHERE status = 'active'");
+        return implode('|', array_map('strval', (array) $r));
+    }
+
+    /** @return array<string,string> item => version (events within the filter: 4 two weeks back… 0 all) */
+    private function pimItems(string $col, int $filter): array
+    {
+        if ($col[0] === 'c') {
+            $days = self::FILTER_DAYS[$filter] ?? 0;
+            $rows = DB::all("SELECT uri, etag FROM cal_objects WHERE calendar_id = :c AND component = 'VEVENT'" . ($days ? ' AND (last_occurrence >= :d OR last_occurrence = 0)' : '') . ' ORDER BY first_occurrence DESC, id DESC',
+                ['c' => (int) substr($col, 1)] + ($days ? ['d' => time() - $days * 86400] : []));
+            return array_column($rows, 'etag', 'uri');
+        }
+        return array_column($this->carddav()->getCards($this->book($col)), 'etag', 'uri');
+    }
+
+    private function pimNodes(string $col, string $id): ?array
+    {
+        try {
+            if ($col[0] === 'c') {
+                $o = Calendar::object((int) substr($col, 1), $id);
+                return $o ? Pim::eventNodes((string) $o['data'], date_default_timezone_get(), (string) $this->user['email']) : null;
+            }
+            $card = $this->carddav()->getCard($this->book($col), $id);
+            return $card ? Pim::contactNodes((string) $card['carddata']) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** What a device added or changed, stored as CalDAV and CardDAV would (rights, rooms). Returns the item. */
+    private function pimWrite(string $col, ?string $id, array $ad): string
+    {
+        CalDavBackend::$schedule = false; // the device sends its invitations itself
+        try {
+            if ($col[0] === 'c') {
+                $cal = (int) substr($col, 1);
+                $old = $id !== null ? Calendar::object($cal, $id) : null;
+                $uid = W::text($ad, 'Calendar:UID');
+                if (!$old && $id === null && $uid !== '') {
+                    $old = Calendar::objectByUid($cal, $uid); // already here (an invitation accepted…)
+                }
+                $id = $old ? (string) $old['uri'] : ($id ?? bin2hex(random_bytes(12)) . '.ics');
+                $ics = Pim::eventIcs($ad, $old ? (string) $old['data'] : null, date_default_timezone_get());
+                $old ? $this->caldav()->updateCalendarObject($cal, $id, $ics) : $this->caldav()->createCalendarObject($cal, $id, $ics);
+                return $id;
+            }
+            $book = $this->book($col);
+            $old = $id !== null ? $this->carddav()->getCard($book, $id) : null;
+            $id ??= 'eas-' . bin2hex(random_bytes(10)) . '.vcf';
+            $card = Pim::contactCard($ad, $old ? (string) $old['carddata'] : null);
+            $old ? $this->carddav()->updateCard($book, $id, $card) : $this->carddav()->createCard($book, $id, $card);
+            return $id;
+        } finally {
+            CalDavBackend::$schedule = true;
+        }
+    }
+
+    private function pimDelete(string $col, string $id): void
+    {
+        CalDavBackend::$schedule = false;
+        try {
+            $col[0] === 'c' ? $this->caldav()->deleteCalendarObject((int) substr($col, 1), $id) : $this->carddav()->deleteCard($this->book($col), $id);
+        } finally {
+            CalDavBackend::$schedule = true;
+        }
+    }
+
+    private function syncPim(array $c, int $window): array
+    {
+        $col = W::text($c, 'CollectionId');
+        $key = (int) W::text($c, 'SyncKey', '0');
+        $window = max(1, min(100, (int) W::text($c, 'WindowSize', (string) $window)));
+        if (!isset($this->pimFolders()[$col])) {
+            return ['AirSync:Collection', [['AirSync:SyncKey', (string) $key], ['AirSync:CollectionId', $col], ['AirSync:Status', '8']]];
+        }
+        $sk = 'F' . $col;
+        $st = $this->state($sk);
+        if ($key === 0) {
+            $this->save($sk, 1, [], [], '');
+            return ['AirSync:Collection', [['AirSync:SyncKey', '1'], ['AirSync:CollectionId', $col], ['AirSync:Status', '1']]];
+        }
+        if ($key === $st['key']) {
+            $have = $st['data'];
+        } elseif ($key === $st['key'] - 1) {
+            $have = $st['previous'];
+        } else {
+            return ['AirSync:Collection', [['AirSync:SyncKey', '0'], ['AirSync:CollectionId', $col], ['AirSync:Status', '3']]];
+        }
+        $filter = $col[0] === 'c' ? (int) W::text(W::child($c, 'Options'), 'FilterType', (string) ($st['data']['#filter'] ?? 0)) : 0;
+        unset($have['#filter']);
+        $versions = null;
+        $version = function (string $id) use ($col, &$versions): string {
+            $versions ??= $this->pimItems($col, 0);
+            return (string) ($versions[$id] ?? '');
+        };
+        $responses = [];
+        foreach ((array) (W::child($c, 'Commands')[1] ?? []) as $cmd) {
+            $short = substr($cmd[0], strpos($cmd[0], ':') + 1);
+            $sid = W::text($cmd, 'ServerId');
+            $id = str_contains($sid, ':') ? substr($sid, strpos($sid, ':') + 1) : $sid;
+            $ad = W::child($cmd, 'ApplicationData') ?? ['AirSync:ApplicationData', []];
+            try {
+                if ($short === 'Add') {
+                    $new = $this->pimWrite($col, null, $ad);
+                    $versions = null;
+                    $have[$new] = $version($new);
+                    $responses[] = ['AirSync:Add', [['AirSync:ClientId', W::text($cmd, 'ClientId')], ['AirSync:ServerId', $col . ':' . $new], ['AirSync:Status', '1']]];
+                } elseif ($short === 'Change') {
+                    $this->pimWrite($col, $id, $ad);
+                    $versions = null;
+                    $have[$id] = $version($id);
+                } elseif ($short === 'Delete') {
+                    $this->pimDelete($col, $id);
+                    unset($have[$id]);
+                } elseif ($short === 'Fetch') {
+                    $nodes = $this->pimNodes($col, $id);
+                    $responses[] = $nodes !== null ? ['AirSync:Fetch', [['AirSync:ServerId', $sid], ['AirSync:Status', '1'], ['AirSync:ApplicationData', $nodes]]]
+                        : ['AirSync:Fetch', [['AirSync:ServerId', $sid], ['AirSync:Status', '8']]];
+                }
+            } catch (\Throwable $e) {
+                // Read only (a shared calendar, the directory) or refused: the server's copy wins.
+                if ($short === 'Add') {
+                    $responses[] = ['AirSync:Add', [['AirSync:ClientId', W::text($cmd, 'ClientId')], ['AirSync:Status', '6']]];
+                } elseif ($short === 'Change') {
+                    $have[$id] = 'resend';
+                } elseif ($short === 'Delete') {
+                    unset($have[$id]); // sent again below
+                }
+            }
+        }
+        $commands = [];
+        $more = false;
+        if (W::text($c, 'GetChanges', '1') !== '0') {
+            $now = $this->pimItems($col, $filter);
+            $n = 0;
+            foreach (array_diff_key($have, $now) as $id => $_) {
+                if ($n++ >= $window) {
+                    $more = true;
+                    break;
+                }
+                $commands[] = ['AirSync:Delete', [['AirSync:ServerId', $col . ':' . $id]]];
+                unset($have[$id]);
+            }
+            foreach ($now as $id => $ver) {
+                $id = (string) $id;
+                if (($have[$id] ?? null) === $ver) {
+                    continue;
+                }
+                if ($n++ >= $window) {
+                    $more = true;
+                    break;
+                }
+                $nodes = $this->pimNodes($col, $id);
+                if ($nodes === null) {
+                    continue;
+                }
+                $commands[] = [isset($have[$id]) ? 'AirSync:Change' : 'AirSync:Add', [['AirSync:ServerId', $col . ':' . $id], ['AirSync:ApplicationData', $nodes]]];
+                $have[$id] = $ver;
+            }
+        }
+        $newKey = $st['key'] + 1;
+        $this->save($sk, $newKey, $have + ['#filter' => $filter], $st['data'], $more ? '' : $this->pimStamp($col));
+        $out = [['AirSync:SyncKey', (string) $newKey], ['AirSync:CollectionId', $col], ['AirSync:Status', '1']];
+        if ($commands) {
+            $out[] = ['AirSync:Commands', $commands];
+        }
+        if ($responses) {
+            $out[] = ['AirSync:Responses', $responses];
+        }
+        if ($more) {
+            $out[] = ['AirSync:MoreAvailable', ''];
+        }
+        return ['AirSync:Collection', $out];
     }
 
     // ------------------------------------------------------------------ Ping: waits for a change
@@ -548,7 +794,7 @@ final class Server
     {
         $saved = $this->state('ping')['data'];
         $heartbeat = $x ? (int) W::text($x, 'HeartbeatInterval', (string) ($saved['hb'] ?? 600)) : (int) ($saved['hb'] ?? 600);
-        $ids = $x && W::child($x, 'Folders') ? array_map(static fn($f) => (int) W::text($f, 'Id'), W::children(W::child($x, 'Folders'), 'Folder')) : (array) ($saved['ids'] ?? []);
+        $ids = $x && W::child($x, 'Folders') ? array_map(static fn($f) => W::text($f, 'Id'), W::children(W::child($x, 'Folders'), 'Folder')) : (array) ($saved['ids'] ?? []);
         if ($heartbeat < self::HEARTBEAT_MIN || $heartbeat > self::HEARTBEAT_MAX) {
             return ['Ping:Ping', [['Ping:Status', '5'], ['Ping:HeartbeatInterval', (string) max(self::HEARTBEAT_MIN, min(self::HEARTBEAT_MAX, $heartbeat))]]];
         }

@@ -69,6 +69,10 @@ $current = '';
 function test(string $name, callable $fn): void
 {
     global $pass, $fail, $current;
+    // M4W_TEST_ONLY=words: only the tests whose name holds them (while working on one).
+    if (($only = (string) getenv('M4W_TEST_ONLY')) !== '' && !str_contains($name, $only) && !str_starts_with($name, 'installer')) {
+        return;
+    }
     $current = $name;
     try {
         $fn();
@@ -2961,7 +2965,7 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
             }
             $out = '';
             while (strlen($out) < (int) ($hd['content-length'] ?? 0) && !feof($s)) {
-                $out .= fread($s, 65536);
+                $out .= fread($s, min(65536, (int) $hd['content-length'] - strlen($out))); // no more than sent: else it waits
             }
             fclose($s);
             return [$status, $hd, $out];
@@ -3049,6 +3053,94 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $rep = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid4]);
         ok($rep && str_contains(Mailbox::raw($rep), 'Bonjour Bob') && str_contains(Mailbox::raw($rep), 'Ma reponse'), 'the original quoted');
         eq((int) DB::value('SELECT is_answered FROM messages WHERE id = :i', ['i' => $mid]), 1, 'marked answered');
+        // ---- Calendars and contacts (Exchange account on a phone).
+        $calDefault = $folders['8'][0] ?? '';
+        ok($calDefault !== '' && isset($folders['9'][0], $folders['14'][0]), 'calendar, contacts and directory folders: ' . json_encode($folders));
+        $pimSync = static function (string $colId, string $key, array $commands = [], array $options = []) use ($eas, $W) {
+            $c = [['AirSync:SyncKey', $key], ['AirSync:CollectionId', $colId]];
+            if ($key !== '0') {
+                $c[] = ['AirSync:GetChanges', ''];
+            }
+            if ($options) {
+                $c[] = ['AirSync:Options', $options];
+            }
+            if ($commands) {
+                $c[] = ['AirSync:Commands', $commands];
+            }
+            return $W::child($W::child($eas('Sync', ['AirSync:Sync', [['AirSync:Collections', [['AirSync:Collection', $c]]]]]), 'Collections'), 'Collection');
+        };
+        $calId = (int) substr($calDefault, 1);
+        M4W\Service\Calendar::put($calId, 'web-1.ics', "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//t//t//FR\r\nBEGIN:VEVENT\r\nUID:web-1@test\r\nDTSTAMP:20261101T080000Z\r\nDTSTART:" . gmdate('Ymd', time() + 86400) . "T090000Z\r\nDTEND:" . gmdate('Ymd', time() + 86400) . "T100000Z\r\nSUMMARY:Réunion du web\r\nLOCATION:Salle A\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT10M\r\nDESCRIPTION:x\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+        $k = $W::text($pimSync($calDefault, '0'), 'SyncKey');
+        $r = $pimSync($calDefault, $k, [], [['AirSync:FilterType', '5']]);
+        $adds = $W::children($W::child($r, 'Commands'), 'Add');
+        $ev = $adds ? $W::child($adds[0], 'ApplicationData') : null;
+        $rec = $W::child($ev, 'Calendar:Recurrence');
+        ok($W::text($ev, 'Calendar:Subject') === 'Réunion du web' && $W::text($ev, 'Calendar:Location') === 'Salle A' && $W::text($ev, 'Calendar:Reminder') === '10'
+            && $W::text($rec, 'Calendar:Type') === '1' && $W::text($rec, 'Calendar:DayOfWeek') === '10' && $W::text($rec, 'Calendar:Occurrences') === '6'
+            && strlen((string) base64_decode($W::text($ev, 'Calendar:TimeZone'))) === 172, 'an event of the web on the phone: ' . json_encode($ev));
+        $k = $W::text($r, 'SyncKey');
+        // From the phone: an all-day event every month on the 3rd, with a reminder and a guest.
+        $tomorrow = new DateTimeImmutable('tomorrow', new DateTimeZone(date_default_timezone_get()));
+        $r = $pimSync($calDefault, $k, [['AirSync:Add', [['AirSync:ClientId', 'cl1'], ['AirSync:ApplicationData', [
+            ['Calendar:TimeZone', M4W\Mail\ActiveSync\Pim::timezone(date_default_timezone_get())], ['Calendar:AllDayEvent', '1'],
+            ['Calendar:StartTime', $tomorrow->setTimezone(new DateTimeZone('UTC'))->format('Ymd\THis\Z')], ['Calendar:EndTime', $tomorrow->modify('+1 day')->setTimezone(new DateTimeZone('UTC'))->format('Ymd\THis\Z')],
+            ['Calendar:Subject', 'Anniversaire'], ['Calendar:Reminder', '60'], ['Calendar:BusyStatus', '0'],
+            ['Calendar:Attendees', [['Calendar:Attendee', [['Calendar:Email', 'alice@ext.example'], ['Calendar:Name', 'Alice']]]]],
+            ['Calendar:Recurrence', [['Calendar:Type', '2'], ['Calendar:DayOfMonth', '3'], ['Calendar:Interval', '1']]],
+            ['AirSyncBase:Body', [['AirSyncBase:Type', '1'], ['AirSyncBase:Data', 'Gâteau']]]]]]]]);
+        $resp = $W::child($W::child($r, 'Responses'), 'Add');
+        $newEv = substr($W::text($resp, 'ServerId'), strlen($calDefault) + 1);
+        $ics = str_replace(["\r\n ", "\n "], '', (string) (M4W\Service\Calendar::object($calId, $newEv)['data'] ?? ''));
+        ok($W::text($resp, 'Status') === '1' && str_contains($ics, 'SUMMARY:Anniversaire') && str_contains($ics, 'DTSTART;VALUE=DATE:' . $tomorrow->format('Ymd'))
+            && str_contains($ics, 'RRULE:FREQ=MONTHLY;BYMONTHDAY=3') && str_contains($ics, 'TRIGGER:-PT60M') && str_contains($ics, 'TRANSP:TRANSPARENT')
+            && str_contains($ics, 'mailto:alice@ext.example') && str_contains($ics, 'DESCRIPTION:Gâteau'), 'an event of the phone in the calendar: ' . $ics);
+        ok(!$W::child($r, 'Commands'), 'not sent back to the phone');
+        $k = $W::text($r, 'SyncKey');
+        // Changed then deleted on the phone.
+        $r = $pimSync($calDefault, $k, [['AirSync:Change', [['AirSync:ServerId', $calDefault . ':' . $newEv], ['AirSync:ApplicationData', [['Calendar:Subject', 'Anniversaire de Léa'], ['Calendar:AllDayEvent', '1'],
+            ['Calendar:StartTime', $tomorrow->setTimezone(new DateTimeZone('UTC'))->format('Ymd\THis\Z')], ['Calendar:EndTime', $tomorrow->modify('+1 day')->setTimezone(new DateTimeZone('UTC'))->format('Ymd\THis\Z')]]]]]]);
+        $ics = str_replace(["\r\n ", "\n "], '', (string) (M4W\Service\Calendar::object($calId, $newEv)['data'] ?? ''));
+        ok(str_contains($ics, 'SUMMARY:Anniversaire de Léa') && str_contains($ics, 'mailto:alice@ext.example'), 'changed on the phone, the rest kept: ' . $ics);
+        $r = $pimSync($calDefault, $W::text($r, 'SyncKey'), [['AirSync:Delete', [['AirSync:ServerId', $calDefault . ':' . $newEv]]]]);
+        ok(M4W\Service\Calendar::object($calId, $newEv) === null, 'deleted on the phone');
+        $k = $W::text($r, 'SyncKey');
+        // Push: an event moved on the web is told by Ping.
+        M4W\Service\Calendar::put($calId, 'web-1.ics', str_replace('Réunion du web', 'Réunion déplacée', (string) M4W\Service\Calendar::object($calId, 'web-1.ics')['data']));
+        $ping = $eas('Ping', ['Ping:Ping', [['Ping:HeartbeatInterval', '120'], ['Ping:Folders', [['Ping:Folder', [['Ping:Id', $calDefault], ['Ping:Class', 'Calendar']]]]]]]);
+        eq($W::text($ping, 'Status'), '2', 'calendar change told by Ping');
+        $r = $pimSync($calDefault, $k);
+        eq($W::text($W::child($W::child($W::child($r, 'Commands'), 'Change'), 'ApplicationData'), 'Calendar:Subject'), 'Réunion déplacée', 'and sent as a change');
+        // Contacts: from the phone into the address book (the collected address taken over), and back.
+        $kc = $folders['9'][0];
+        DB::insert('contacts', ['user_id' => $uid, 'name' => '', 'email' => 'paul@ext.example', 'auto_collected' => 1, 'created_at' => time()]);
+        $k = $W::text($pimSync($kc, '0'), 'SyncKey');
+        $k = $W::text($pimSync($kc, $k), 'SyncKey');
+        $r = $pimSync($kc, $k, [['AirSync:Add', [['AirSync:ClientId', 'p1'], ['AirSync:ApplicationData', [['Contacts:FirstName', 'Paul'], ['Contacts:LastName', 'Martin'],
+            ['Contacts:Email1Address', '"Paul Martin" <paul@ext.example>'], ['Contacts:MobilePhoneNumber', '+33 6 12 34 56 78'], ['Contacts:CompanyName', 'Acme'], ['Contacts:JobTitle', 'Directeur']]]]]]);
+        $rows = DB::all("SELECT * FROM contacts WHERE user_id = :u AND LOWER(email) = 'paul@ext.example'", ['u' => $uid]);
+        ok(count($rows) === 1 && $rows[0]['name'] === 'Paul Martin' && $rows[0]['company'] === 'Acme' && (int) $rows[0]['auto_collected'] === 0 && str_contains((string) $rows[0]['vcard'], 'TITLE:Directeur'),
+            'contact of the phone, one card for the address: ' . json_encode($rows));
+        $k = $W::text($r, 'SyncKey');
+        M4W\Service\Contacts::save($uid, ['name' => 'Zoé Web', 'email' => 'zoe@ext.example', 'phone' => '0102030405', 'company' => '', 'notes' => 'Vue au salon']);
+        $r = $pimSync($kc, $k);
+        $ad = null;
+        foreach ($W::children($W::child($r, 'Commands'), 'Add') as $a) {
+            $ad = $W::text($W::child($a, 'ApplicationData'), 'Contacts:Email1Address') === 'zoe@ext.example' ? $W::child($a, 'ApplicationData') : $ad;
+        }
+        ok($ad && $W::text($ad, 'Contacts:FileAs') === 'Zoé Web' && $W::text($ad, 'Contacts:MobilePhoneNumber') === '0102030405' && $W::text($W::child($ad, 'AirSyncBase:Body'), 'Data') === 'Vue au salon', 'contact of the web on the phone');
+        // The directory: everyone of the webmail, read only (a change from the phone is undone).
+        $kd = $folders['14'][0];
+        $k = $W::text($pimSync($kd, '0'), 'SyncKey');
+        $r = $pimSync($kd, $k);
+        $dirCards = $W::children($W::child($r, 'Commands'), 'Add');
+        $bobCard = null;
+        foreach ($dirCards as $a) {
+            $bobCard = $W::text($W::child($a, 'ApplicationData'), 'Contacts:Email1Address') === 'bob@test.local' ? $a : $bobCard;
+        }
+        ok($bobCard !== null, 'the directory on the phone');
+        $r = $pimSync($kd, $W::text($r, 'SyncKey'), [['AirSync:Change', [['AirSync:ServerId', $W::text($bobCard, 'ServerId')], ['AirSync:ApplicationData', [['Contacts:FirstName', 'Pirate']]]]]]);
+        ok((bool) $W::child($W::child($r, 'Commands'), 'Change') && DB::value("SELECT first_name FROM users WHERE email = 'bob@test.local'") !== 'Pirate', 'directory read only: the server copy sent back');
         // IMAP still served on the same port.
         $c3 = $client();
         $c3->connect('bob@test.local', $pw);
@@ -3096,6 +3188,25 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $c->connect('bob@test.local', $pw);
         ok(isset($c->folders()['INBOX']), 'served again once lifted');
         $c->logout();
+        // Another instance knows the address too (a copy, another key: the password is not its own),
+        // listed first: the password is tried there, then here.
+        $cfg2 = require getenv('M4W_CONFIG');
+        $cfg2['app_key'] = base64_encode(random_bytes(32));
+        @mkdir($dir . '/other', 0700, true);
+        file_put_contents($dir . '/other/config.php', '<?php return ' . var_export($cfg2, true) . ';');
+        $mine = json_decode((string) file_get_contents($dir . '/instances/' . M4W\Service\MailGateway::instanceId() . '.json'), true);
+        file_put_contents($dir . '/instances/0000000000000000.json', json_encode(['config' => $dir . '/other/config.php', 'at' => time()] + $mine));
+        $c = $client();
+        $c->connect('bob@test.local', $pw);
+        ok(isset($c->folders()['INBOX']), 'the instance where the password is an app password');
+        $c->logout();
+        try {
+            $client()->connect('bob@test.local', 'nope-nope-nope');
+        } catch (RuntimeException) {
+        }
+        ok((bool) preg_match('/login refused for bob@test\.local \(not an app password of this account\) \[\S+ other, \S+ \S+\]/', (string) file_get_contents($dir . '/maild.log')), 'both named in the refusal: ' . substr((string) file_get_contents($dir . '/maild.log'), -600));
+        unlink($dir . '/instances/0000000000000000.json');
+        M4W\Service\MailGateway::unban('127.0.0.1');
     } finally {
         if ($pid > 0) {
             posix_kill($pid, SIGTERM);
@@ -5767,6 +5878,28 @@ test('app icon: the logo with an envelope of the primary colour, background afte
 
     @unlink("$dir/logo-aaaaaaaaaaaa.png"); @unlink("$dir/logo-bbbbbbbbbbbb.png"); @unlink("$dir/logo-cccccccccccc.png");
     Settings::setMany(array_combine($keys, $keep));
+});
+
+test('profile photo: a square JPEG kept, shown instead of initials, removed', function () use ($bob) {
+    $uid = (int) $bob['id'];
+    $im = imagecreatetruecolor(400, 300);
+    imagefill($im, 0, 0, imagecolorallocate($im, 200, 30, 30));
+    $src = tempnam(sys_get_temp_dir(), 'av');
+    imagepng($im, $src);
+    M4W\Service\Avatars::save($uid, $src);
+    $info = getimagesize(M4W\Service\Avatars::file($uid));
+    eq([$info[0], $info[1], $info[2]], [256, 256, IMAGETYPE_JPEG], 'square JPEG');
+    $html = (new ReflectionFunction('avatar_html'))->invoke('Bob', 'BOB@test.local', 'sm');
+    ok(str_contains($html, 'has-photo') && str_contains($html, 'api/avatar/' . $uid . '?v='), 'photo instead of initials: ' . $html);
+    file_put_contents($src, 'not a picture');
+    try {
+        M4W\Service\Avatars::save($uid, $src);
+        ok(false, 'anything accepted');
+    } catch (RuntimeException) {
+    }
+    M4W\Service\Avatars::delete($uid);
+    ok(!is_file(M4W\Service\Avatars::file($uid)) && (int) DB::value('SELECT avatar_at FROM users WHERE id = :i', ['i' => $uid]) === 0, 'removed');
+    unlink($src);
 });
 
 test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {

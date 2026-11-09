@@ -635,4 +635,80 @@
     }
     timer = setTimeout(check, +$box.data('active') ? 1000 : 30000);
   });
+  // Profile photo: sent as soon as it is chosen.
+  $(document).on('change', '[data-avatar-input]', function () {
+    var form = document.getElementById(this.getAttribute('form'));
+    if (this.files && this.files.length && form) { $(this).closest('label').addClass('disabled'); form.submit(); }
+  });
+  // Phone set-up: Exchange or IMAP first, then the steps, then what the server sees (live).
+  $('[data-sync-wizard]').each(function () {
+    var $w = $(this), data = null, timer = null, lastQ = '';
+    function setMode(mode, push) {
+      $w.attr('data-mode', mode);
+      $w.find('[data-sync-mode]').each(function () { this.setAttribute('aria-pressed', this.getAttribute('data-sync-mode') === mode ? 'true' : 'false'); });
+      $w.find('[data-sync-mode-field]').val(mode);
+      if (push && window.history.replaceState) {
+        var u = new URL(window.location.href); u.searchParams.set('mode', mode); u.hash = ''; window.history.replaceState(null, '', u.toString());
+      }
+      if (lastQ) answer(lastQ);
+    }
+    $w.on('click', '[data-sync-mode]', function () {
+      setMode(this.getAttribute('data-sync-mode'), true);
+      document.getElementById('step-password').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    $w.on('click', '[data-sync-switch]', function () { setMode('imap', true); document.getElementById('step-setup').scrollIntoView({ behavior: 'smooth' }); });
+    var $box = $w.find('[data-sync-diagnose]');
+    function render() {
+      var ev = data.events || [];
+      $box.find('[data-sync-events]').html(ev.length ? ev.map(function (e) {
+        var icon = e.kind === 'fail' ? 'bi-x-circle-fill text-danger' : 'bi-check-circle-fill text-success';
+        return '<li><i class="bi ' + icon + ' me-1"></i><span class="text-muted me-1">' + M4W.esc(e.time) + '</span>' + M4W.esc(e.text) + '</li>';
+      }).join('') : '<li class="text-muted">' + M4W.esc(M4W.t('sync_nothing_seen')) + '</li>');
+      if (data.banned) {
+        $box.find('[data-sync-events]').prepend('<li class="text-danger"><i class="bi bi-slash-circle me-1"></i>' + M4W.esc(M4W.t('sync_banned', { time: data.banned_until })) + '</li>');
+      }
+      if (lastQ) answer(lastQ);
+    }
+    function poll() {
+      clearTimeout(timer);
+      if (document.hidden || !$w.attr('data-mode')) { timer = setTimeout(poll, 4000); return; }
+      $.getJSON($box.data('sync-diagnose')).done(function (r) { data = r; render(); }).always(function () { timer = setTimeout(poll, 6000); });
+    }
+    function answer(q) {
+      lastQ = q;
+      $box.find('[data-sync-q]').removeClass('active').filter('[data-sync-q="' + q + '"]').addClass('active');
+      if (!data) return;
+      var eas = $w.attr('data-mode') === 'eas', seen = data.fails > 0 || Object.keys(data.logins || {}).length > 0;
+      var dev = (data.devices || [])[0], msg = [], offer = false, tone = 'info';
+      if (data.banned) { msg.push(M4W.t('sync_a_banned', { time: data.banned_until })); tone = 'danger'; }
+      if (!data.listening) msg.push(M4W.t('sync_a_down'));
+      if (q === 'password') {
+        if (data.fails > 0) { msg.push(M4W.t('sync_a_refused', { n: data.fails })); tone = 'warning'; }
+        else if (!seen) { msg.push(M4W.t('sync_a_not_here')); offer = eas; }
+        else msg.push(M4W.t('sync_a_accepted'));
+      } else if (q === 'server') {
+        if (!seen) { msg.push(M4W.t('sync_a_unreached')); offer = eas; }
+        else msg.push(M4W.t('sync_a_reached'));
+      } else if (q === 'error') {
+        if (eas && dev && dev.folders && !dev.mail) { msg.push(M4W.t('sync_a_app_stops', { device: dev.name })); offer = true; }
+        else if (data.fails > 0) { msg.push(M4W.t('sync_a_refused', { n: data.fails })); tone = 'warning'; }
+        else if (!seen) { msg.push(M4W.t('sync_a_unreached')); offer = eas; }
+        else { msg.push(M4W.t('sync_a_app_other')); offer = eas; }
+      } else if (q === 'nothing') {
+        if (eas && dev && dev.mail) {
+          var what = ['mail', 'calendar', 'contacts'].filter(function (k) { return dev[k]; }).map(function (k) { return M4W.t('sync_what_' + k); }).join(', ');
+          msg.push(M4W.t('sync_a_syncing', { device: dev.name, what: what }));
+          if (!dev.calendar || !dev.contacts) msg.push(M4W.t('sync_a_pim_hidden'));
+        } else if (!eas && data.logins && data.logins.imap) msg.push(M4W.t('sync_a_imap_ok'));
+        else if (!seen) { msg.push(M4W.t('sync_a_unreached')); offer = eas; }
+        else { msg.push(M4W.t('sync_a_app_other')); offer = eas; }
+      }
+      var html = msg.map(function (m) { return '<p class="mb-1">' + M4W.esc(m) + '</p>'; }).join('');
+      if (offer) html += '<button type="button" class="btn btn-light btn-sm mt-1" data-sync-switch><i class="bi bi-arrow-left-right me-1"></i>' + M4W.esc(M4W.t('sync_try_imap')) + '</button>';
+      $box.find('[data-sync-answer]').removeClass('d-none alert-info alert-warning alert-danger').addClass('alert-' + tone).html(html);
+    }
+    $box.on('click', '[data-sync-q]', function () { answer(this.getAttribute('data-sync-q')); });
+    if ($w.attr('data-mode')) setMode($w.attr('data-mode'), false);
+    poll();
+  });
 })(jQuery, window, document);

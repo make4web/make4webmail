@@ -2,10 +2,11 @@
 /** @var array $passwords @var ?array $created @var string $dav @var string $host @var array $user */
 $section = 'sync';
 $login = mb_strtolower($user['email']);
+$wizard = M4W\Service\MailGateway::enabled();
 ?>
 <div class="m4w-page-header"><div><h1><?= te('dav.title') ?></h1><p><?= te('dav.desc') ?></p></div></div>
 
-<?php if ($created): ?>
+<?php if ($created && !$wizard): ?>
 <div class="alert alert-success" role="status"><i class="bi bi-key"></i><div class="w-100">
   <div class="fw-semibold mb-1"><?= te('dav.created', ['name' => $created['name']]) ?></div>
   <div class="d-flex flex-wrap align-items-center gap-2"><code class="m4w-app-password fs-5" data-app-password><?= e($created['password']) ?></code>
@@ -14,24 +15,7 @@ $login = mb_strtolower($user['email']);
 </div></div>
 <?php endif; ?>
 
-<?php if (M4W\Service\MailGateway::enabled()): $mg = M4W\Service\MailGateway::config(); ?>
-<div class="card mb-4" id="imap">
-  <div class="card-header"><i class="bi bi-envelope-at me-2 text-primary"></i><?= te('maild.user_title') ?></div>
-  <div class="card-body">
-    <p class="small text-muted"><?= te('maild.user_desc') ?></p>
-    <dl class="m4w-dav-settings mb-2">
-      <dt><?= te('maild.user_in') ?></dt><dd><code><?= e($mg['host']) ?></code> · <?= te('maild.user_port', ['port' => (int) $mg['imap_port']]) ?> · SSL/TLS</dd>
-      <dt><?= te('maild.user_out') ?></dt><dd><code><?= e($mg['host']) ?></code> · <?= te('maild.user_port', ['port' => (int) $mg['smtp_port']]) ?> · SSL/TLS · <?= te('maild.user_auth') ?></dd>
-      <dt><?= te('dav.login') ?></dt><dd><code><?= e($login) ?></code></dd>
-      <dt><?= te('dav.password') ?></dt><dd><?= te('dav.password_hint') ?></dd>
-    </dl>
-    <p class="small text-muted"><?= te('maild.user_note') ?></p>
-    <div class="fw-semibold small mb-1"><i class="bi bi-lightning-charge me-1 text-primary"></i><?= te('maild.eas_title') ?></div>
-    <p class="small text-muted mb-1"><?= te('maild.eas_desc') ?></p>
-    <dl class="m4w-dav-settings mb-0"><dt><?= te('maild.eas_server') ?></dt><dd><code><?= e($mg['host']) ?>:<?= (int) $mg['imap_port'] ?></code> · SSL/TLS</dd></dl>
-  </div>
-</div>
-<?php endif; ?>
+<?php if (!$wizard): ?>
 <div class="row g-4">
   <div class="col-xl-6">
     <div class="card h-100">
@@ -81,6 +65,9 @@ $login = mb_strtolower($user['email']);
     </div>
   </div>
 </div>
+
+<?php endif; ?>
+<?php if ($wizard) { require __DIR__ . '/sync_wizard.php'; } ?>
 
 <?php $personal = array_filter(['teams', 'meet', 'zoom'], static fn($p) => M4W\Service\Meetings::mode($p) === 'personal'); ?>
 <?php if ($personal): ?>
