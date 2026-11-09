@@ -43,13 +43,18 @@ final class AppPasswords
     }
 
     /** @return ?array the user, if this is one of their app passwords (with throttling). */
+    /** Why the last check said no: locked (too many failures from this address), unknown, inactive, password. */
+    public static string $refusal = '';
+
     public static function check(string $email, string $pw, string $ip): ?array
     {
+        self::$refusal = '';
         $email = mb_strtolower(trim($email));
         $window = max(1, (int) Settings::get('security.lockout_minutes', 15)) * 60;
         $max = max(3, (int) Settings::get('security.max_attempts', 5));
         $fails = (int) DB::value("SELECT COUNT(*) FROM login_attempts WHERE ip = :ip AND email LIKE 'dav:%' AND success = 0 AND created_at > :t", ['ip' => $ip, 't' => time() - $window]);
         if ($fails >= $max * 4) {
+            self::$refusal = 'locked: ' . $fails . ' failures from this address in ' . ($window / 60) . ' min';
             return null;
         }
         $user = \M4W\Service\Users::findByEmail($email);
@@ -57,6 +62,7 @@ final class AppPasswords
             ? DB::one('SELECT id, last_used_at, last_ip FROM app_passwords WHERE user_id = :u AND hash = :h', ['u' => $user['id'], 'h' => self::hash($pw)])
             : null;
         if (!$row) {
+            self::$refusal = !$user ? 'unknown account' : ($user['status'] !== 'active' ? 'account ' . $user['status'] : 'not an app password of this account');
             DB::insert('login_attempts', ['ip' => $ip, 'email' => 'dav:' . $email, 'success' => 0, 'created_at' => time()]);
             usleep(random_int(200000, 500000));
             return null;

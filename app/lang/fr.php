@@ -2865,4 +2865,13 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'maild.eas_title' => 'Notifications immédiates : compte « Exchange » (recommandé sur téléphone)',
     'maild.eas_desc' => 'Gmail, Samsung Email et Outlook ne relèvent un compte IMAP que toutes les 15 minutes. Choisissez plutôt « Exchange » (ou « Microsoft Exchange ActiveSync ») en ajoutant le compte, avec votre adresse et un mot de passe d\'application : les nouveaux messages arrivent en quelques secondes. Le serveur est trouvé tout seul ; si l\'application le demande quand même :',
     'maild.eas_server' => 'Serveur Exchange',
+    'maild.bans_title' => 'Adresses bannies par le service (:n)',
+    'maild.bans_desc' => 'Après trop d\'échecs de connexion ou de sondages, une adresse est ignorée par le service, pour toutes les instances : 15 min, puis 1 h, 24 h et une semaine. Levez le bannissement d\'une adresse légitime (la vôtre, une box partagée) une fois la cause corrigée, par exemple un appareil qui garde un ancien mot de passe d\'application.',
+    'maild.ban_ip' => 'Adresse',
+    'maild.ban_until' => 'Jusqu\'au',
+    'maild.ban_why' => 'Cause',
+    'maild.ban_you' => 'vous',
+    'maild.unban' => 'Lever',
+    'maild.unbanned' => 'Bannissement levé pour :ip (et ses échecs de mot de passe d\'application oubliés).',
+    'maild.unban_bad' => 'Adresse invalide.',
 ];

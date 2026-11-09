@@ -297,6 +297,37 @@ final class MailGateway
         return !$free;
     }
 
+    /** @return array<string,array> the addresses banned now: ip => [until, level, why] */
+    public static function bans(): array
+    {
+        $bans = json_decode((string) @file_get_contents(self::dir() . '/bans.json'), true) ?: [];
+        $out = array_filter($bans, static fn($x) => (int) ($x['until'] ?? 0) > time());
+        uasort($out, static fn($a, $b) => (int) $b['until'] <=> (int) $a['until']);
+        return $out;
+    }
+
+    /** A ban lifted (the admin's own address, a household behind one box…): forgotten, level included. */
+    public static function unban(string $ip): bool
+    {
+        $h = @fopen(self::dir() . '/bans.json', 'c+');
+        if (!$h) {
+            return false;
+        }
+        flock($h, LOCK_EX);
+        $b = json_decode((string) stream_get_contents($h), true) ?: [];
+        $found = isset($b[$ip]);
+        unset($b[$ip]);
+        ftruncate($h, 0);
+        rewind($h);
+        fwrite($h, json_encode($b));
+        flock($h, LOCK_UN);
+        fclose($h);
+        // The failures of app passwords from there, too (they lock the address out on their own).
+        $plain = (string) preg_replace('/^::ffff:/', '', $ip);
+        DB::run("DELETE FROM login_attempts WHERE ip IN (:a, :b) AND email LIKE 'dav:%' AND success = 0", ['a' => $plain, 'b' => '::ffff:' . $plain]);
+        return $found;
+    }
+
     /** What the service says of itself (written every few seconds). */
     public static function status(): array
     {

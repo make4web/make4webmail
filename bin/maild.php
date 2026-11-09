@@ -104,6 +104,7 @@ function maild_fail(string $dir, string $ip, string $why, int $limit = 5): void
             $x['until'] = $now + [900, 3600, 86400, 604800][min(3, (int) $x['level'])];
             $x['level'] = (int) $x['level'] + 1;
             $x['fails'] = [];
+            $x['why'] = mb_substr($why, 0, 120);
             maild_log($dir, "$ip banned until " . date('c', $x['until']) . " ($why)");
         }
         $b[$ip] = $x;
@@ -206,7 +207,8 @@ function maild_login(string $dir, string $ip, string $email, string $pw, ?array 
         $user = \M4W\Mail\ImapServer::authenticate($email, $pw, $ip, $proto);
     }
     if (!$user) {
-        maild_log($dir, "$ip $proto login refused for " . substr($email, 0, 80) . ($found ? '' : ' (no instance knows it)'));
+        $why = $found ? (class_exists(\M4W\Dav\AppPasswords::class, false) ? \M4W\Dav\AppPasswords::$refusal : '') : 'no instance knows it';
+        maild_log($dir, "$ip $proto login refused for " . substr($email, 0, 80) . ($why !== '' ? " ($why)" : ''));
         maild_fail($dir, $ip, $proto . ' login ' . substr($email, 0, 80));
         sleep(random_int(2, 4)); // slow guessing down
         return null;
