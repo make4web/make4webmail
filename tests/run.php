@@ -2952,6 +2952,120 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         M4W\Service\MailGateway::$dir = null;
     }
 });
+test('mail apps certificate in one click: DNS name and Let\'s Encrypt proof through Cloudflare, every request signed', function () {
+    $dir = dirname(getenv('M4W_CONFIG')) . '/maild-acme';
+    @mkdir($dir, 0770, true);
+    M4W\Service\MailGateway::$dir = $dir;
+    $A = M4W\Service\Acme::class;
+    $host = 'webmail.test.example';
+    M4W\Service\MailGateway::saveConfig(['host' => $host]);
+    Settings::set('maild.acme_directory', 'https://acme.test/dir');
+    M4W\Service\Cloudflare::setToken(str_repeat('T', 40));
+    // Cloudflare: a zone, its records.
+    $records = [];
+    M4W\Service\Cloudflare::$transport = static function (string $m, string $url, ?array $body) use (&$records) {
+        $ok = static fn($r) => [200, json_encode(['success' => true, 'result' => $r])];
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+        if (str_ends_with($path, '/user/tokens/verify')) return $ok(['status' => 'active']);
+        if (str_ends_with($path, '/zones')) return $ok(($q['name'] ?? '') === 'test.example' ? [['id' => 'z1']] : []);
+        if (preg_match('#/dns_records/(\w+)$#', $path, $r)) {
+            if ($m === 'DELETE') { unset($records[$r[1]]); return $ok(['id' => $r[1]]); }
+            $records[$r[1]] = $body; return $ok(['id' => $r[1]]);
+        }
+        if (str_ends_with($path, '/dns_records') && $m === 'GET') {
+            $found = [];
+            foreach ($records as $k => $v) {
+                if ($v['type'] === $q['type'] && $v['name'] === $q['name']) $found[] = ['id' => $k] + $v;
+            }
+            return $ok($found);
+        }
+        if (str_ends_with($path, '/dns_records')) { $id = 'r' . count($records) . bin2hex(random_bytes(2)); $records[$id] = $body; return $ok(['id' => $id]); }
+        return [404, '{}'];
+    };
+    // Let's Encrypt: checks every signature, the proof in the DNS, signs the request.
+    $caKey = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    $caCert = openssl_csr_sign(openssl_csr_new(['commonName' => 'Fake LE'], $caKey), null, $caKey, 30);
+    $st = ['pub' => null, 'jwk' => null, 'nonce' => 1, 'token' => 'tok' . bin2hex(random_bytes(4)), 'auth' => 'pending', 'order' => 'pending', 'cert' => '', 'checked' => 0];
+    $A::$sleep = static fn() => null;
+    $A::$transport = static function (string $m, string $url, ?string $body) use (&$st, &$records, $caKey, $caCert, $host) {
+        $nonce = 'n' . ($st['nonce']++);
+        $h = ['replay-nonce' => $nonce];
+        if ($url === 'https://acme.test/dir') return [200, $h, json_encode(['newNonce' => 'https://acme.test/nonce', 'newAccount' => 'https://acme.test/acct', 'newOrder' => 'https://acme.test/order'])];
+        if ($m === 'HEAD') return [200, $h, ''];
+        $jws = json_decode((string) $body, true);
+        $prot = json_decode(base64_decode(strtr($jws['protected'], '-_', '+/')), true);
+        if (isset($prot['jwk'])) {
+            $st['jwk'] = $prot['jwk'];
+            $b = static fn($s) => base64_decode(strtr($s, '-_', '+/') . str_repeat('=', (4 - strlen($s) % 4) % 4));
+            $der = hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . "\x04" . $b($prot['jwk']['x']) . $b($prot['jwk']['y']);
+            $st['pub'] = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($der), 64) . "-----END PUBLIC KEY-----\n";
+        }
+        $raw = base64_decode(strtr($jws['signature'], '-_', '+/') . '==');
+        $int = static function (string $x) { $x = ltrim($x, "\0"); if (ord($x[0]) > 127) $x = "\0" . $x; return "\x02" . chr(strlen($x)) . $x; };
+        $sigDer = "\x30" . chr(strlen($int(substr($raw, 0, 32)) . $int(substr($raw, 32)))) . $int(substr($raw, 0, 32)) . $int(substr($raw, 32));
+        if (openssl_verify($jws['protected'] . '.' . $jws['payload'], $sigDer, $st['pub'], OPENSSL_ALGO_SHA256) !== 1 || $prot['url'] !== $url) {
+            return [400, $h, json_encode(['type' => 'urn:ietf:params:acme:error:malformed', 'detail' => 'bad signature'])];
+        }
+        $payload = $jws['payload'] === '' ? null : json_decode(base64_decode(strtr($jws['payload'], '-_', '+/') . '=='), true);
+        $thumb = rtrim(strtr(base64_encode(hash('sha256', json_encode(['crv' => $st['jwk']['crv'], 'kty' => 'EC', 'x' => $st['jwk']['x'], 'y' => $st['jwk']['y']]), true)), '+/', '-_'), '=');
+        switch ($url) {
+            case 'https://acme.test/acct': return [201, $h + ['location' => 'https://acme.test/acct/1'], '{"status":"valid"}'];
+            case 'https://acme.test/order': return [201, $h + ['location' => 'https://acme.test/order/1'], json_encode(['status' => 'pending', 'authorizations' => ['https://acme.test/authz/1'], 'finalize' => 'https://acme.test/finalize/1'])];
+            case 'https://acme.test/authz/1':
+                return [200, $h, json_encode(['status' => $st['auth'], 'identifier' => ['type' => 'dns', 'value' => $host], 'challenges' => [['type' => 'http-01', 'url' => 'x', 'token' => 'y'], ['type' => 'dns-01', 'url' => 'https://acme.test/chal/1', 'token' => $st['token']]]])];
+            case 'https://acme.test/chal/1':
+                $want = rtrim(strtr(base64_encode(hash('sha256', $st['token'] . '.' . $thumb, true)), '+/', '-_'), '=');
+                $st['auth'] = array_filter($records, static fn($r) => $r['type'] === 'TXT' && $r['name'] === '_acme-challenge.' . $host && $r['content'] === $want) ? 'valid' : 'invalid';
+                return [200, $h, '{"status":"processing"}'];
+            case 'https://acme.test/finalize/1':
+                $csr = "-----BEGIN CERTIFICATE REQUEST-----\n" . chunk_split(base64_encode(base64_decode(strtr($payload['csr'], '-_', '+/') . '=='))) . "-----END CERTIFICATE REQUEST-----\n";
+                $subject = openssl_csr_get_subject($csr);
+                if (($subject['CN'] ?? '') !== $host) return [400, $h, json_encode(['detail' => 'wrong name'])];
+                openssl_x509_export(openssl_csr_sign($csr, $caCert, $caKey, 90), $pem);
+                openssl_x509_export($caCert, $caPem);
+                $st['cert'] = $pem . $caPem;
+                return [200, $h, json_encode(['status' => 'valid', 'certificate' => 'https://acme.test/cert/1'])];
+            case 'https://acme.test/cert/1': return [200, $h, $st['cert']];
+        }
+        return [404, $h, '{}'];
+    };
+    try {
+        $A::setUp(true, '198.51.100.20');
+        $s = $A::status();
+        $last = end($s['steps']);
+        ok($last['state'] === 'ok' && !$s['running'], 'set up: ' . json_encode($s, JSON_UNESCAPED_UNICODE));
+        $a = array_values(array_filter($records, static fn($r) => $r['type'] === 'A'));
+        eq([$a[0]['name'] ?? '', $a[0]['content'] ?? '', $a[0]['proxied'] ?? null], [$host, '198.51.100.20', false], 'the service name, "DNS only"');
+        eq(array_filter($records, static fn($r) => $r['type'] === 'TXT'), [], 'the proof taken away afterwards');
+        $c = M4W\Service\MailGateway::config();
+        eq($c['cert'], $dir . '/cert/fullchain.pem');
+        $x = openssl_x509_parse((string) file_get_contents($c['cert']));
+        ok($x['subject']['CN'] === $host && openssl_x509_check_private_key((string) file_get_contents($c['cert']), (string) file_get_contents($c['key'])), 'the certificate and its key, for the service');
+        ok(str_starts_with($A::renewIfDue(), 'valid until'), 'not renewed while far from its end');
+        // A proof that does not match: said plainly, nothing replaced.
+        $st['auth'] = 'pending';
+        $st['token'] = 'other';
+        $before = (string) file_get_contents($c['cert']);
+        $orig = $A::$transport;
+        $A::$transport = static function ($m, $url, $body) use ($orig, &$st) {
+            $r = $orig($m, $url, $body);
+            if ($url === 'https://acme.test/chal/1') { $st['auth'] = 'invalid'; }
+            return $r;
+        };
+        $A::setUp(false);
+        $last = end($A::status()['steps']);
+        ok($last['state'] === 'fail', 'refused: told ' . $last['text']);
+        eq((string) file_get_contents($c['cert']), $before, 'the certificate in place kept');
+    } finally {
+        $A::$transport = null;
+        $A::$sleep = null;
+        M4W\Service\Cloudflare::$transport = null;
+        Settings::setMany(['maild.acme_directory' => '', 'maild.config' => '', 'maild.acme_host' => '']);
+        Settings::set('cloudflare.token', '');
+        M4W\Service\MailGateway::$dir = null;
+    }
+});
 test('hard bounces: an address that does not exist is never written to again, until an administrator removes it', function () use ($paul) {
     $H = M4W\Service\HardBounces::class;
     foreach (['SMTP 550 5.1.1 <a@x.fr>: Recipient address rejected: User unknown', '550 No such user here', 'SMTP 554 5.1.2 domain does not exist', '550 5.1.10 RESOLVER.ADR.RecipientNotFound'] as $a) {

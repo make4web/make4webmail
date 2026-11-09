@@ -818,6 +818,42 @@ final class AdminController extends Controller
         return $this->back('/admin/mail#maild', 'success', t('settings.saved'));
     }
 
+    /** One click: Cloudflare token kept, DNS name and certificate made in the background (AJAX). */
+    public function maildSetup(): Response
+    {
+        $r = $this->req;
+        $token = trim($r->str('cf_token'));
+        if ($token !== '') {
+            if (!preg_match('/^[A-Za-z0-9_\-]{30,80}$/', $token)) {
+                return $this->fail(t('cf.token_bad'));
+            }
+            \M4W\Service\Cloudflare::setToken($token);
+        }
+        if (\M4W\Service\Cloudflare::token() === '') {
+            return $this->fail(t('cf.token_missing'));
+        }
+        $ip = trim($r->str('ip'));
+        if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return $this->fail(t('acme.no_ip'));
+        }
+        if (is_valid_email($r->str('email'))) {
+            Settings::set('maild.acme_email', mb_strtolower($r->str('email')));
+        }
+        if (!function_exists('exec')) {
+            return $this->fail(t('health.watch_no_exec'));
+        }
+        \M4W\Core\Session::close();
+        \M4W\Service\Acme::start($r->bool('dns'), $ip);
+        Audit::log('admin.maild_setup');
+        return $this->ok(\M4W\Service\Acme::status());
+    }
+
+    public function maildSetupStatus(): Response
+    {
+        \M4W\Core\Session::close();
+        return $this->ok(\M4W\Service\Acme::status());
+    }
+
     public function saveMail(): Response
     {
         $r = $this->req;

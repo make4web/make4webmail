@@ -196,6 +196,25 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
       <div class="col-md-6"><label class="form-label" for="mg-key"><?= te('maild.key') ?></label><input class="form-control m4w-code" id="mg-key" name="key" value="<?= e($mg['key']) ?>"></div>
     </div>
     <div class="form-text"><?= te('maild.shared_hint') ?></div>
+    <div class="border rounded-3 p-3 mt-3" data-maild-setup>
+      <div class="fw-semibold mb-2"><i class="bi bi-magic me-1 text-primary"></i><?= te('cf.title') ?></div>
+      <p class="small text-muted"><?= te('cf.desc', ['host' => $mg['host']]) ?></p>
+      <ol class="small ps-3 mb-3">
+        <li class="mb-2"><?= te('cf.step1') ?> <a class="btn btn-light btn-sm ms-1" href="<?= e(M4W\Service\Cloudflare::TOKEN_PAGE) ?>" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i><?= te('cf.open') ?></a>
+          <div class="text-muted mt-1"><?= te('cf.step1_how') ?></div></li>
+        <li class="mb-2"><label for="cf-token"><?= te('cf.step2') ?></label>
+          <input class="form-control m4w-code mt-1" type="password" id="cf-token" name="cf_token" autocomplete="off" placeholder="<?= M4W\Service\Cloudflare::token() !== '' ? te('admin.links_sb_key_set') : te('cf.token_ph') ?>"></li>
+        <li class="mb-2"><?= te('cf.step3') ?>
+          <div class="row g-2 mt-1">
+            <div class="col-md-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="cf-dns" name="cf_dns" value="1" checked><label class="form-check-label" for="cf-dns"><?= te('cf.dns', ['host' => $mg['host']]) ?></label></div>
+              <input class="form-control form-control-sm mt-1" name="cf_ip" placeholder="<?= te('cf.ip_ph') ?>" aria-label="<?= te('cf.ip') ?>"></div>
+            <div class="col-md-6"><input class="form-control form-control-sm" type="email" name="cf_email" value="<?= e((string) (M4W\Core\Settings::get('maild.acme_email', '') ?: ($currentUser['email'] ?? ''))) ?>" aria-label="<?= te('cf.email') ?>"><div class="form-text"><?= te('cf.email') ?></div></div>
+          </div></li>
+      </ol>
+      <button type="button" class="btn btn-primary" data-maild-go><i class="bi bi-lightning-charge me-1"></i><?= te('cf.go') ?></button>
+      <ul class="list-unstyled small mt-3 mb-0" data-maild-steps></ul>
+      <p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle me-1"></i><?= te('cf.firewall', ['imap' => (int) $mg['imap_port'], 'smtp' => (int) $mg['smtp_port']]) ?></p>
+    </div>
     <details class="mt-3 small"><summary><?= te('maild.howto') ?></summary>
       <ol class="mt-2 mb-0">
         <li><?= te('maild.howto_dns', ['host' => $mg['host']]) ?></li>

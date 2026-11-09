@@ -542,6 +542,32 @@
     apply();
   }
 
+  // Mail apps: one click (Cloudflare token, DNS name, Let's Encrypt certificate), followed live.
+  $(function () {
+    var $box = $('[data-maild-setup]');
+    if (!$box.length) return;
+    var icon = { run: '<span class="spinner-border spinner-border-sm text-primary me-2"></span>', ok: '<i class="bi bi-check-circle-fill text-success me-2"></i>', fail: '<i class="bi bi-x-circle-fill text-danger me-2"></i>' };
+    function render(s) {
+      $box.find('[data-maild-steps]').html((s.steps || []).map(function (x) {
+        return '<li class="d-flex align-items-start mb-1">' + (icon[x.state] || '') + '<span class="' + (x.state === 'fail' ? 'text-danger' : '') + '">' + M4W.esc(x.text) + '</span></li>';
+      }).join(''));
+      $box.find('[data-maild-go]').prop('disabled', !!s.running);
+    }
+    function poll() {
+      M4W.get('admin/mail/maild/setup', {}, { silent: true, quiet: true }).done(function (s) {
+        render(s);
+        if (s.running) setTimeout(poll, 2000);
+        else if ((s.steps || []).length && s.steps[s.steps.length - 1].state === 'ok') setTimeout(function () { location.reload(); }, 2500);
+      });
+    }
+    $box.on('click', '[data-maild-go]', function () {
+      M4W.post('admin/mail/maild/setup', { cf_token: $box.find('[name=cf_token]').val(), dns: $box.find('[name=cf_dns]').is(':checked') ? 1 : 0, ip: $box.find('[name=cf_ip]').val(), email: $box.find('[name=cf_email]').val() })
+        .done(function (s) { $box.find('[name=cf_token]').val(''); render(s); setTimeout(poll, 1500); });
+    });
+    // A setting up already under way (page reloaded meanwhile): followed.
+    M4W.get('admin/mail/maild/setup', {}, { silent: true, quiet: true }).done(function (s) { render(s); if (s.running) setTimeout(poll, 2000); });
+  });
+
   // Backups: the list follows a backup under way (step, upload percentage), or one asked for
   // and waiting for the scheduled task, then shows how it ended.
   $(function () {
