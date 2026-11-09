@@ -2792,4 +2792,13 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'maild.eas_title' => 'Instant mail: an "Exchange" account (recommended on phones)',
     'maild.eas_desc' => 'Gmail, Samsung Email and Outlook only check an IMAP account every 15 minutes. Choose "Exchange" (or "Microsoft Exchange ActiveSync") instead when adding the account, with your address and an app password: new mail arrives within seconds. The server is found by itself; if the app asks anyway:',
     'maild.eas_server' => 'Exchange server',
+    'maild.bans_title' => 'Addresses banned by the service (:n)',
+    'maild.bans_desc' => 'After too many failed sign-ins or probes, an address is ignored by the service, for every instance: 15 min, then 1 h, 24 h and a week. Lift the ban of a legitimate address (yours, a shared box) once the cause is fixed, for instance a device still using an old app password.',
+    'maild.ban_ip' => 'Address',
+    'maild.ban_until' => 'Until',
+    'maild.ban_why' => 'Cause',
+    'maild.ban_you' => 'you',
+    'maild.unban' => 'Lift',
+    'maild.unbanned' => 'Ban lifted for :ip (and its app password failures forgotten).',
+    'maild.unban_bad' => 'Invalid address.',
 ];

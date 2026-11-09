@@ -3087,6 +3087,15 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         }
         $bans = json_decode((string) file_get_contents($dir . '/bans.json'), true);
         ok((int) ($bans['127.0.0.1']['until'] ?? 0) > time() + 800, 'banned 15 min');
+        // The log says why a sign-in was refused; the admin lists the bans and lifts one.
+        ok(str_contains((string) file_get_contents($dir . '/maild.log'), 'login refused for bob@test.local (not an app password of this account)'), 'refusal explained');
+        ok(isset(M4W\Service\MailGateway::bans()['127.0.0.1']), 'listed for the admin');
+        ok(M4W\Service\MailGateway::unban('127.0.0.1') && !isset(M4W\Service\MailGateway::bans()['127.0.0.1']), 'ban lifted');
+        usleep(5500000); // read again by the service
+        $c = $client();
+        $c->connect('bob@test.local', $pw);
+        ok(isset($c->folders()['INBOX']), 'served again once lifted');
+        $c->logout();
     } finally {
         if ($pid > 0) {
             posix_kill($pid, SIGTERM);

@@ -905,6 +905,17 @@ final class AdminController extends Controller
         return $this->ok(['records' => \M4W\Service\MailGateway::dnsChecks(), 'api' => true, 'message' => t('cf.dns_fixed', ['n' => count($done)])]);
     }
 
+    public function maildUnban(): Response
+    {
+        $ip = trim($this->req->str('ip'));
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $this->back('/admin/mail#maild-bans', 'danger', t('maild.unban_bad'));
+        }
+        \M4W\Service\MailGateway::unban($ip);
+        Audit::log('admin.maild_unban', $ip);
+        return $this->back('/admin/mail#maild-bans', 'success', t('maild.unbanned', ['ip' => preg_replace('/^::ffff:/', '', $ip)]));
+    }
+
     public function maildSetupStatus(): Response
     {
         \M4W\Core\Session::close();

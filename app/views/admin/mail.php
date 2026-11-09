@@ -228,6 +228,19 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
         <tbody data-maild-dns-rows><tr><td colspan="4" class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span><?= te('cf.dns_checking') ?></td></tr></tbody></table></div>
       <div class="small" data-maild-dns-result></div>
     </div>
+    <?php $bans = \M4W\Service\MailGateway::bans(); $myIp = \M4W\Core\Request::fromGlobals()->ip(); if ($bans): ?>
+    <div class="border border-warning rounded-3 p-3 mt-3" id="maild-bans">
+      <div class="fw-semibold mb-1"><i class="bi bi-slash-circle me-1 text-warning"></i><?= te('maild.bans_title', ['n' => count($bans)]) ?></div>
+      <p class="small text-muted mb-2"><?= te('maild.bans_desc') ?></p>
+      <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th><?= te('maild.ban_ip') ?></th><th><?= te('maild.ban_until') ?></th><th><?= te('maild.ban_why') ?></th><th></th></tr></thead><tbody>
+      <?php foreach ($bans as $ip => $x): ?>
+        <tr><td><code><?= e(preg_replace("/^::ffff:/", "", (string) $ip)) ?></code><?= in_array((string) $ip, [$myIp, "::ffff:" . $myIp], true) ? ' <span class="badge text-bg-info">' . te('maild.ban_you') . '</span>' : '' ?></td>
+          <td><?= e(date('d/m H:i', (int) $x['until'])) ?></td><td class="text-muted"><?= e((string) ($x['why'] ?? '')) ?></td>
+          <td class="text-end"><button class="btn btn-light btn-sm" form="maild-unban" name="ip" value="<?= e((string) $ip) ?>"><i class="bi bi-unlock me-1"></i><?= te('maild.unban') ?></button></td></tr>
+      <?php endforeach; ?>
+      </tbody></table></div>
+    </div>
+    <?php endif; ?>
     <details class="mt-3 small"><summary><?= te('maild.howto') ?></summary>
       <ol class="mt-2 mb-0">
         <li><?= te('maild.howto_dns', ['host' => $mg['host']]) ?></li>
@@ -245,6 +258,7 @@ sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials /root/.secre
     <button class="btn btn-primary mt-3"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button>
   </div>
 </form>
+<form method="post" action="<?= e(url('admin/mail/maild/unban')) ?>" id="maild-unban"><?= csrf_field() ?></form>
 <form method="post" action="<?= e(url('admin/mail/dkim')) ?>" id="dkim-gen" data-confirm="<?= te('admin.dkim_confirm') ?>"><?= csrf_field() ?></form>
 <div class="modal fade" id="test-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><form class="modal-content" data-test-mail data-no-busy>
