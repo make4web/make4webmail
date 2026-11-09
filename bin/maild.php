@@ -514,6 +514,7 @@ function maild_http($c, string $ip, array $cfg, string $dir, string $first): voi
             'MS-ASProtocolCommands' => 'Sync,SendMail,SmartForward,SmartReply,GetAttachment,FolderSync,FolderCreate,FolderDelete,FolderUpdate,MoveItems,GetItemEstimate,Search,Settings,Ping,ItemOperations,Provision'];
         if ($user === null || $email !== $login) {
             if ($email === '' || $user !== null) {
+                maild_log($dir, "$ip activesync $method → 401 (" . ($email === '' ? 'no credentials' : 'another account on this connection: ' . substr($email, 0, 80)) . ')');
                 maild_http_reply($c, 401, ['WWW-Authenticate' => 'Basic realm="ActiveSync"'], '');
                 if ($user !== null) {
                     return;
@@ -535,15 +536,18 @@ function maild_http($c, string $ip, array $cfg, string $dir, string $first): voi
             continue;
         }
         $q = \M4W\Mail\ActiveSync\Server::query((string) parse_url($target, PHP_URL_QUERY), $h);
+        $t0 = microtime(true);
         try {
             [$code, $rh, $out] = (new \M4W\Mail\ActiveSync\Server($user, $ip))->handle($q, $h, $body);
         } catch (\Throwable $e) {
-            maild_log($dir, "$ip activesync error: " . $e->getMessage());
+            maild_log($dir, "$ip activesync error: " . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
             [$code, $rh, $out] = [500, [], ''];
         }
-        if ($code >= 400 || $n === 0) {
-            maild_log($dir, "$ip activesync " . ($q['Cmd'] ?? $method) . " → $code (" . mb_substr($h['user-agent'] ?? '', 0, 60) . ')');
-        }
+        // Every request, in one line: what the phone asked, what it got (status inside the answer).
+        $asked = str_contains($h['content-type'] ?? '', 'wbxml') ? \M4W\Mail\ActiveSync\Server::summary($body, false) : '';
+        $inner = str_contains((string) ($rh['Content-Type'] ?? ''), 'wbxml') ? \M4W\Mail\ActiveSync\Server::summary($out) : '';
+        maild_log($dir, "$ip activesync " . ($q['Cmd'] ?? $method) . ($asked !== '' ? " $asked" : '') . " → $code" . ($inner !== '' ? " $inner" : '') . ' ' . round(microtime(true) - $t0, 1) . 's'
+            . ($n === 0 ? ' (' . mb_substr($h['user-agent'] ?? '', 0, 60) . ', ' . ($h['ms-asprotocolversion'] ?? '?') . ')' : ''));
         maild_http_reply($c, $code, $rh + $headers, $out);
     }
 }
@@ -690,7 +694,7 @@ while (!$stop) {
             $banCache = ['at' => time(), 'bans' => maild_bans($dir)];
         }
         $perIp = count(array_filter($children, static fn($x) => $x === $ip));
-        if ((int) ($banCache['bans'][$ip]['until'] ?? 0) > time() || maild_listed($blocked, $ip) || $perIp >= 10 || count($children) >= 300) {
+        if ((int) ($banCache['bans'][$ip]['until'] ?? 0) > time() || maild_listed($blocked, $ip) || $perIp >= 30 || count($children) >= 300) {
             fclose($c); // not a word
             continue;
         }

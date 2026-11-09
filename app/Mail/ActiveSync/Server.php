@@ -42,6 +42,39 @@ final class Server
         return ['MS-Server-ActiveSync' => '14.1', 'MS-ASProtocolVersions' => self::VERSIONS, 'MS-ASProtocolCommands' => self::COMMANDS, 'Allow' => 'OPTIONS,POST', 'Public' => 'OPTIONS,POST'];
     }
 
+    /** For the service's log: the statuses inside an answer and how many items it carries. */
+    public static function summary(string $wbxml, bool $answer = true): string
+    {
+        $doc = W::decode($wbxml);
+        if ($doc === null) {
+            return '';
+        }
+        $st = [];
+        $n = ['Add' => 0, 'Change' => 0, 'Delete' => 0];
+        $walk = static function (array $node) use (&$walk, &$st, &$n): void {
+            $short = substr($node[0], strrpos($node[0], ':') + 1);
+            if ($short === 'Status' && is_string($node[1])) {
+                $st[] = $node[1];
+            }
+            if (isset($n[$short]) && is_array($node[1])) {
+                $n[$short]++;
+            }
+            if (is_array($node[1]) && !isset($node[1]['opaque'])) {
+                foreach ($node[1] as $c) {
+                    if (is_array($c)) {
+                        $walk($c);
+                    }
+                }
+            }
+        };
+        $walk($doc);
+        $items = implode(' ', array_map(static fn($k, $v) => "$k $v", array_keys(array_filter($n)), array_filter($n)));
+        if (!$answer) {
+            return $items !== '' ? '{' . $items . '}' : '';
+        }
+        return '[status ' . implode(',', array_unique($st) ?: ['-']) . ($items !== '' ? '; ' . $items : '') . ']';
+    }
+
     /** Command codes of the encoded query (MS-ASHTTP 2.2.1.1.1.1.2). */
     private const CMD_CODES = [0 => 'Sync', 1 => 'SendMail', 2 => 'SmartForward', 3 => 'SmartReply', 4 => 'GetAttachment', 9 => 'FolderSync',
         10 => 'FolderCreate', 11 => 'FolderDelete', 12 => 'FolderUpdate', 13 => 'MoveItems', 14 => 'GetItemEstimate', 15 => 'MeetingResponse',
@@ -140,7 +173,12 @@ final class Server
             DB::update('eas_devices', $data, 'id = :id', ['id' => $row['id']]);
             $this->device = (int) $row['id'];
         } else {
-            $this->device = DB::insert('eas_devices', $data + ['user_id' => $this->uid, 'device_id' => $id, 'created_at' => time()]);
+            try {
+                $this->device = DB::insert('eas_devices', $data + ['user_id' => $this->uid, 'device_id' => $id, 'created_at' => time()]);
+            } catch (\PDOException) {
+                // The phone opens several connections at once: another one created it meanwhile.
+                $this->device = (int) DB::value('SELECT id FROM eas_devices WHERE user_id = :u AND device_id = :d', ['u' => $this->uid, 'd' => $id]);
+            }
         }
     }
 
@@ -156,8 +194,17 @@ final class Server
     private function save(string $collection, int $key, array $data, array $previous, string $stamp = ''): void
     {
         $row = ['sync_key' => $key, 'data' => json_encode($data), 'previous' => json_encode($previous), 'stamp' => $stamp, 'updated_at' => time()];
-        if (!DB::update('eas_states', $row, 'device = :d AND collection = :c', ['d' => $this->device, 'c' => $collection])) {
+        // Not "update, else insert": MariaDB counts the rows changed, not those found, so an
+        // unchanged state would be inserted twice. And parallel requests of one phone may race.
+        $where = ['d' => $this->device, 'c' => $collection];
+        if (DB::value('SELECT 1 FROM eas_states WHERE device = :d AND collection = :c', $where)) {
+            DB::update('eas_states', $row, 'device = :d AND collection = :c', $where);
+            return;
+        }
+        try {
             DB::insert('eas_states', $row + ['device' => $this->device, 'collection' => $collection]);
+        } catch (\PDOException) {
+            DB::update('eas_states', $row, 'device = :d AND collection = :c', $where);
         }
     }
 
