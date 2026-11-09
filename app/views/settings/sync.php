@@ -14,6 +14,20 @@ $login = mb_strtolower($user['email']);
 </div></div>
 <?php endif; ?>
 
+<?php if (M4W\Service\MailGateway::enabled()): $mg = M4W\Service\MailGateway::config(); ?>
+<div class="card mb-4" id="imap">
+  <div class="card-header"><i class="bi bi-envelope-at me-2 text-primary"></i><?= te('maild.user_title') ?></div>
+  <div class="card-body">
+    <p class="small text-muted"><?= te('maild.user_desc') ?></p>
+    <dl class="m4w-dav-settings mb-2">
+      <dt><?= te('maild.user_in') ?></dt><dd><code><?= e($mg['host']) ?></code> · <?= te('maild.user_port', ['port' => (int) $mg['imap_port']]) ?> · SSL/TLS</dd>
+      <dt><?= te('dav.login') ?></dt><dd><code><?= e($login) ?></code></dd>
+      <dt><?= te('dav.password') ?></dt><dd><?= te('dav.password_hint') ?></dd>
+    </dl>
+    <p class="small text-muted mb-0"><?= te('maild.user_note') ?></p>
+  </div>
+</div>
+<?php endif; ?>
 <div class="row g-4">
   <div class="col-xl-6">
     <div class="card h-100">

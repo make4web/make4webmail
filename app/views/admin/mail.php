@@ -175,6 +175,37 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
   </div>
   <div class="m4w-sticky-actions"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button></div>
 </form>
+<?php $mg = M4W\Service\MailGateway::config(); $ms = M4W\Service\MailGateway::status(); ?>
+<form method="post" action="<?= e(url('admin/mail/maild')) ?>" class="card mb-4" id="maild"><?= csrf_field() ?>
+  <div class="card-header"><i class="bi bi-phone me-2 text-primary"></i><?= te('maild.title') ?></div>
+  <div class="card-body">
+    <p class="small text-muted"><?= te('maild.desc') ?></p>
+    <?php if (M4W\Service\MailGateway::enabled()): ?>
+    <div class="alert alert-<?= !empty($ms['listening']) ? 'success' : ($ms['running'] ? 'warning' : 'danger') ?> small"><i class="bi bi-<?= !empty($ms['listening']) ? 'check2-circle' : 'exclamation-triangle' ?>"></i><div>
+      <?= !empty($ms['listening']) ? te('maild.state_on', ['host' => $mg['host'], 'port' => (int) $mg['imap_port'], 'n' => (int) $ms['instances'], 'c' => (int) ($ms['connections'] ?? 0)])
+        : ($ms['running'] ? te('maild.state_error', ['error' => (string) ($ms['error'] ?? '')]) : te('maild.state_off')) ?>
+      <?php if ($ms['cert_expiry']): ?><div><?= te('maild.cert_until', ['date' => format_datetime((int) $ms['cert_expiry'], false)]) ?></div><?php elseif (!$ms['cert_readable'] || !$ms['key_readable']): ?><div><?= te('maild.cert_missing', ['cert' => $mg['cert']]) ?></div><?php endif; ?>
+    </div></div>
+    <?php endif; ?>
+    <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="mg-on" <?= M4W\Service\MailGateway::enabled() ? 'checked' : '' ?>><label class="form-check-label" for="mg-on"><?= te('maild.enable') ?></label></div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label" for="mg-host"><?= te('maild.host') ?></label><input class="form-control m4w-code" id="mg-host" name="host" value="<?= e($mg['host']) ?>"></div>
+      <div class="col-md-3"><label class="form-label" for="mg-port"><?= te('maild.imap_port') ?></label><input class="form-control" type="number" min="1024" max="65535" id="mg-port" name="imap_port" value="<?= (int) $mg['imap_port'] ?>"></div>
+      <div class="col-md-6"><label class="form-label" for="mg-cert"><?= te('maild.cert') ?></label><input class="form-control m4w-code" id="mg-cert" name="cert" value="<?= e($mg['cert']) ?>"></div>
+      <div class="col-md-6"><label class="form-label" for="mg-key"><?= te('maild.key') ?></label><input class="form-control m4w-code" id="mg-key" name="key" value="<?= e($mg['key']) ?>"></div>
+    </div>
+    <div class="form-text"><?= te('maild.shared_hint') ?></div>
+    <details class="mt-3 small"><summary><?= te('maild.howto') ?></summary>
+      <ol class="mt-2 mb-0">
+        <li><?= te('maild.howto_dns', ['host' => $mg['host']]) ?></li>
+        <li><?= te('maild.howto_fw', ['port' => (int) $mg['imap_port']]) ?></li>
+        <li><?= te('maild.howto_cert') ?><pre class="m4w-help-code mt-1"><code>sudo certbot certonly --webroot -w <?= e(M4W_ROOT) ?>/public -d <?= e($mg['host']) ?> --deploy-hook "chgrp -R www-data /etc/letsencrypt/live /etc/letsencrypt/archive &amp;&amp; chmod -R g+rX /etc/letsencrypt/live /etc/letsencrypt/archive"</code></pre></li>
+        <li><?= te('maild.howto_users') ?></li>
+      </ol>
+    </details>
+    <button class="btn btn-primary mt-3"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button>
+  </div>
+</form>
 <form method="post" action="<?= e(url('admin/mail/dkim')) ?>" id="dkim-gen" data-confirm="<?= te('admin.dkim_confirm') ?>"><?= csrf_field() ?></form>
 <div class="modal fade" id="test-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered"><form class="modal-content" data-test-mail data-no-busy>

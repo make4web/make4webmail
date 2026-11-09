@@ -2792,6 +2792,110 @@ test('own mailbox: mail delivered here directly (a colleague of the server) is c
     eq((int) DB::value('SELECT COUNT(*) FROM provider_copies'), 0);
 });
 
+test('IMAP for mail apps: shared service, the right name only, app password, folders and marks both ways, IDLE, bans', function () use ($bob) {
+    $dir = dirname(getenv('M4W_CONFIG')) . '/maild';
+    M4W\Service\MailGateway::$dir = $dir;
+    @mkdir($dir, 0770, true);
+    // A certificate for the shared name (Let's Encrypt in real life).
+    $k = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    $crt = openssl_csr_sign(openssl_csr_new(['commonName' => 'webmail.test'], $k), null, $k, 2);
+    openssl_x509_export_to_file($crt, $dir . '/cert.pem');
+    openssl_pkey_export_to_file($k, $dir . '/key.pem');
+    $port = random_int(52000, 53000);
+    Settings::set('maild.enabled', 1);
+    M4W\Service\MailGateway::saveConfig(['host' => 'webmail.test', 'imap_port' => $port, 'cert' => $dir . '/cert.pem', 'key' => $dir . '/key.pem']);
+    $uid = (int) $bob['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $mk = static fn(string $subj) => "From: Client <client@ext.example>\nTo: bob@test.local\nSubject: $subj\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.example>\nDate: " . date('r') . "\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"b1\"\n\n--b1\nContent-Type: text/plain; charset=utf-8\n\nBonjour Bob\n--b1\nContent-Type: application/pdf; name=\"devis.pdf\"\nContent-Disposition: attachment; filename=\"devis.pdf\"\nContent-Transfer-Encoding: base64\n\nJVBERi0xLjQK\n--b1--\n";
+    $id1 = Mailbox::store($uid, $inbox, $mk('Premier'));
+    $pw = M4W\Dav\AppPasswords::create($uid, 'Téléphone');
+    eq(M4W\Service\MailGateway::tick(), 'registered, started');
+    $pid = 0;
+    try {
+        for ($i = 0; $i < 50 && !(json_decode((string) @file_get_contents($dir . '/maild-status.json'), true)['listening'] ?? false); $i++) {
+            usleep(100000);
+        }
+        ok(M4W\Service\MailGateway::running(), 'started by the scheduled task: ' . @file_get_contents($dir . '/maild.log'));
+        $pid = (int) trim((string) file_get_contents($dir . '/maild.lock'));
+        eq(M4W\Service\MailGateway::tick(), 'registered, running', 'one service for the server');
+        $client = static fn() => new M4W\Mail\ImapClient('webmail.test', $port, 'ssl', 10, false, '127.0.0.1');
+        // A scanner by address (no name, or another one): nothing, not even a greeting.
+        $probe = new M4W\Mail\ImapClient('127.0.0.1', $port, 'ssl', 5, false);
+        try {
+            $probe->connect('x', 'y');
+            ok(false, 'answered a scanner');
+        } catch (RuntimeException) {
+        }
+        // The account password is refused; an app password opens the mailbox.
+        $c = $client();
+        try {
+            $c->connect('bob@test.local', 'Secret!Pass123');
+            ok(false, 'account password accepted');
+        } catch (RuntimeException) {
+        }
+        $c = $client();
+        $c->connect('bob@test.local', $pw);
+        $folders = $c->folders();
+        ok(isset($folders['INBOX'], $folders['Sent'], $folders['Trash'], $folders['Junk']) && str_contains($folders['Sent'], '\\Sent'), 'the webmail folders, with their roles: ' . json_encode($folders));
+        $sel = $c->select('INBOX');
+        eq($sel['exists'], (int) DB::value('SELECT COUNT(*) FROM messages WHERE folder_id = :f', ['f' => $inbox]));
+        $uids = $c->searchUidsAbove(0);
+        $u1 = (int) DB::value('SELECT imap_uid FROM messages WHERE id = :id', ['id' => $id1]);
+        ok(in_array($u1, $uids, true), 'UIDs given');
+        $raw = (string) $c->fetchRaw($u1);
+        ok(str_contains($raw, "Subject: Premier\r\n") && str_contains($raw, 'devis.pdf'), 'the whole message, CRLF');
+        // Marks both ways.
+        $c->storeFlags($u1, true, ['\\Seen', '\\Flagged']);
+        eq([(int) DB::value('SELECT is_read FROM messages WHERE id = :id', ['id' => $id1]), (int) DB::value('SELECT is_flagged FROM messages WHERE id = :id', ['id' => $id1])], [1, 1], 'read and flagged in the webmail');
+        // Filed in the phone: filed in the webmail; a folder made there exists here.
+        $c->createFolder('Projets/Lune');
+        $proj = DB::one("SELECT * FROM folders WHERE user_id = :u AND name = 'Lune'", ['u' => $uid]);
+        ok($proj && (int) DB::value('SELECT COUNT(*) FROM folders WHERE id = :p AND name = :n', ['p' => $proj['parent_id'], 'n' => 'Projets']) === 1, 'folder tree made');
+        $c->moveTo($u1, 'Projets/Lune');
+        eq((int) DB::value('SELECT folder_id FROM messages WHERE id = :id', ['id' => $id1]), (int) $proj['id'], 'moved');
+        // A draft written in the app.
+        $c->append('Drafts', "From: bob@test.local\r\nTo: x@ext.example\r\nSubject: Brouillon tel\r\n\r\nTexte\r\n", ['\\Seen']);
+        ok((int) DB::value("SELECT COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'drafts' AND m.subject = 'Brouillon tel' AND m.is_draft = 1", ['u' => $uid]) === 1, 'draft kept');
+        // New mail told at once (IDLE), what the webmail does shown too.
+        $c->select('INBOX');
+        $c->idleStart();
+        Mailbox::store($uid, $inbox, $mk('Pendant IDLE'));
+        $line = '';
+        $t = microtime(true);
+        while (microtime(true) - $t < 8 && !preg_match('/EXISTS/', $line)) {
+            $line = $c->idleLine();
+        }
+        ok(str_contains($line, 'EXISTS'), 'told while idling: ' . $line);
+        $c->idleDone();
+        $c->logout();
+        // Bruteforce and probes: banned for every instance of the server.
+        for ($i = 0; $i < 3; $i++) {
+            try {
+                (new M4W\Mail\ImapClient('127.0.0.1', $port, 'ssl', 5, false))->connect('x', 'y');
+            } catch (RuntimeException) {
+            }
+        }
+        usleep(6000000); // the service reads the bans every few seconds
+        $c = $client();
+        try {
+            $c->connect('bob@test.local', $pw);
+            ok(false, 'banned address served');
+        } catch (RuntimeException) {
+        }
+        $bans = json_decode((string) file_get_contents($dir . '/bans.json'), true);
+        ok((int) ($bans['127.0.0.1']['until'] ?? 0) > time() + 800, 'banned 15 min');
+    } finally {
+        if ($pid > 0) {
+            posix_kill($pid, SIGTERM);
+            for ($i = 0; $i < 60 && M4W\Service\MailGateway::running(); $i++) {
+                usleep(100000);
+            }
+        }
+        Settings::set('maild.enabled', 0);
+        M4W\Service\MailGateway::tick();
+        M4W\Service\MailGateway::$dir = null;
+    }
+});
 test('hard bounces: an address that does not exist is never written to again, until an administrator removes it', function () use ($paul) {
     $H = M4W\Service\HardBounces::class;
     foreach (['SMTP 550 5.1.1 <a@x.fr>: Recipient address rejected: User unknown', '550 No such user here', 'SMTP 554 5.1.2 domain does not exist', '550 5.1.10 RESOLVER.ADR.RecipientNotFound'] as $a) {
@@ -5102,6 +5206,8 @@ test('html: a <meta charset> left in the content does not garble accents (Outloo
 });
 
 test('rooms: offered only when free and open, approval by managers, requester told', function () {
+    // A week to come (Monday to Saturday): bookings in the past are not pending any more.
+    $day = static fn(int $k) => date('Y-m-d', strtotime('monday next week') + $k * 86400);
     $admin = Users::findByEmail('admin@test.local');
     $bob = Users::findByEmail('bob@test.local');
     $carol = Users::findByEmail('carol@test.local');
@@ -5121,20 +5227,20 @@ test('rooms: offered only when free and open, approval by managers, requester to
         }
         return '?';
     };
-    eq($state($ev('2026-11-02 10:00', '2026-11-02 11:00')), 'ok', 'Monday morning');
-    eq($state($ev('2026-11-04 14:00', '2026-11-04 15:00')), 'closed', 'Wednesday afternoon closed');
-    eq($state($ev('2026-11-07 10:00', '2026-11-07 11:00')), 'closed', 'Saturday closed');
-    eq($state($ev('2026-11-02 17:30', '2026-11-02 18:30')), 'closed', 'ends after closing');
-    eq($state($ev('2026-11-02 10:00', '2026-11-02 11:00', 'daily')), 'closed', 'a daily series meets the weekend');
+    eq($state($ev($day(0) . ' 10:00', $day(0) . ' 11:00')), 'ok', 'Monday morning');
+    eq($state($ev($day(2) . ' 14:00', $day(2) . ' 15:00')), 'closed', 'Wednesday afternoon closed');
+    eq($state($ev($day(5) . ' 10:00', $day(5) . ' 11:00')), 'closed', 'Saturday closed');
+    eq($state($ev($day(0) . ' 17:30', $day(0) . ' 18:30')), 'closed', 'ends after closing');
+    eq($state($ev($day(0) . ' 10:00', $day(0) . ' 11:00', 'daily')), 'closed', 'a daily series meets the weekend');
     // Bob books: managed room, so it waits for Carol.
     $cal = M4W\Service\Calendar::defaultFor((int) $bob['id']);
-    $v = $ev('2026-11-02 10:00', '2026-11-02 11:00');
+    $v = $ev($day(0) . ' 10:00', $day(0) . ' 11:00');
     $uri = M4W\Service\Scheduling::uriFor((string) $v->VEVENT->UID);
     eq($R::book($bob, $roomId, $v, (int) $cal['id'], $uri), 'pending');
     M4W\Service\Calendar::put((int) $cal['id'], $uri, $v->serialize());
     eq((string) $v->VEVENT->LOCATION, 'Salle Léman', 'location filled');
     ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $carol['id'], 's' => '%Salle Léman%']), 'manager told');
-    eq($state($ev('2026-11-02 10:30', '2026-11-02 11:30')), 'busy', 'a pending request already holds the slot');
+    eq($state($ev($day(0) . ' 10:30', $day(0) . ' 11:30')), 'busy', 'a pending request already holds the slot');
     eq($R::backlog($carol)['pending'][0]['title'], 'Réunion');
     eq($R::backlog($bob)['pending'], [], 'not a manager');
     $b = $R::booking($roomId, (string) $v->VEVENT->UID);
@@ -5147,12 +5253,12 @@ test('rooms: offered only when free and open, approval by managers, requester to
     ok(str_contains(M4W\Service\Calendar::object($roomId, $uri)['data'], 'STATUS:CONFIRMED'), 'room calendar confirmed');
     ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $bob['id'], 's' => 'Salle confirmée%']), 'requester told');
     // Moving the meeting asks again; releasing frees the room.
-    $moved = M4W\Service\Calendar::fromForm($bob, ['title' => 'Réunion', 'start' => '2026-11-03 09:00', 'end' => '2026-11-03 10:00'], $evRow['data']);
+    $moved = M4W\Service\Calendar::fromForm($bob, ['title' => 'Réunion', 'start' => $day(1) . ' 09:00', 'end' => $day(1) . ' 10:00'], $evRow['data']);
     eq($R::book($bob, $roomId, $moved, (int) $cal['id'], $uri), 'pending', 'a new time needs a new approval');
     $R::release($roomId, (string) $moved->VEVENT->UID);
-    eq($state($ev('2026-11-03 09:00', '2026-11-03 10:00')), 'ok', 'released');
+    eq($state($ev($day(1) . ' 09:00', $day(1) . ' 10:00')), 'ok', 'released');
     // A declined request: the event stays, without the room.
-    $v2 = $ev('2026-11-05 14:00', '2026-11-05 15:00');
+    $v2 = $ev($day(3) . ' 14:00', $day(3) . ' 15:00');
     $uri2 = M4W\Service\Scheduling::uriFor((string) $v2->VEVENT->UID);
     $R::book($bob, $roomId, $v2, (int) $cal['id'], $uri2);
     M4W\Service\Calendar::put((int) $cal['id'], $uri2, $v2->serialize());
@@ -5161,9 +5267,9 @@ test('rooms: offered only when free and open, approval by managers, requester to
     ok(!str_contains($d, 'X-M4W-ROOM') && !str_contains($d, 'LOCATION:Salle Léman'), 'room removed from the event');
     ok(M4W\Service\Calendar::object($roomId, $uri2) === null, 'slot freed');
     // Unmanaged room, or a manager booking: confirmed at once.
-    eq($R::book($carol, $roomId, $ev('2026-11-06 09:00', '2026-11-06 10:00'), (int) M4W\Service\Calendar::defaultFor((int) $carol['id'])['id'], 'x.ics'), 'approved');
+    eq($R::book($carol, $roomId, $ev($day(4) . ' 09:00', $day(4) . ' 10:00'), (int) M4W\Service\Calendar::defaultFor((int) $carol['id'])['id'], 'x.ics'), 'approved');
     $thrown = false;
-    try { $R::book($bob, $roomId, $ev('2026-11-06 09:30', '2026-11-06 10:30'), (int) $cal['id'], 'y.ics'); } catch (\InvalidArgumentException) { $thrown = true; }
+    try { $R::book($bob, $roomId, $ev($day(4) . ' 09:30', $day(4) . ' 10:30'), (int) $cal['id'], 'y.ics'); } catch (\InvalidArgumentException) { $thrown = true; }
     ok($thrown, 'no double booking');
 });
 
