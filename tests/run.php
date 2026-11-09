@@ -2909,6 +2909,17 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $sentRow = DB::one("SELECT m.* FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'sent' AND m.message_id = :m", ['u' => $uid, 'm' => $mid]);
         ok($sentRow !== null, 'a copy in Sent');
         ok(str_contains(Mailbox::raw($got), '.ligne avec un point'), 'dot-unstuffed');
+        // A reply quoting a message that holds the signature: the new text gets it all the same.
+        $sigText = trim((string) preg_replace('/\s+/u', ' ', strip_tags((string) M4W\Service\Signatures::render(Users::find($uid), 'send')['html'])));
+        if ($sigText !== '') {
+            $say('MAIL FROM:<bob@test.local>');
+            $say('RCPT TO:<admin@test.local>');
+            $say('DATA');
+            $mid2 = 'tel2-' . bin2hex(random_bytes(4)) . '@phone.example';
+            ok(str_starts_with($say("From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: suite\r\nMessage-ID: <$mid2>\r\n\r\nD'accord.\r\n\r\nLe 3 nov. 2026, Alice a écrit :\r\n> Bonjour\r\n> -- \r\n> $sigText\r\n."), '250'));
+            $r2 = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid2]);
+            ok($r2 && str_contains(Mailbox::raw($r2), 'm4w-signature'), 'signature added: the one in the quoted message does not count');
+        }
         // The app's own copy in Sent (APPEND) is the same message: not twice.
         $c2 = $client();
         $c2->connect('bob@test.local', $pw);

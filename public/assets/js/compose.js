@@ -49,7 +49,16 @@
         var idx = $items.index($act) + (e.key === 'ArrowDown' ? 1 : -1);
         idx = (idx + $items.length) % $items.length;
         $items.removeClass('active').eq(idx).addClass('active');
-      } else if (e.key === 'Enter' || (e.key === 'Tab' && this.value)) {
+      } else if (e.key === 'Tab' && !e.shiftKey) {
+        // The address typed is kept, then on to the next field shown (Cc, Bcc, else the subject),
+        // not to the Cc / Bcc buttons.
+        e.preventDefault();
+        if ($act.length) self.pick($act.data('item'));
+        else if (this.value) self.commit();
+        self.hide();
+        var $c = self.$host.closest('.m4w-compose'), $all = $c.find('.m4w-field:not(.d-none) .m4w-recipients input, [name=subject]');
+        $all.eq($all.index(this) + 1).trigger('focus');
+      } else if (e.key === 'Enter') {
         if ($act.length) { e.preventDefault(); self.pick($act.data('item')); }
         else if (this.value) { e.preventDefault(); self.commit(); }
       } else if (e.key === 'Backspace' && !this.value && self.list.length) {
@@ -383,7 +392,10 @@
       if (c === 'unschedule') { self.state.scheduled_at = 0; self.renderSchedule(); self.touch(); M4W.toast(t('schedule_cancelled'), 'info'); }
     });
     $el.find('[data-file]').on('change', function () { self.addFiles(this.files); this.value = ''; });
-    $el.find('[name=subject]').on('input', function () { self.touch(); }).on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); self.editor.focus(true); } });
+    $el.find('[name=subject]').on('input', function () { self.touch(); }).on('keydown', function (e) {
+      // Enter or Tab: on to the text (not to the attachment button or the editor's toolbar).
+      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); self.editor.focus(true); }
+    });
     $el.find('[name=from]').on('change', function () { self.touch(); });
     $el.on('click', '[data-rm-att]', function () { self.state.attachments.splice(+$(this).data('rm-att'), 1); self.renderAtts(); self.touch(); });
     $el.on('click', '[data-rm-ref]', function () { self.state.ref_attachments.splice(+$(this).data('rm-ref'), 1); self.renderAtts(); self.touch(); });

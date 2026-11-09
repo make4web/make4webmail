@@ -293,8 +293,10 @@ final class Composer
         }
         // The signature: not twice when the app already put it.
         $sig = Signatures::render($user, 'send', $mode !== 'new');
+        // Looked for in what was written now only: the quoted message often holds the person's
+        // signature from an earlier exchange (a reply to a colleague), which must not count.
         $sigText = trim((string) preg_replace('/\s+/u', ' ', strip_tags((string) $sig['html'])));
-        $bodyText = (string) preg_replace('/\s+/u', ' ', strip_tags($html) . ' ' . $p->text());
+        $bodyText = (string) preg_replace('/\s+/u', ' ', strip_tags(self::unquoted($html)) . ' ' . self::unquoted($p->text()));
         $already = $sigText === '' || str_contains($bodyText, mb_substr($sigText, 0, 40));
         $parts = [];
         foreach ($p->attachmentParts() as $part) {
@@ -307,6 +309,13 @@ final class Composer
             '_message_id' => trim($p->messageId(), '<>'), '_in_reply_to' => trim($p->inReplyTo(), '<>'),
             '_references' => array_map(static fn($r) => trim((string) $r, '<>'), $p->references()),
         ]);
+    }
+
+    /** A message without what it quotes (HTML blockquote / quote blocks, or text after "… a écrit :"). */
+    private static function unquoted(string $s): string
+    {
+        $cut = preg_split('/<blockquote\b|<div[^>]*(?:gmail_quote|data-m4w-quote|divRplyFwdMsg|moz-cite-prefix)|^\s*>|^.{0,200}(?:a écrit|wrote|schrieb|escribió)\s*:\s*$|^-{2,}\s*(?:Original Message|Message d\'origine|Forwarded message|Message transféré)/imu', $s, 2);
+        return (string) ($cut[0] ?? $s);
     }
 
     public static function saveDraft(array $user, array $in): int
