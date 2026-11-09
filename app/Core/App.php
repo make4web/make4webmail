@@ -416,6 +416,7 @@ final class App
         $r->post('/api/calendar/import', [Controller\CalendarController::class, 'import']);
         $r->post('/api/calendar/respond', [Controller\CalendarController::class, 'respond']);
         $r->get('/settings/sync', [Controller\CalendarController::class, 'sync']);
+        $r->get('/settings/sync/diagnose', [Controller\CalendarController::class, 'syncDiagnose']);
         $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
         $r->post('/settings/sync/meetings', [Controller\CalendarController::class, 'saveMeetingLinks']);
         $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);

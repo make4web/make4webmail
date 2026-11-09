@@ -18,6 +18,9 @@ use Sabre\DAV\PropPatch;
  */
 final class CalDavBackend extends AbstractBackend
 {
+    /** Invitations sent by the server (CalDAV clients count on it); ActiveSync devices send their own. */
+    public static bool $schedule = true;
+
     public function __construct(private readonly array $user)
     {
     }
@@ -157,7 +160,9 @@ final class CalDavBackend extends AbstractBackend
             $new = Calendar::object($calendarId, $uri);
         }
         // The server sends the invitations (we announce calendar-auto-schedule).
-        Scheduling::afterChange($this->user, $old ? (string) $old['data'] : null, (string) $new['data']);
+        if (self::$schedule) {
+            Scheduling::afterChange($this->user, $old ? (string) $old['data'] : null, (string) $new['data']);
+        }
         // No ETag: the stored copy was normalised, the client must fetch it again.
         return null;
     }
@@ -172,7 +177,9 @@ final class CalDavBackend extends AbstractBackend
             if (\M4W\Service\Rooms::organizedBy($this->user, $ov)) {
                 \M4W\Service\Rooms::release(\M4W\Service\Rooms::roomOf($ov), (string) ($ov->VEVENT->UID ?? ''));
             }
-            Scheduling::afterChange($this->user, (string) $old['data'], null);
+            if (self::$schedule) {
+                Scheduling::afterChange($this->user, (string) $old['data'], null);
+            }
         }
     }
 

@@ -615,8 +615,76 @@ final class CalendarController extends Controller
     public function sync(): Response
     {
         $user = $this->user();
+        $mode = $this->req->str('mode');
         return $this->view('settings/sync', ['section' => 'sync', 'user' => $user, 'passwords' => AppPasswords::list((int) $user['id']), 'created' => self::once('app_pw'),
+            'mode' => in_array($mode, ['eas', 'imap'], true) ? $mode : '',
             'dav' => public_url('dav/'), 'host' => (string) parse_url(public_url('/'), PHP_URL_HOST)]);
+    }
+
+    /**
+     * What the server saw of this person's devices in the last hour (live, step 4): refused
+     * passwords, connections by protocol, Exchange devices and what they synchronise, a ban.
+     */
+    public function syncDiagnose(): Response
+    {
+        $user = $this->user();
+        Session::close();
+        $uid = (int) $user['id'];
+        $since = time() - 3600;
+        $plain = static fn(string $ip) => (string) preg_replace('/^::ffff:/', '', $ip);
+        $events = [];
+        $ips = [$this->req->ip()];
+        $fails = DB::all('SELECT ip, created_at FROM login_attempts WHERE email = :e AND success = 0 AND created_at > :t ORDER BY id DESC LIMIT 50',
+            ['e' => 'dav:' . mb_strtolower((string) $user['email']), 't' => $since]);
+        foreach ($fails as $i => $r) {
+            $ips[] = (string) $r['ip'];
+            if ($i < 8) {
+                $events[] = ['at' => (int) $r['created_at'], 'kind' => 'fail', 'text' => t('sync.ev_refused', ['ip' => $plain((string) $r['ip'])])];
+            }
+        }
+        $logins = [];
+        $seen = [];
+        foreach (DB::all("SELECT action, details, created_at FROM audit_log WHERE user_id = :u AND action IN ('imap.login', 'eas.login', 'smtp.login') AND created_at > :t ORDER BY id DESC LIMIT 300",
+            ['u' => $uid, 't' => $since]) as $r) {
+            $proto = explode('.', (string) $r['action'])[0];
+            $ip = $plain((string) (json_decode((string) $r['details'], true)['ip'] ?? ''));
+            $logins[$proto] = max($logins[$proto] ?? 0, (int) $r['created_at']);
+            if (!isset($seen[$proto . $ip])) {
+                $seen[$proto . $ip] = true;
+                $events[] = ['at' => (int) $r['created_at'], 'kind' => 'ok', 'text' => t('sync.ev_login_' . $proto, ['ip' => $ip])];
+            }
+        }
+        $devices = [];
+        foreach (DB::all('SELECT * FROM eas_devices WHERE user_id = :u AND last_seen_at > :t ORDER BY last_seen_at DESC', ['u' => $uid, 't' => time() - 7 * 86400]) as $d) {
+            $what = ['folders' => 0, 'mail' => 0, 'calendar' => 0, 'contacts' => 0];
+            foreach (DB::all('SELECT collection, updated_at FROM eas_states WHERE device = :d', ['d' => $d['id']]) as $s) {
+                $k = match (true) { $s['collection'] === 'hier' => 'folders', (bool) preg_match('/^F\d+$/', (string) $s['collection']) => 'mail',
+                    str_starts_with((string) $s['collection'], 'Fc') => 'calendar', str_starts_with((string) $s['collection'], 'Fk') => 'contacts', default => '' };
+                if ($k !== '') {
+                    $what[$k] = max($what[$k], (int) $s['updated_at']);
+                }
+            }
+            $name = trim((string) $d['device_type']) ?: trim((string) $d['user_agent']) ?: t('sync.a_device');
+            $devices[] = ['name' => $name, 'last' => (int) $d['last_seen_at'], 'ip' => $plain((string) $d['last_ip'])] + $what;
+            if ((int) $d['last_seen_at'] > $since) {
+                $parts = array_keys(array_filter(['mail' => $what['mail'], 'calendar' => $what['calendar'], 'contacts' => $what['contacts']]));
+                $events[] = ['at' => (int) $d['last_seen_at'], 'kind' => 'ok', 'text' => t('sync.ev_device', ['device' => $name,
+                    'what' => $parts ? implode(', ', array_map(static fn($p) => t('sync.what_' . $p), $parts)) : t('sync.what_none')])];
+            }
+        }
+        usort($events, static fn($a, $b) => $b['at'] <=> $a['at']);
+        $banned = 0;
+        foreach (\M4W\Service\MailGateway::bans() as $ip => $b) {
+            if (in_array($plain((string) $ip), array_map($plain, $ips), true)) {
+                $banned = max($banned, (int) $b['until']);
+            }
+        }
+        foreach ($events as &$e) {
+            $e['time'] = date('H:i', $e['at']);
+        }
+        unset($e);
+        return $this->ok(['events' => array_slice($events, 0, 15), 'fails' => count($fails), 'last_fail' => (int) ($fails[0]['created_at'] ?? 0), 'logins' => $logins,
+            'devices' => $devices, 'banned' => $banned, 'banned_until' => $banned ? date('H:i', $banned) : '', 'listening' => !empty(\M4W\Service\MailGateway::status()['listening'])]);
     }
 
     private static function once(string $key): mixed
@@ -652,7 +720,8 @@ final class CalendarController extends Controller
         $pw = AppPasswords::create((int) $user['id'], $this->req->str('name'));
         Session::set('app_pw', ['name' => $this->req->str('name') ?: 'Appareil', 'password' => $pw]);
         Audit::log('dav.password_created', $this->req->str('name'), [], (int) $user['id']);
-        return Response::redirect('/settings/sync');
+        $mode = $this->req->str('mode');
+        return Response::redirect('/settings/sync' . (in_array($mode, ['eas', 'imap'], true) ? '?mode=' . $mode : '') . '#step-password');
     }
 
     public function revokePassword(): Response

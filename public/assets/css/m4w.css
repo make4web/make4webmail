@@ -1503,3 +1503,17 @@ body.m4w-editor-open { overflow: hidden; }
 
 /* Signature template editor: the preview stays in sight while the options are changed. */
 @media (min-width: 1200px) { .m4w-sig-preview-sticky { position: sticky; top: 1rem; } }
+
+/* Phone set-up (Settings › Phone and calendar) */
+.m4w-step-num { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--m4w-primary, #2563eb); color: #fff; font-weight: 600; font-size: .85rem; margin-right: .6rem; }
+.m4w-choice { border: 1px solid var(--bs-border-color); border-radius: .75rem; background: var(--bs-body-bg); padding: 1rem; transition: border-color .15s, box-shadow .15s; color: inherit; }
+.m4w-choice:hover { border-color: var(--m4w-primary, #2563eb); }
+.m4w-choice[aria-pressed="true"] { border-color: var(--m4w-primary, #2563eb); box-shadow: 0 0 0 3px rgba(37, 99, 235, .18); }
+[data-sync-wizard]:not([data-mode="eas"]):not([data-mode="imap"]) [data-sync-after-choice] { display: none; }
+[data-sync-wizard][data-mode="eas"] [data-for-mode="imap"], [data-sync-wizard][data-mode="imap"] [data-for-mode="eas"] { display: none; }
+[data-sync-wizard]:not([data-mode="imap"]) #step-setup [data-for-mode="imap"] { display: none; }
+.m4w-steps { padding-left: 1.2rem; }
+.m4w-steps li { margin-bottom: .35rem; }
+ul.m4w-steps { list-style: none; padding-left: 0; }
+.m4w-sync-events li { padding: .2rem 0; border-bottom: 1px dashed var(--bs-border-color); }
+.m4w-sync-events li:last-child { border-bottom: 0; }
