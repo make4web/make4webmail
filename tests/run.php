@@ -3039,7 +3039,7 @@ test('mail apps certificate in one click: DNS name and Let\'s Encrypt proof thro
         eq([$a[0]['name'] ?? '', $a[0]['content'] ?? '', $a[0]['proxied'] ?? null], [$host, '198.51.100.20', false], 'the service name, "DNS only"');
         eq(array_filter($records, static fn($r) => $r['type'] === 'TXT'), [], 'the proof taken away afterwards');
         $c = M4W\Service\MailGateway::config();
-        eq($c['cert'], $dir . '/cert/fullchain.pem');
+        eq($c['cert'], Config::storagePath('maild') . '/fullchain.pem', 'kept in the instance (the common folder may be emptied)');
         $x = openssl_x509_parse((string) file_get_contents($c['cert']));
         ok($x['subject']['CN'] === $host && openssl_x509_check_private_key((string) file_get_contents($c['cert']), (string) file_get_contents($c['key'])), 'the certificate and its key, for the service');
         ok(str_starts_with($A::renewIfDue(), 'valid until'), 'not renewed while far from its end');

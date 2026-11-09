@@ -848,6 +848,40 @@ final class AdminController extends Controller
         return $this->ok(\M4W\Service\Acme::status());
     }
 
+    /** Before setting up: the token (kept when typed) and the zone it reaches, or this server's public address (AJAX). */
+    public function maildCheck(): Response
+    {
+        $r = $this->req;
+        \M4W\Core\Session::close();
+        if ($r->str('what') === 'ip') {
+            $ip = \M4W\Service\Cloudflare::publicIp();
+            return $ip !== '' ? $this->ok(['ip' => $ip, 'message' => t('cf.ip_found', ['ip' => $ip])]) : $this->fail(t('acme.no_ip'));
+        }
+        $token = trim($r->str('cf_token'));
+        $previous = \M4W\Service\Cloudflare::token();
+        if ($token !== '') {
+            if (!preg_match('/^[A-Za-z0-9_\-]{30,80}$/', $token)) {
+                return $this->fail(t('cf.token_bad'));
+            }
+            \M4W\Service\Cloudflare::setToken($token);
+        }
+        if (\M4W\Service\Cloudflare::token() === '') {
+            return $this->fail(t('cf.token_missing'));
+        }
+        try {
+            \M4W\Service\Cloudflare::verify();
+            $host = \M4W\Service\MailGateway::config()['host'];
+            $zone = \M4W\Service\Cloudflare::zoneFor($host);
+            return $this->ok(['message' => t('cf.token_ok', ['zone' => $zone['name'], 'host' => $host])]);
+        } catch (\Throwable $e) {
+            // A token that does not work is not kept in place of the one before.
+            if ($token !== '') {
+                \M4W\Service\Cloudflare::setToken($previous);
+            }
+            return $this->fail($e->getMessage());
+        }
+    }
+
     public function maildSetupStatus(): Response
     {
         \M4W\Core\Session::close();

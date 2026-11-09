@@ -153,7 +153,9 @@ final class Acme
         if (empty($this->dir['newOrder'])) {
             throw new \RuntimeException("Let's Encrypt : annuaire illisible");
         }
-        $keyFile = MailGateway::dir() . '/acme-account.pem';
+        // Kept in this instance's storage (the common folder may be emptied by a restart).
+        @mkdir(Config::storagePath('maild'), 0750, true);
+        $keyFile = Config::storagePath('maild') . '/acme-account.pem';
         $pem = (string) @file_get_contents($keyFile);
         $this->account = $pem !== '' ? openssl_pkey_get_private($pem) : false;
         if (!$this->account) {
@@ -262,7 +264,10 @@ final class Acme
             $say(t('acme.step_token'));
             Cloudflare::verify();
             if ($dnsRecord) {
-                $ip = $ip !== '' ? $ip : Cloudflare::publicIp();
+                if ($ip === '') {
+                    $say(t('acme.step_ip'));
+                    $ip = Cloudflare::publicIp();
+                }
                 if (!filter_var($ip, FILTER_VALIDATE_IP)) {
                     throw new \RuntimeException(t('acme.no_ip'));
                 }
@@ -271,7 +276,9 @@ final class Acme
                 Cloudflare::upsert($zone['id'], str_contains($ip, ':') ? 'AAAA' : 'A', $c['host'], $ip);
             }
             [$chain, $key] = (new self($say))->issue($c['host'], (string) Settings::get('maild.acme_email', ''));
-            $d = MailGateway::dir() . '/cert';
+            // In this instance's storage (lasting, readable by the service, which runs as the
+            // web server's account); the shared settings point at it for every instance.
+            $d = Config::storagePath('maild');
             @mkdir($d, 0750, true);
             file_put_contents($d . '/fullchain.pem.tmp', $chain);
             file_put_contents($d . '/privkey.pem.tmp', $key);
@@ -293,13 +300,19 @@ final class Acme
     public static function start(bool $dnsRecord, string $ip): void
     {
         @file_put_contents(MailGateway::dir() . '/cert-status.json', json_encode(['at' => time(), 'running' => true, 'steps' => [['text' => t('acme.step_start'), 'state' => 'run']]]));
-        exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, M4W_ROOT . '/bin/cert.php', $dnsRecord ? '--dns' : '--no-dns', '--ip=' . $ip]))
+        exec(implode(' ', array_map('escapeshellarg', [php_cli(), M4W_ROOT . '/bin/cert.php', $dnsRecord ? '--dns' : '--no-dns', '--ip=' . $ip]))
             . ' >> ' . escapeshellarg(MailGateway::dir() . '/maild.log') . ' 2>&1 < /dev/null &');
     }
 
     public static function status(): array
     {
-        return json_decode((string) @file_get_contents(MailGateway::dir() . '/cert-status.json'), true) ?: [];
+        $s = json_decode((string) @file_get_contents(MailGateway::dir() . '/cert-status.json'), true) ?: [];
+        // Said to run, but silent for two minutes: it did not start, or stopped (see the log).
+        if (!empty($s['running']) && (int) ($s['at'] ?? 0) < time() - 120) {
+            $s['running'] = false;
+            $s['steps'][] = ['text' => t('acme.stalled', ['log' => MailGateway::dir() . '/maild.log', 'cmd' => php_cli() . ' ' . M4W_ROOT . '/bin/cert.php --dns']), 'state' => 'fail'];
+        }
+        return $s;
     }
 
     /** Scheduled task, daily: renewed 30 days before the end, when it was made here. */

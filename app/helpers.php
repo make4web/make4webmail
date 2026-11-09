@@ -154,3 +154,35 @@ function can_manage_users(?array $user): bool
 {
     return is_superadmin($user) || (is_admin($user) && (int) \M4W\Core\Settings::get('roles.admin_users', 0) === 1);
 }
+
+/**
+ * The PHP command line, to start a program in the background. From the web server, PHP_BINARY
+ * is php-fpm (it cannot run a script): the command of the same version is looked for first.
+ */
+function php_cli(): string
+{
+    if (PHP_SAPI === 'cli' && PHP_BINARY !== '') {
+        return PHP_BINARY;
+    }
+    $v = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+    foreach ([PHP_BINDIR . '/php' . $v, '/usr/bin/php' . $v, '/usr/local/bin/php' . $v, PHP_BINDIR . '/php', '/usr/bin/php', '/usr/local/bin/php'] as $p) {
+        if (@is_file($p) && @is_executable($p)) {
+            return $p;
+        }
+    }
+    return 'php';
+}
+
+/**
+ * A folder shared by every Make4WebMail of this server and by all its processes: /dev/shm, which
+ * the web server sees like the scheduled task does (Apache and PHP-FPM run with a private /tmp on
+ * Debian, systemd PrivateTmp). config.php 'shared_dir' chooses another place.
+ */
+function shared_dir(string $name): string
+{
+    $base = (string) \M4W\Core\Config::get('shared_dir', '');
+    if ($base === '') {
+        $base = @is_dir('/dev/shm') && @is_writable('/dev/shm') ? '/dev/shm' : sys_get_temp_dir();
+    }
+    return rtrim($base, '/') . '/' . $name;
+}

@@ -386,6 +386,17 @@ function maild_smtp($c, string $ip, array $cfg, string $dir): void
     }
 }
 
+/** An instance told it is there within ten minutes (they do so every minute). */
+function maild_has_instances(string $dir): bool
+{
+    foreach (glob($dir . '/instances/*.json') ?: [] as $f) {
+        if (@filemtime($f) > time() - 600) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- known scanners
 
 /** Addresses of known scanners and bad networks (blocklist.json, kept by the instances), as ranges. */
@@ -466,7 +477,7 @@ while (!$stop) {
             maild_log($dir, 'certificate not readable: ' . $cfg['cert'] . ' / ' . $cfg['key']);
             sleep(30);
             $cfgSig = '';
-            if (!glob($dir . '/instances/*.json')) {
+            if (!maild_has_instances($dir)) {
                 break;
             }
             continue;
@@ -496,7 +507,7 @@ while (!$stop) {
     $status(['listening' => true, 'host' => $cfg['host'], 'imap_port' => $cfg['imap_port'], 'smtp_port' => $cfg['smtp_port'],
         'protocols' => array_keys($listeners), 'error' => $error ?? '', 'blocklist' => count($blocked)]);
     // No instance left (all removed or turned off): stopped after ten minutes.
-    if (!glob($dir . '/instances/*.json')) {
+    if (!maild_has_instances($dir)) {
         if (time() - $idleSince > 600) {
             break;
         }

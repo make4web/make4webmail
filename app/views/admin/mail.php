@@ -203,11 +203,15 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
         <li class="mb-2"><?= te('cf.step1') ?> <a class="btn btn-light btn-sm ms-1" href="<?= e(M4W\Service\Cloudflare::TOKEN_PAGE) ?>" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i><?= te('cf.open') ?></a>
           <div class="text-muted mt-1"><?= te('cf.step1_how') ?></div></li>
         <li class="mb-2"><label for="cf-token"><?= te('cf.step2') ?></label>
-          <input class="form-control m4w-code mt-1" type="password" id="cf-token" name="cf_token" autocomplete="off" placeholder="<?= M4W\Service\Cloudflare::token() !== '' ? te('admin.links_sb_key_set') : te('cf.token_ph') ?>"></li>
+          <div class="input-group mt-1"><input class="form-control m4w-code" type="password" id="cf-token" name="cf_token" autocomplete="off" placeholder="<?= M4W\Service\Cloudflare::token() !== '' ? te('admin.links_sb_key_set') : te('cf.token_ph') ?>">
+            <button type="button" class="btn btn-light" data-maild-check="token"><i class="bi bi-shield-check me-1"></i><?= te('cf.check') ?></button></div>
+          <div class="small mt-1" data-maild-check-result="token"></div></li>
         <li class="mb-2"><?= te('cf.step3') ?>
           <div class="row g-2 mt-1">
             <div class="col-md-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="cf-dns" name="cf_dns" value="1" checked><label class="form-check-label" for="cf-dns"><?= te('cf.dns', ['host' => $mg['host']]) ?></label></div>
-              <input class="form-control form-control-sm mt-1" name="cf_ip" placeholder="<?= te('cf.ip_ph') ?>" aria-label="<?= te('cf.ip') ?>"></div>
+              <div class="input-group input-group-sm mt-1"><input class="form-control" name="cf_ip" placeholder="<?= te('cf.ip_ph') ?>" aria-label="<?= te('cf.ip') ?>">
+                <button type="button" class="btn btn-light" data-maild-check="ip"><i class="bi bi-geo-alt me-1"></i><?= te('cf.detect') ?></button></div>
+              <div class="small mt-1" data-maild-check-result="ip"></div></div>
             <div class="col-md-6"><input class="form-control form-control-sm" type="email" name="cf_email" value="<?= e((string) (M4W\Core\Settings::get('maild.acme_email', '') ?: ($currentUser['email'] ?? ''))) ?>" aria-label="<?= te('cf.email') ?>"><div class="form-text"><?= te('cf.email') ?></div></div>
           </div></li>
       </ol>

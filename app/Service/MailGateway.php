@@ -28,7 +28,7 @@ final class MailGateway
 
     public static function dir(): string
     {
-        $d = self::$dir ?? ((string) Config::get('maild_dir', '') ?: rtrim(sys_get_temp_dir(), '/') . '/m4w-maild');
+        $d = self::$dir ?? ((string) Config::get('maild_dir', '') ?: shared_dir('m4w-maild'));
         if (!is_dir($d . '/instances')) {
             @mkdir($d . '/instances', 0770, true);
         }
@@ -108,19 +108,28 @@ final class MailGateway
         }
         $users = array_map(static fn($e) => self::hash((string) $e), array_column(DB::all("SELECT email FROM users WHERE status = 'active'"), 'email'));
         $entry = [
-            'root' => M4W_ROOT, 'config' => getenv('M4W_CONFIG') ?: Config::path(), 'php' => PHP_BINARY,
+            'root' => M4W_ROOT, 'config' => getenv('M4W_CONFIG') ?: Config::path(), 'php' => php_cli(),
             'name' => (string) Settings::get('brand.name', ''), 'version' => M4W_VERSION, 'users' => $users, 'at' => time(),
         ];
         @file_put_contents($file . '.tmp', json_encode($entry));
         @chmod($file . '.tmp', 0660);
         @rename($file . '.tmp', $file);
+        // A service of an older version, in the old common folder (/tmp): it gives way.
+        $old = rtrim(sys_get_temp_dir(), '/') . '/m4w-maild';
+        if ($old !== self::dir() && is_file($old . '/maild.lock') && function_exists('posix_kill')) {
+            $pid = (int) trim((string) @file_get_contents($old . '/maild.lock'));
+            if ($pid > 0 && @posix_kill($pid, 0)) {
+                @posix_kill($pid, SIGTERM);
+            }
+            @unlink($old . '/instances/' . self::instanceId() . '.json');
+        }
         if (!$spawn || self::running()) {
             return 'registered, running';
         }
         if (!function_exists('exec')) {
             return 'registered (exec unavailable: not started)';
         }
-        exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, M4W_ROOT . '/bin/maild.php', '--dir=' . self::dir()]))
+        exec(implode(' ', array_map('escapeshellarg', [php_cli(), M4W_ROOT . '/bin/maild.php', '--dir=' . self::dir()]))
             . ' >> ' . escapeshellarg(self::dir() . '/maild.log') . ' 2>&1 < /dev/null &');
         return 'registered, started';
     }

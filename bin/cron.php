@@ -26,7 +26,7 @@ if (!in_array('--no-spawn', $argv, true) && M4W\Core\Config::installed()) {
         if (!function_exists('exec')) {
             return false;
         }
-        exec(implode(' ', array_map('escapeshellarg', array_merge([PHP_BINARY], $args))) . ' >> ' . escapeshellarg($log) . ' 2>&1 < /dev/null &');
+        exec(implode(' ', array_map('escapeshellarg', array_merge([php_cli()], $args))) . ' >> ' . escapeshellarg($log) . ' 2>&1 < /dev/null &');
         return true;
     };
     try {
