@@ -9,6 +9,7 @@ use M4W\Core\Settings;
 use M4W\Mail\Address;
 use M4W\Mail\HtmlSanitizer;
 use M4W\Mail\MimeBuilder;
+use M4W\Mail\MimeParser;
 
 /**
  * Builds and sends messages written in the webmail.
@@ -75,13 +76,21 @@ final class Composer
             $parsedRef = Mailbox::parsed($ref);
             $b->references = array_merge($parsedRef->references(), [$ref['message_id']]);
         }
+        // Written in a mail app (see submit): its own message id and thread kept.
+        if (!empty($in['_message_id']) && preg_match('/^[^\s<>@]+@[^\s<>@]+$/', (string) $in['_message_id'])) {
+            $b->messageId = (string) $in['_message_id'];
+        }
+        if (!$b->inReplyTo && !empty($in['_in_reply_to'])) {
+            $b->inReplyTo = (string) $in['_in_reply_to'];
+            $b->references = array_values(array_filter((array) ($in['_references'] ?? [])));
+        }
 
         // Body.
         $html = (string) ($in['html'] ?? '');
         $html = (new HtmlSanitizer(false, null, true))->sanitize($html);
         $html = self::extractDataImages($html, $b);
         $html = self::restoreImages($html, $b, (int) $user['id']);
-        if ($forSend) {
+        if ($forSend && empty($in['_no_signature'])) {
             $sig = Signatures::render($user, 'send', in_array($mode, ['reply', 'reply_all', 'forward'], true));
             $html = Signatures::inject($html, $sig['html']);
             // The signature's images (logo, network icons) travel with the message.
@@ -110,6 +119,15 @@ final class Composer
             }
             $total += (int) $up['size'];
             $b->attachments[] = ['name' => $up['filename'], 'mime' => $up['mime'], 'content' => (string) file_get_contents($path)];
+        }
+        // The parts of a message written in a mail app: attached, or shown in its text (cid:).
+        foreach ((array) ($in['_parts'] ?? []) as $p) {
+            $total += strlen((string) $p['content']);
+            if ($p['cid'] !== '' && str_contains($html, 'cid:' . $p['cid'])) {
+                $b->inline[] = ['name' => $p['name'], 'mime' => $p['mime'], 'content' => $p['content'], 'cid' => $p['cid']];
+            } else {
+                $b->attachments[] = ['name' => $p['name'], 'mime' => $p['mime'], 'content' => $p['content']];
+            }
         }
         if ($ref && !empty($in['ref_parts'])) {
             $parsedRef ??= Mailbox::parsed($ref);
@@ -241,6 +259,54 @@ final class Composer
         // Collector mode: over the provider's hourly limit, the message waits in the queue.
         $deferred = $res['deferred'] ? ['count' => count($res['deferred']), 'at' => $res['retry_at'], 'time' => date('H:i', $res['retry_at'])] : null;
         return ['id' => $id, 'warnings' => $res['failed'], 'deferred' => $deferred];
+    }
+
+    /**
+     * A message written in a mail app (sent through bin/maild.php, SMTP): sent as if written in
+     * the webmail. Its text and parts are taken, then it goes the same way as any message
+     * (signature, unless the app already added it; copy in Sent; sending limits; addresses that
+     * do not exist), keeping its message id (the app's own copy in Sent is then recognised) and
+     * its thread. Blind copies: the envelope's recipients not in To and Cc.
+     * @param string[] $rcpts
+     */
+    public static function submit(array $user, string $raw, array $rcpts): array
+    {
+        $p = MimeParser::parse(str_replace(["\r\n", "\r"], "\n", $raw));
+        $from = mb_strtolower((string) ($p->from()['email'] ?? ''));
+        $allowed = array_map(static fn($i) => mb_strtolower($i['email']), self::identities($user));
+        if (!in_array($from, $allowed, true)) {
+            throw new \InvalidArgumentException(t('maild.sender_refused', ['email' => $from]));
+        }
+        $list = static fn(array $a) => implode(', ', array_map(static fn($x) => (($x['name'] ?? '') !== '' ? '"' . str_replace(['"', ',', '<', '>'], '', $x['name']) . '" ' : '') . '<' . $x['email'] . '>', $a));
+        $shown = array_map(static fn($x) => mb_strtolower($x['email']), array_merge($p->to(), $p->cc()));
+        $bcc = array_values(array_filter($rcpts, static fn($r) => !in_array(mb_strtolower($r), $shown, true)));
+        $html = $p->html();
+        if (trim($html) === '') {
+            $html = '<div>' . nl2br(htmlspecialchars($p->text(), ENT_QUOTES, 'UTF-8'), false) . '</div>';
+        }
+        // Answering or forwarding a message of this mailbox: marked so, like from the webmail.
+        $mode = 'new';
+        $ref = null;
+        if ($p->inReplyTo() !== '') {
+            $ref = DB::one('SELECT id FROM messages WHERE user_id = :u AND message_id = :m ORDER BY id DESC LIMIT 1', ['u' => $user['id'], 'm' => trim($p->inReplyTo(), '<>')]);
+            $mode = $ref ? 'reply' : 'new';
+        }
+        // The signature: not twice when the app already put it.
+        $sig = Signatures::render($user, 'send', $mode !== 'new');
+        $sigText = trim((string) preg_replace('/\s+/u', ' ', strip_tags((string) $sig['html'])));
+        $bodyText = (string) preg_replace('/\s+/u', ' ', strip_tags($html) . ' ' . $p->text());
+        $already = $sigText === '' || str_contains($bodyText, mb_substr($sigText, 0, 40));
+        $parts = [];
+        foreach ($p->attachmentParts() as $part) {
+            $parts[] = ['name' => $part->filename() ?: 'attachment', 'mime' => $part->type, 'content' => $part->decodedBody(), 'cid' => $part->contentId()];
+        }
+        return self::send($user, [
+            'from' => $from, 'to' => $list($p->to()), 'cc' => $list($p->cc()), 'bcc' => implode(', ', $bcc),
+            'subject' => $p->subject(), 'html' => $html, 'mode' => $mode, 'ref_id' => $ref ? (int) $ref['id'] : 0,
+            'priority' => $p->priority(), '_parts' => $parts, '_no_signature' => $already,
+            '_message_id' => trim($p->messageId(), '<>'), '_in_reply_to' => trim($p->inReplyTo(), '<>'),
+            '_references' => array_map(static fn($r) => trim((string) $r, '<>'), $p->references()),
+        ]);
     }
 
     public static function saveDraft(array $user, array $in): int

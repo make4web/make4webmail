@@ -2803,7 +2803,7 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
     openssl_pkey_export_to_file($k, $dir . '/key.pem');
     $port = random_int(52000, 53000);
     Settings::set('maild.enabled', 1);
-    M4W\Service\MailGateway::saveConfig(['host' => 'webmail.test', 'imap_port' => $port, 'cert' => $dir . '/cert.pem', 'key' => $dir . '/key.pem']);
+    M4W\Service\MailGateway::saveConfig(['host' => 'webmail.test', 'imap_port' => $port, 'smtp_port' => $port + 1, 'cert' => $dir . '/cert.pem', 'key' => $dir . '/key.pem']);
     $uid = (int) $bob['id'];
     $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
     $mk = static fn(string $subj) => "From: Client <client@ext.example>\nTo: bob@test.local\nSubject: $subj\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.example>\nDate: " . date('r') . "\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"b1\"\n\n--b1\nContent-Type: text/plain; charset=utf-8\n\nBonjour Bob\n--b1\nContent-Type: application/pdf; name=\"devis.pdf\"\nContent-Disposition: attachment; filename=\"devis.pdf\"\nContent-Transfer-Encoding: base64\n\nJVBERi0xLjQK\n--b1--\n";
@@ -2868,6 +2868,62 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         ok(str_contains($line, 'EXISTS'), 'told while idling: ' . $line);
         $c->idleDone();
         $c->logout();
+        // Sending from the app (SMTP): as from the webmail.
+        $smtp = static function () use ($port) {
+            $ctx = stream_context_create(['ssl' => ['peer_name' => 'webmail.test', 'verify_peer' => false, 'verify_peer_name' => false, 'SNI_enabled' => true]]);
+            $s = stream_socket_client('ssl://127.0.0.1:' . ($port + 1), $en, $es, 5, STREAM_CLIENT_CONNECT, $ctx);
+            ok((bool) $s, 'SMTP reachable: ' . $es);
+            stream_set_timeout($s, 15);
+            $say = static function (?string $line) use ($s): string {
+                if ($line !== null) {
+                    fwrite($s, $line . "\r\n");
+                }
+                $out = '';
+                while (($l = fgets($s)) !== false) {
+                    $out .= $l;
+                    if (preg_match('/^\d{3} /', $l)) {
+                        break;
+                    }
+                }
+                return $out;
+            };
+            return $say;
+        };
+        $say = $smtp();
+        ok(str_starts_with($say(null), '220 webmail.test'), 'greeting, no software name');
+        ok(str_contains($say('EHLO phone'), 'AUTH PLAIN LOGIN'));
+        ok(str_starts_with($say('MAIL FROM:<bob@test.local>'), '530'), 'nothing before signing in');
+        ok(str_starts_with($say('AUTH PLAIN ' . base64_encode("\0bob@test.local\0" . $pw)), '235'), 'app password');
+        ok(str_starts_with($say('MAIL FROM:<bob@test.local>'), '250'));
+        ok(str_starts_with($say('RCPT TO:<admin@test.local>'), '250'));
+        M4W\Service\HardBounces::record('gone@ext.example', '550 5.1.1 user unknown');
+        ok(str_starts_with($say('RCPT TO:<gone@ext.example>'), '550 5.1.1'), 'an address that does not exist');
+        DB::delete('hard_bounces', '1 = 1');
+        ok(str_starts_with($say('DATA'), '354'));
+        $mid = 'tel-' . bin2hex(random_bytes(4)) . '@phone.example';
+        $msg = "From: Bob <bob@test.local>\r\nTo: Alice <admin@test.local>\r\nSubject: Depuis le telephone\r\nMessage-ID: <$mid>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"zz\"\r\n\r\n--zz\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nEnvoyé depuis mon téléphone\r\n..ligne avec un point\r\n--zz\r\nContent-Type: application/pdf; name=\"devis.pdf\"\r\nContent-Disposition: attachment; filename=\"devis.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQK\r\n--zz--\r\n";
+        ok(str_starts_with($say($msg . '.'), '250'), 'accepted');
+        $alice = Users::findByEmail('admin@test.local');
+        $got = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid]);
+        ok($got && (int) $got['has_attachments'] === 1, 'delivered with its attachment, its own message id kept');
+        $sentRow = DB::one("SELECT m.* FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'sent' AND m.message_id = :m", ['u' => $uid, 'm' => $mid]);
+        ok($sentRow !== null, 'a copy in Sent');
+        ok(str_contains(Mailbox::raw($got), '.ligne avec un point'), 'dot-unstuffed');
+        // The app's own copy in Sent (APPEND) is the same message: not twice.
+        $c2 = $client();
+        $c2->connect('bob@test.local', $pw);
+        $c2->append('Sent', $msg, ['\\Seen']);
+        $c2->logout();
+        eq((int) DB::value("SELECT COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.user_id = :u AND f.role = 'sent' AND m.message_id = :m", ['u' => $uid, 'm' => $mid]), 1, 'the app\'s copy in Sent recognised');
+        // Someone else's address as sender: refused.
+        $say('MAIL FROM:<bob@test.local>');
+        $say('RCPT TO:<admin@test.local>');
+        $say('DATA');
+        ok(str_starts_with($say("From: ceo@bank.example\r\nTo: admin@test.local\r\nSubject: x\r\n\r\nx\r\n."), '550 5.7.1'), 'not one of the person\'s addresses');
+        $say('QUIT');
+        // Known bad networks (shared list), never the server's own (private, loopback).
+        $n = M4W\Service\MailGateway::refreshBlocklist(static fn($u) => "# list\n10.0.0.0/8\n127.0.0.0/8\n192.168.0.0/16\n45.83.64.0/22\n185.220.101.7\n", true);
+        eq($n, 2, 'bad networks, without private ranges');
         // Bruteforce and probes: banned for every instance of the server.
         for ($i = 0; $i < 3; $i++) {
             try {

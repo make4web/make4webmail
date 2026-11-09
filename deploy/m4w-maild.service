@@ -1,0 +1,16 @@
+# Optional: the IMAP / SMTP service for mail apps kept by systemd rather than started by
+# bin/cron.php (which then finds it running). One for the server, whatever the instances.
+# Adapt the path, then: sudo cp deploy/m4w-maild.service /etc/systemd/system/ && sudo systemctl enable --now m4w-maild
+[Unit]
+Description=Make4WebMail IMAP / SMTP for mail apps
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/php /var/www/make4webmail/bin/maild.php --dir=/tmp/m4w-maild
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

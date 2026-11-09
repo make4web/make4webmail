@@ -206,6 +206,11 @@ Limites des navigateurs :
 - le réglage se trouve dans Administration → Serveur de messagerie → Vérification des boîtes externes, avec une valeur par défaut d'une minute ;
 - chaque utilisateur peut choisir le rythme de ses propres comptes externes.
 
+**Applications mail (IMAP et envoi SMTP)** : les applications mail des téléphones et des ordinateurs ouvrent directement les boîtes du webmail (mêmes dossiers, messages triés par les règles et l'antispam, lus et suivis dans les deux sens, nouveaux messages en direct, IDLE). Ce qu'elles envoient passe par le webmail : signature, copie dans « Envoyés », limites d'envoi, adresses inexistantes refusées.
+- Un service, `bin/maild.php`, pour toutes les instances du serveur : nom commun (`webmail.make4web.com` par défaut), IMAP sur 51993 et SMTP sur 51465 (TCP, TLS 1.3 implicite). Il est démarré par `bin/cron.php` de n'importe quelle instance, ou par `deploy/m4w-maild.service`. Il passe chaque connexion identifiée à l'instance qui connaît l'adresse, avec son code et sa base.
+- DNS : le nom en « DNS only » chez Cloudflare. Certificat : Let's Encrypt par le DNS de Cloudflare (`python3-certbot-dns-cloudflare`), sans ouvrir le port 80. La commande est donnée dans Administration › Serveur de messagerie.
+- Protection : nom exigé dès la poignée de main TLS (les scanners par adresse IP ne voient rien) ; réseaux malveillants connus (FireHOL niveau 1, blocklist.de) et scanners reconnus par leur nom inverse écartés ; bannissement progressif commun aux instances ; mots de passe d'application uniquement.
+
 **Limites de connexion chez le fournisseur** : OVH comme les autres limite les connexions IMAP d'une même adresse IP (par seconde, par minute, simultanées par boîte), sans publier ses chiffres. Toutes les instances installées sur un même serveur tiennent un registre commun (`/tmp/m4w-imap`, ou `'imap_ledger_dir'` dans `config/config.php`) :
 - les ouvertures de connexion sont étalées (par défaut 3 par seconde et 60 par minute pour les relèves) ;
 - les relèves en arrière-plan n'ouvrent pas plus de 8 connexions simultanées sur une même boîte ;

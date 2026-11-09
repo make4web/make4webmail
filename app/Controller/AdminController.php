@@ -802,7 +802,12 @@ final class AdminController extends Controller
             return $this->back('/admin/mail#maild', 'danger', t('maild.bad_host'));
         }
         Settings::set('maild.enabled', $r->bool('enabled') ? 1 : 0);
-        \M4W\Service\MailGateway::saveConfig(['host' => $host, 'imap_port' => max(1024, min(65535, $r->int('imap_port', 51993))),
+        $imap = max(1024, min(65535, $r->int('imap_port', 51993)));
+        $smtp = max(1024, min(65535, $r->int('smtp_port', 51465)));
+        if ($imap === $smtp) {
+            return $this->back('/admin/mail#maild', 'danger', t('maild.same_port'));
+        }
+        \M4W\Service\MailGateway::saveConfig(['host' => $host, 'imap_port' => $imap, 'smtp_port' => $smtp,
             'cert' => $path($r->str('cert')), 'key' => $path($r->str('key'))]);
         \M4W\Service\MailGateway::tick();
         // Started just now: a few seconds for it to say whether it listens.
