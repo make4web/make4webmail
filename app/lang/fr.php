@@ -2874,4 +2874,10 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'maild.unban' => 'Lever',
     'maild.unbanned' => 'Bannissement levé pour :ip (et ses échecs de mot de passe d\'application oubliés).',
     'maild.unban_bad' => 'Adresse invalide.',
+    'maild.inst_title' => 'Instances Make4WebMail de ce serveur (:n)',
+    'maild.inst_desc' => 'Elles partagent le service. Une adresse connue de plusieurs instances est servie par celle où le mot de passe saisi est un mot de passe d\'application. Le service lui-même tourne toujours avec le code de la version la plus récente.',
+    'maild.inst_this' => 'celle-ci',
+    'maild.inst_users' => ':n compte(s)',
+    'maild.inst_late' => 'pas à jour',
+    'maild.inst_late_desc' => 'Mettez à jour les instances en retard vers la v:v : leurs utilisateurs sont servis avec leur propre code.',
 ];

@@ -2801,4 +2801,10 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'maild.unban' => 'Lift',
     'maild.unbanned' => 'Ban lifted for :ip (and its app password failures forgotten).',
     'maild.unban_bad' => 'Invalid address.',
+    'maild.inst_title' => 'Make4WebMail instances on this server (:n)',
+    'maild.inst_desc' => 'They share the service. An address known to several instances is served by the one where the password given is an app password. The service itself always runs the code of the newest version.',
+    'maild.inst_this' => 'this one',
+    'maild.inst_users' => ':n account(s)',
+    'maild.inst_late' => 'out of date',
+    'maild.inst_late_desc' => 'Update the instances that are behind to v:v: their users are served with their own code.',
 ];

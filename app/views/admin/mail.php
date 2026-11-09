@@ -228,6 +228,17 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
         <tbody data-maild-dns-rows><tr><td colspan="4" class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span><?= te('cf.dns_checking') ?></td></tr></tbody></table></div>
       <div class="small" data-maild-dns-result></div>
     </div>
+    <?php $insts = \M4W\Service\MailGateway::instances(); if (count($insts) > 1): $newest = $insts[0]['version']; $late = array_filter($insts, static fn($i) => version_compare($i['version'], $newest, '<')); ?>
+    <div class="border <?= $late ? 'border-warning' : '' ?> rounded-3 p-3 mt-3" id="maild-instances">
+      <div class="fw-semibold mb-1"><i class="bi bi-hdd-stack me-1 text-primary"></i><?= te('maild.inst_title', ['n' => count($insts)]) ?></div>
+      <p class="small text-muted mb-2"><?= te('maild.inst_desc') ?></p>
+      <ul class="small mb-0 ps-3"><?php foreach ($insts as $i): ?>
+        <li><strong><?= e($i['name']) ?></strong><?= $i['me'] ? ' <span class="badge text-bg-info">' . te('maild.inst_this') . '</span>' : '' ?> · <code><?= e($i['root']) ?></code> · v<?= e($i['version']) ?> · <?= te('maild.inst_users', ['n' => $i['users']]) ?>
+          <?= version_compare($i['version'], $newest, '<') ? '<span class="badge text-bg-warning ms-1">' . te('maild.inst_late') . '</span>' : '' ?></li>
+      <?php endforeach; ?></ul>
+      <?php if ($late): ?><p class="small text-warning-emphasis mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i><?= te('maild.inst_late_desc', ['v' => $newest]) ?></p><?php endif; ?>
+    </div>
+    <?php endif; ?>
     <?php $bans = \M4W\Service\MailGateway::bans(); $myIp = \M4W\Core\Request::fromGlobals()->ip(); if ($bans): ?>
     <div class="border border-warning rounded-3 p-3 mt-3" id="maild-bans">
       <div class="fw-semibold mb-1"><i class="bi bi-slash-circle me-1 text-warning"></i><?= te('maild.bans_title', ['n' => count($bans)]) ?></div>

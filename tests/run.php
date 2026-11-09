@@ -3096,6 +3096,25 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $c->connect('bob@test.local', $pw);
         ok(isset($c->folders()['INBOX']), 'served again once lifted');
         $c->logout();
+        // Another instance knows the address too (a copy, another key: the password is not its own),
+        // listed first: the password is tried there, then here.
+        $cfg2 = require getenv('M4W_CONFIG');
+        $cfg2['app_key'] = base64_encode(random_bytes(32));
+        @mkdir($dir . '/other', 0700, true);
+        file_put_contents($dir . '/other/config.php', '<?php return ' . var_export($cfg2, true) . ';');
+        $mine = json_decode((string) file_get_contents($dir . '/instances/' . M4W\Service\MailGateway::instanceId() . '.json'), true);
+        file_put_contents($dir . '/instances/0000000000000000.json', json_encode(['config' => $dir . '/other/config.php', 'at' => time()] + $mine));
+        $c = $client();
+        $c->connect('bob@test.local', $pw);
+        ok(isset($c->folders()['INBOX']), 'the instance where the password is an app password');
+        $c->logout();
+        try {
+            $client()->connect('bob@test.local', 'nope-nope-nope');
+        } catch (RuntimeException) {
+        }
+        ok((bool) preg_match('/login refused for bob@test\.local \(not an app password of this account\) \[\S+ other, \S+ \S+\]/', (string) file_get_contents($dir . '/maild.log')), 'both named in the refusal: ' . substr((string) file_get_contents($dir . '/maild.log'), -600));
+        unlink($dir . '/instances/0000000000000000.json');
+        M4W\Service\MailGateway::unban('127.0.0.1');
     } finally {
         if ($pid > 0) {
             posix_kill($pid, SIGTERM);

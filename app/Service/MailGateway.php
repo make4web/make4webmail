@@ -297,6 +297,21 @@ final class MailGateway
         return !$free;
     }
 
+    /** @return array[] the instances of this server (registered in the last ten minutes): name, root, version, this one */
+    public static function instances(): array
+    {
+        $out = [];
+        foreach (glob(self::dir() . '/instances/*.json') ?: [] as $f) {
+            $i = json_decode((string) @file_get_contents($f), true);
+            if (is_array($i) && (int) ($i['at'] ?? 0) > time() - 600) {
+                $out[] = ['name' => (string) ($i['name'] ?? '') ?: basename((string) ($i['root'] ?? '')), 'root' => (string) ($i['root'] ?? ''),
+                    'version' => (string) ($i['version'] ?? '?'), 'users' => count((array) ($i['users'] ?? [])), 'me' => ($i['root'] ?? '') === M4W_ROOT];
+            }
+        }
+        usort($out, static fn($a, $b) => version_compare($b['version'], $a['version']));
+        return $out;
+    }
+
     /** @return array<string,array> the addresses banned now: ip => [until, level, why] */
     public static function bans(): array
     {
