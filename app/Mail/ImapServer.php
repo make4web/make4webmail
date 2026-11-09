@@ -50,15 +50,15 @@ final class ImapServer
      * The person's app password (never the account password), checked by this instance; the
      * new place is told like a sign-in to the webmail.
      */
-    public static function authenticate(string $email, string $password, string $ip): ?array
+    public static function authenticate(string $email, string $password, string $ip, string $proto = 'imap'): ?array
     {
         $user = \M4W\Dav\AppPasswords::check($email, $password, $ip);
         if ($user) {
             try {
-                \M4W\Service\AccountGuard::onLogin($user, $ip, 'IMAP');
+                \M4W\Service\AccountGuard::onLogin($user, $ip, strtoupper($proto) . ' (mail app)');
             } catch (\Throwable) {
             }
-            \M4W\Core\Audit::log('imap.login', (string) $user['email'], ['ip' => $ip], (int) $user['id']);
+            \M4W\Core\Audit::log($proto . '.login', (string) $user['email'], ['ip' => $ip], (int) $user['id']);
         }
         return $user;
     }

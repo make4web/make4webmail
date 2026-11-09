@@ -62,6 +62,21 @@ final class Health
             }
         }
 
+        // IMAP / SMTP for mail apps (bin/maild.php): listening, certificate, who is kept away.
+        if (MailGateway::enabled()) {
+            $ms = MailGateway::status();
+            $mc = MailGateway::config();
+            $days = $ms['cert_expiry'] ? (int) floor(($ms['cert_expiry'] - $now) / 86400) : -1;
+            if (empty($ms['listening'])) {
+                $add('maild', $ms['running'] ? 'fail' : 'warn', $ms['running'] ? t('maild.state_error', ['error' => (string) ($ms['error'] ?? '')]) : t('maild.state_off'), 'admin/mail#maild');
+            } elseif ($days < 0 || $days < 7) {
+                $add('maild', 'fail', $days < 0 ? t('maild.cert_missing', ['cert' => $mc['cert']]) : t('maild.cert_soon', ['n' => $days]), 'admin/mail#maild');
+            } else {
+                $add('maild', $days < 20 ? 'warn' : 'ok', t('maild.health_ok', ['host' => $mc['host'], 'imap' => $mc['imap_port'], 'smtp' => $mc['smtp_port'], 'c' => (int) ($ms['connections'] ?? 0),
+                    'banned' => (int) $ms['banned'], 'listed' => (int) ($ms['blocklist'] ?? 0), 'days' => $days]), 'admin/mail#maild');
+            }
+        }
+
         // Files the web server cannot read (written by a command run as root): empty messages.
         $unreadable = 0;
         foreach (DB::all('SELECT storage_path FROM messages ORDER BY id DESC LIMIT 300') as $r) {

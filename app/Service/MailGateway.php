@@ -125,6 +125,62 @@ final class MailGateway
         return 'registered, started';
     }
 
+    /** Lists of bad networks: FireHOL level 1 (Spamhaus DROP, DShield…) and blocklist.de (brute force). */
+    public const BLOCKLISTS = ['https://iplists.firehol.org/files/firehol_level1.netset', 'https://lists.blocklist.de/lists/all.txt'];
+
+    /**
+     * The addresses of known scanners and attackers, for the service (every 12 hours, by
+     * whichever instance comes first: the file is shared). Private and reserved ranges never
+     * (FireHOL level 1 lists them as "bogons": they would shut out the server's own network).
+     * @param ?callable $fetch test hook: fn(string $url): string
+     */
+    public static function refreshBlocklist(?callable $fetch = null, bool $force = false): int
+    {
+        $file = self::dir() . '/blocklist.json';
+        $cur = json_decode((string) @file_get_contents($file), true) ?: [];
+        if (!$force && (int) ($cur['at'] ?? 0) > time() - 12 * 3600) {
+            return count((array) ($cur['ranges'] ?? []));
+        }
+        $fetch ??= static function (string $url): string {
+            $ch = curl_init($url);
+            $proxy = trim((string) Config::get('outbound_proxy', ''));
+            curl_setopt_array($ch, ($proxy !== '' ? [CURLOPT_PROXY => $proxy] : []) + [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS]);
+            $body = curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+            if (!is_string($body) || $code !== 200) {
+                throw new \RuntimeException('HTTP ' . $code);
+            }
+            return $body;
+        };
+        $ranges = [];
+        $errors = [];
+        foreach (self::BLOCKLISTS as $url) {
+            try {
+                foreach (preg_split('/\R/', $fetch($url)) ?: [] as $l) {
+                    $l = trim(explode('#', $l)[0]);
+                    [$net, $bits] = array_pad(explode('/', $l, 2), 2, '32');
+                    if (!filter_var($net, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || !ctype_digit($bits) || (int) $bits < 8 || (int) $bits > 32) {
+                        continue;
+                    }
+                    if (!filter_var($net, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) || (int) $bits < 12) {
+                        continue;
+                    }
+                    $ranges[$net . '/' . (int) $bits] = true;
+                }
+            } catch (\Throwable $e) {
+                $errors[] = parse_url($url, PHP_URL_HOST) . ': ' . $e->getMessage();
+            }
+        }
+        // Nothing fetched: the old list is kept.
+        if (!$ranges) {
+            throw new \RuntimeException('no list fetched (' . implode('; ', $errors) . ')');
+        }
+        @file_put_contents($file . '.tmp', json_encode(['at' => time(), 'ranges' => array_keys($ranges), 'errors' => $errors]));
+        @rename($file . '.tmp', $file);
+        return count($ranges);
+    }
+
     /** The service holds its lock. */
     public static function running(): bool
     {
@@ -154,6 +210,9 @@ final class MailGateway
         if (is_readable($c['cert']) && ($x = @openssl_x509_parse((string) file_get_contents($c['cert'])))) {
             $expiry = (int) ($x['validTo_time_t'] ?? 0);
         }
+        $s['blocklist_at'] = (int) (json_decode((string) @file_get_contents(self::dir() . '/blocklist.json'), true)['at'] ?? 0);
+        $bans = json_decode((string) @file_get_contents(self::dir() . '/bans.json'), true) ?: [];
+        $s['banned'] = count(array_filter($bans, static fn($x) => (int) ($x['until'] ?? 0) > time()));
         return $s + ['running' => self::running(), 'instances' => $instances, 'cert_readable' => is_readable($c['cert']), 'key_readable' => is_readable($c['key']), 'cert_expiry' => $expiry];
     }
 }

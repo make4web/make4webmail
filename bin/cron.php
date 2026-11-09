@@ -154,6 +154,14 @@ if ($hourly) {
         $job('URLhaus feed', static fn() => M4W\Service\LinkGuard::updateFeed());
     }
     $job('expired sessions', static fn() => M4W\Core\DbSessionHandler::purge());
+    // Known scanners and attackers kept away from the IMAP / SMTP service (shared file, 12 h).
+    if (M4W\Service\MailGateway::enabled()) {
+        if ((int) Settings::get('maild.acme_checked', 0) < $now - 86400) {
+            Settings::set('maild.acme_checked', $now);
+            $job('mail apps certificate', static fn() => M4W\Service\Acme::renewIfDue());
+        }
+        $job('mail apps blocklist', static fn() => M4W\Service\MailGateway::refreshBlocklist() . ' ranges');
+    }
     // Cloudflare's addresses as it publishes them, once a week (the visitor's address behind it).
     if (M4W\Core\Proxies::cloudflareOn() && (int) Settings::get('security.cloudflare_tried', 0) < $now - 7 * 86400) {
         Settings::set('security.cloudflare_tried', $now);

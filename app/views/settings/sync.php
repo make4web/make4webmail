@@ -21,6 +21,7 @@ $login = mb_strtolower($user['email']);
     <p class="small text-muted"><?= te('maild.user_desc') ?></p>
     <dl class="m4w-dav-settings mb-2">
       <dt><?= te('maild.user_in') ?></dt><dd><code><?= e($mg['host']) ?></code> · <?= te('maild.user_port', ['port' => (int) $mg['imap_port']]) ?> · SSL/TLS</dd>
+      <dt><?= te('maild.user_out') ?></dt><dd><code><?= e($mg['host']) ?></code> · <?= te('maild.user_port', ['port' => (int) $mg['smtp_port']]) ?> · SSL/TLS · <?= te('maild.user_auth') ?></dd>
       <dt><?= te('dav.login') ?></dt><dd><code><?= e($login) ?></code></dd>
       <dt><?= te('dav.password') ?></dt><dd><?= te('dav.password_hint') ?></dd>
     </dl>

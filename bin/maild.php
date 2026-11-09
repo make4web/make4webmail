@@ -143,7 +143,8 @@ function maild_sni(string $d): string
 
 // ---------------------------------------------------------------- one connection (its own process)
 
-function maild_serve($c, string $ip, array $cfg, string $dir): void
+/** TLS 1.3 with the shared name only: a scanner (by address, another name) gets nothing and is counted. */
+function maild_tls($c, string $ip, array $cfg, string $dir): bool
 {
     stream_set_timeout($c, 15);
     // The beginning of the TLS handshake, read without taking it.
@@ -151,7 +152,7 @@ function maild_serve($c, string $ip, array $cfg, string $dir): void
     for ($i = 0; $i < 30 && strlen($hello) < 64; $i++) {
         $hello = (string) @stream_socket_recvfrom($c, 4096, STREAM_PEEK);
         if ($hello === '' && feof($c)) {
-            return;
+            return false;
         }
         if (strlen($hello) < 64) {
             usleep(100000);
@@ -161,30 +162,62 @@ function maild_serve($c, string $ip, array $cfg, string $dir): void
     if ($sni !== $cfg['host']) {
         // A scanner (by address, or another name): nothing to see, and counted.
         maild_fail($dir, $ip, 'probe' . ($sni !== '' ? ' ' . $sni : ''), 3);
-        return;
+        return false;
     }
     stream_context_set_option($c, 'ssl', 'local_cert', $cfg['cert']);
     stream_context_set_option($c, 'ssl', 'local_pk', $cfg['key']);
     stream_context_set_option($c, 'ssl', 'disable_compression', true);
     stream_context_set_option($c, 'ssl', 'verify_peer', false);
     stream_set_blocking($c, true);
-    if (!@stream_socket_enable_crypto($c, true, STREAM_CRYPTO_METHOD_TLSv1_3_SERVER)) {
-        return;
+    return (bool) @stream_socket_enable_crypto($c, true, STREAM_CRYPTO_METHOD_TLSv1_3_SERVER);
+}
+
+/**
+ * The instance that serves this address (the register), loaded in this process (once: a
+ * connection belongs to one instance), then its own check of the app password.
+ */
+function maild_login(string $dir, string $ip, string $email, string $pw, ?array &$instance, string $proto): ?array
+{
+    $found = null;
+    foreach (glob($dir . '/instances/*.json') ?: [] as $f) {
+        $i = json_decode((string) @file_get_contents($f), true);
+        if (is_array($i) && (int) ($i['at'] ?? 0) > time() - 600 && is_file(($i['root'] ?? '') . '/app/bootstrap.php')
+            && in_array(hash('sha256', strtolower(trim($email))), (array) ($i['users'] ?? []), true)) {
+            $found = $i;
+            break;
+        }
     }
+    $user = null;
+    if ($found && ($instance === null || $instance['root'] === $found['root'])) {
+        if ($instance === null) {
+            $instance = $found;
+            putenv('M4W_CONFIG=' . $found['config']);
+            chdir($found['root']);
+            // In a scope of its own: its variables must not replace these ones.
+            (static function (string $file): void {
+                require $file;
+            })($found['root'] . '/app/bootstrap.php');
+        }
+        $user = \M4W\Mail\ImapServer::authenticate($email, $pw, $ip, $proto);
+    }
+    if (!$user) {
+        maild_log($dir, "$ip $proto login refused for " . substr($email, 0, 80) . ($found ? '' : ' (no instance knows it)'));
+        maild_fail($dir, $ip, $proto . ' login ' . substr($email, 0, 80));
+        sleep(random_int(2, 4)); // slow guessing down
+        return null;
+    }
+    maild_succeeded($dir, $ip);
+    maild_log($dir, "$ip $proto login " . $user['email'] . ' (' . basename($instance['root']) . ')');
+    return $user;
+}
+
+/** IMAP until signed in, then the instance's ImapServer. */
+function maild_imap($c, string $ip, array $cfg, string $dir): void
+{
     $out = static function (string $l) use ($c): void { @fwrite($c, $l . "\r\n"); };
     $out('* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR ID AUTH=PLAIN] Ready');
     $fails = 0;
     $instance = null;
-    $registry = static function () use ($dir): array {
-        $out = [];
-        foreach (glob($dir . '/instances/*.json') ?: [] as $f) {
-            $i = json_decode((string) @file_get_contents($f), true);
-            if (is_array($i) && (int) ($i['at'] ?? 0) > time() - 600 && is_file(($i['root'] ?? '') . '/app/bootstrap.php')) {
-                $out[] = $i;
-            }
-        }
-        return $out;
-    };
     while (true) {
         stream_set_timeout($c, 60);
         $line = fgets($c, 8192);
@@ -249,31 +282,8 @@ function maild_serve($c, string $ip, array $cfg, string $dir): void
             $out("$tag BAD Sign in first");
             continue;
         }
-        // The instance that serves this address; then its own check of the password.
-        $found = null;
-        foreach ($registry() as $i) {
-            if (in_array(hash('sha256', strtolower(trim((string) $email))), (array) ($i['users'] ?? []), true)) {
-                $found = $i;
-                break;
-            }
-        }
-        $user = null;
-        if ($found && ($instance === null || $instance['root'] === $found['root'])) {
-            if ($instance === null) {
-                $instance = $found;
-                putenv('M4W_CONFIG=' . $found['config']);
-                chdir($found['root']);
-                // In a scope of its own: its variables must not replace these ones.
-                (static function (string $file): void {
-                    require $file;
-                })($found['root'] . '/app/bootstrap.php');
-            }
-            $user = \M4W\Mail\ImapServer::authenticate((string) $email, (string) $pw, $ip);
-        }
+        $user = maild_login($dir, $ip, (string) $email, (string) $pw, $instance, 'imap');
         if (!$user) {
-            maild_log($dir, "$ip login refused for " . substr((string) $email, 0, 80) . ($found ? '' : ' (no instance knows it)'));
-            maild_fail($dir, $ip, 'login ' . substr((string) $email, 0, 80) . ($found ? '' : ' (unknown address)'));
-            sleep(random_int(2, 4)); // slow guessing down
             $out("$tag NO [AUTHENTICATIONFAILED] Invalid credentials");
             if (++$fails >= 3) {
                 $out('* BYE Too many failures');
@@ -281,8 +291,6 @@ function maild_serve($c, string $ip, array $cfg, string $dir): void
             }
             continue;
         }
-        maild_succeeded($dir, $ip);
-        maild_log($dir, "$ip imap login " . $user['email'] . ' (' . basename($instance['root']) . ')');
         try {
             (new \M4W\Mail\ImapServer($c, $user, $ip))->run($tag);
         } catch (\Throwable $e) {
@@ -292,12 +300,153 @@ function maild_serve($c, string $ip, array $cfg, string $dir): void
     }
 }
 
+
+/** SMTP until signed in (AUTH PLAIN or LOGIN), then the instance's SubmissionServer. */
+function maild_smtp($c, string $ip, array $cfg, string $dir): void
+{
+    $out = static function (string $l) use ($c): void { @fwrite($c, $l . "\r\n"); };
+    $read = static function () use ($c): ?string {
+        stream_set_timeout($c, 60);
+        $l = fgets($c, 8192);
+        return $l === false ? null : rtrim($l, "\r\n");
+    };
+    $ehlo = static function () use ($out, $cfg): void {
+        $out('250-' . $cfg['host']);
+        $out('250-AUTH PLAIN LOGIN');
+        $out('250-8BITMIME');
+        $out('250 ENHANCEDSTATUSCODES');
+    };
+    $out('220 ' . $cfg['host'] . ' ESMTP ready');
+    $fails = 0;
+    $instance = null;
+    while (($line = $read()) !== null) {
+        $verb = strtoupper((string) strtok($line, ' '));
+        $email = $pw = null;
+        if ($verb === 'EHLO') {
+            $ehlo();
+            continue;
+        }
+        if ($verb === 'HELO') {
+            $out('250 ' . $cfg['host']);
+            continue;
+        }
+        if ($verb === 'NOOP' || $verb === 'RSET') {
+            $out('250 2.0.0 OK');
+            continue;
+        }
+        if ($verb === 'QUIT') {
+            $out('221 2.0.0 Bye');
+            return;
+        }
+        if ($verb === 'AUTH') {
+            $parts = preg_split('/\s+/', trim($line));
+            $mech = strtoupper($parts[1] ?? '');
+            if ($mech === 'PLAIN') {
+                $ir = $parts[2] ?? '';
+                if ($ir === '' || $ir === '=') {
+                    $out('334 ');
+                    $ir = (string) $read();
+                }
+                $p = explode("\0", (string) base64_decode($ir, true));
+                [$email, $pw] = [$p[1] ?? '', $p[2] ?? ''];
+            } elseif ($mech === 'LOGIN') {
+                $u = $parts[2] ?? '';
+                if ($u === '') {
+                    $out('334 VXNlcm5hbWU6');
+                    $u = (string) $read();
+                }
+                $out('334 UGFzc3dvcmQ6');
+                [$email, $pw] = [(string) base64_decode($u, true), (string) base64_decode((string) $read(), true)];
+            } else {
+                $out('504 5.5.4 Unrecognized authentication type');
+                continue;
+            }
+            $user = maild_login($dir, $ip, (string) $email, (string) $pw, $instance, 'smtp');
+            if (!$user) {
+                $out('535 5.7.8 Authentication credentials invalid');
+                if (++$fails >= 3) {
+                    $out('421 4.7.0 Too many failures');
+                    return;
+                }
+                continue;
+            }
+            $out('235 2.7.0 Authentication successful');
+            try {
+                (new \M4W\Mail\SubmissionServer($c, $user, $ip, $cfg['host']))->run();
+            } catch (\Throwable $e) {
+                // The connection went away.
+            }
+            return;
+        }
+        if ($verb === 'STARTTLS') {
+            $out('503 5.5.1 Already secure');
+            continue;
+        }
+        $out('530 5.7.0 Authentication required');
+    }
+}
+
+// ---------------------------------------------------------------- known scanners
+
+/** Addresses of known scanners and bad networks (blocklist.json, kept by the instances), as ranges. */
+function maild_blocklist(string $dir): array
+{
+    $ranges = [];
+    foreach ((array) (json_decode((string) @file_get_contents($dir . '/blocklist.json'), true)['ranges'] ?? []) as $cidr) {
+        [$net, $bits] = array_pad(explode('/', (string) $cidr, 2), 2, '32');
+        $n = ip2long($net);
+        if ($n === false || (int) $bits < 8 || (int) $bits > 32) {
+            continue;
+        }
+        $size = 2 ** (32 - (int) $bits);
+        $start = $n - ($n % $size);
+        $ranges[] = [$start, $start + $size - 1];
+    }
+    usort($ranges, static fn($a, $b) => $a[0] <=> $b[0]);
+    return $ranges;
+}
+
+function maild_listed(array $ranges, string $ip): bool
+{
+    $n = ip2long($ip);
+    if ($n === false) {
+        return false;
+    }
+    [$lo, $hi] = [0, count($ranges) - 1];
+    while ($lo <= $hi) {
+        $mid = intdiv($lo + $hi, 2);
+        if ($n < $ranges[$mid][0]) {
+            $hi = $mid - 1;
+        } elseif ($n > $ranges[$mid][1]) {
+            // A wider range further left may still hold it.
+            for ($k = $mid - 1; $k >= max(0, $mid - 64); $k--) {
+                if ($n >= $ranges[$k][0] && $n <= $ranges[$k][1]) {
+                    return true;
+                }
+            }
+            $lo = $mid + 1;
+        } else {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Scanning services by their reverse name (Shodan, Censys…): banned at once. */
+function maild_scanner_name(string $ip): bool
+{
+    $name = (string) @gethostbyaddr($ip);
+    return $name !== $ip && (bool) preg_match('/(censys|shodan|binaryedge|internet-measurement|shadowserver|stretchoid|onyphe|criminalip|leakix|rapid7|alphastrike|recyber|netsystemsresearch|internettl|ipip\.net|bufferover|security\.ipip)/i', $name);
+}
+
 // ---------------------------------------------------------------- the service
 
 $listeners = [];
 $cfgSig = '';
 $children = []; // pid => ip
 $banCache = ['at' => 0, 'bans' => []];
+$blocked = [];
+$blockAt = 0;
 $status = static function (array $extra = []) use ($dir, &$children): void {
     @file_put_contents($dir . '/maild-status.json', json_encode($extra + ['pid' => getmypid(), 'connections' => count($children), 'at' => time()]));
 };
@@ -305,7 +454,7 @@ maild_log($dir, 'started (pid ' . getmypid() . ')');
 $idleSince = time();
 while (!$stop) {
     $cfg = maild_config($dir);
-    $sig = md5(json_encode([$cfg['imap_port'], $cfg['cert'], $cfg['key']]));
+    $sig = md5(json_encode([$cfg['imap_port'], $cfg['smtp_port'], $cfg['cert'], $cfg['key']]));
     if ($sig !== $cfgSig) {
         foreach ($listeners as $l) {
             @fclose($l);
@@ -322,18 +471,30 @@ while (!$stop) {
             }
             continue;
         }
-        $l = @stream_socket_server('tcp://[::]:' . $cfg['imap_port'], $en, $es) ?: @stream_socket_server('tcp://0.0.0.0:' . $cfg['imap_port'], $en, $es);
-        if (!$l) {
-            $status(['error' => "port {$cfg['imap_port']}: $es", 'listening' => false]);
-            maild_log($dir, "cannot listen on {$cfg['imap_port']}: $es");
+        $error = '';
+        foreach (['imap' => $cfg['imap_port'], 'smtp' => $cfg['smtp_port']] as $proto => $port) {
+            $l = @stream_socket_server('tcp://[::]:' . $port, $en, $es) ?: @stream_socket_server('tcp://0.0.0.0:' . $port, $en, $es);
+            if (!$l) {
+                $error .= "port $port: $es. ";
+                maild_log($dir, "cannot listen on $port: $es");
+                continue;
+            }
+            $listeners[$proto] = $l;
+        }
+        if (!$listeners) {
+            $status(['error' => trim($error), 'listening' => false]);
             sleep(30);
             $cfgSig = '';
             continue;
         }
-        $listeners['imap'] = $l;
-        maild_log($dir, "listening: IMAP {$cfg['imap_port']} ({$cfg['host']})");
+        maild_log($dir, 'listening: ' . implode(', ', array_map(static fn($p) => strtoupper($p) . ' ' . $cfg[$p . '_port'], array_keys($listeners))) . " ({$cfg['host']})");
     }
-    $status(['listening' => true, 'host' => $cfg['host'], 'imap_port' => $cfg['imap_port']]);
+    if (time() - $blockAt >= 60) {
+        $blockAt = time();
+        $blocked = maild_blocklist($dir);
+    }
+    $status(['listening' => true, 'host' => $cfg['host'], 'imap_port' => $cfg['imap_port'], 'smtp_port' => $cfg['smtp_port'],
+        'protocols' => array_keys($listeners), 'error' => $error ?? '', 'blocklist' => count($blocked)]);
     // No instance left (all removed or turned off): stopped after ten minutes.
     if (!glob($dir . '/instances/*.json')) {
         if (time() - $idleSince > 600) {
@@ -351,6 +512,7 @@ while (!$stop) {
         continue;
     }
     foreach ($r as $l) {
+        $proto = (string) array_search($l, $listeners, true);
         $c = @stream_socket_accept($l, 0, $peer);
         if (!$c) {
             continue;
@@ -360,7 +522,7 @@ while (!$stop) {
             $banCache = ['at' => time(), 'bans' => maild_bans($dir)];
         }
         $perIp = count(array_filter($children, static fn($x) => $x === $ip));
-        if ((int) ($banCache['bans'][$ip]['until'] ?? 0) > time() || $perIp >= 10 || count($children) >= 300) {
+        if ((int) ($banCache['bans'][$ip]['until'] ?? 0) > time() || maild_listed($blocked, $ip) || $perIp >= 10 || count($children) >= 300) {
             fclose($c); // not a word
             continue;
         }
@@ -371,7 +533,11 @@ while (!$stop) {
             }
             pcntl_signal(SIGTERM, SIG_DFL);
             try {
-                maild_serve($c, $ip, $cfg, $dir);
+                if (maild_scanner_name($ip)) {
+                    maild_fail($dir, $ip, 'scanner', 1);
+                } elseif (maild_tls($c, $ip, $cfg, $dir)) {
+                    $proto === 'smtp' ? maild_smtp($c, $ip, $cfg, $dir) : maild_imap($c, $ip, $cfg, $dir);
+                }
             } catch (\Throwable $e) {
                 maild_log($dir, "$ip error: " . $e->getMessage());
             }

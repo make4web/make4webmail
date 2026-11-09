@@ -802,7 +802,12 @@ final class AdminController extends Controller
             return $this->back('/admin/mail#maild', 'danger', t('maild.bad_host'));
         }
         Settings::set('maild.enabled', $r->bool('enabled') ? 1 : 0);
-        \M4W\Service\MailGateway::saveConfig(['host' => $host, 'imap_port' => max(1024, min(65535, $r->int('imap_port', 51993))),
+        $imap = max(1024, min(65535, $r->int('imap_port', 51993)));
+        $smtp = max(1024, min(65535, $r->int('smtp_port', 51465)));
+        if ($imap === $smtp) {
+            return $this->back('/admin/mail#maild', 'danger', t('maild.same_port'));
+        }
+        \M4W\Service\MailGateway::saveConfig(['host' => $host, 'imap_port' => $imap, 'smtp_port' => $smtp,
             'cert' => $path($r->str('cert')), 'key' => $path($r->str('key'))]);
         \M4W\Service\MailGateway::tick();
         // Started just now: a few seconds for it to say whether it listens.
@@ -811,6 +816,42 @@ final class AdminController extends Controller
         }
         Audit::log('admin.maild_saved', $host);
         return $this->back('/admin/mail#maild', 'success', t('settings.saved'));
+    }
+
+    /** One click: Cloudflare token kept, DNS name and certificate made in the background (AJAX). */
+    public function maildSetup(): Response
+    {
+        $r = $this->req;
+        $token = trim($r->str('cf_token'));
+        if ($token !== '') {
+            if (!preg_match('/^[A-Za-z0-9_\-]{30,80}$/', $token)) {
+                return $this->fail(t('cf.token_bad'));
+            }
+            \M4W\Service\Cloudflare::setToken($token);
+        }
+        if (\M4W\Service\Cloudflare::token() === '') {
+            return $this->fail(t('cf.token_missing'));
+        }
+        $ip = trim($r->str('ip'));
+        if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return $this->fail(t('acme.no_ip'));
+        }
+        if (is_valid_email($r->str('email'))) {
+            Settings::set('maild.acme_email', mb_strtolower($r->str('email')));
+        }
+        if (!function_exists('exec')) {
+            return $this->fail(t('health.watch_no_exec'));
+        }
+        \M4W\Core\Session::close();
+        \M4W\Service\Acme::start($r->bool('dns'), $ip);
+        Audit::log('admin.maild_setup');
+        return $this->ok(\M4W\Service\Acme::status());
+    }
+
+    public function maildSetupStatus(): Response
+    {
+        \M4W\Core\Session::close();
+        return $this->ok(\M4W\Service\Acme::status());
     }
 
     public function saveMail(): Response
