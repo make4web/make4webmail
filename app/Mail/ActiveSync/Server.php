@@ -140,7 +140,12 @@ final class Server
             DB::update('eas_devices', $data, 'id = :id', ['id' => $row['id']]);
             $this->device = (int) $row['id'];
         } else {
-            $this->device = DB::insert('eas_devices', $data + ['user_id' => $this->uid, 'device_id' => $id, 'created_at' => time()]);
+            try {
+                $this->device = DB::insert('eas_devices', $data + ['user_id' => $this->uid, 'device_id' => $id, 'created_at' => time()]);
+            } catch (\PDOException) {
+                // The phone opens several connections at once: another one created it meanwhile.
+                $this->device = (int) DB::value('SELECT id FROM eas_devices WHERE user_id = :u AND device_id = :d', ['u' => $this->uid, 'd' => $id]);
+            }
         }
     }
 
@@ -156,8 +161,17 @@ final class Server
     private function save(string $collection, int $key, array $data, array $previous, string $stamp = ''): void
     {
         $row = ['sync_key' => $key, 'data' => json_encode($data), 'previous' => json_encode($previous), 'stamp' => $stamp, 'updated_at' => time()];
-        if (!DB::update('eas_states', $row, 'device = :d AND collection = :c', ['d' => $this->device, 'c' => $collection])) {
+        // Not "update, else insert": MariaDB counts the rows changed, not those found, so an
+        // unchanged state would be inserted twice. And parallel requests of one phone may race.
+        $where = ['d' => $this->device, 'c' => $collection];
+        if (DB::value('SELECT 1 FROM eas_states WHERE device = :d AND collection = :c', $where)) {
+            DB::update('eas_states', $row, 'device = :d AND collection = :c', $where);
+            return;
+        }
+        try {
             DB::insert('eas_states', $row + ['device' => $this->device, 'collection' => $collection]);
+        } catch (\PDOException) {
+            DB::update('eas_states', $row, 'device = :d AND collection = :c', $where);
         }
     }
 

@@ -2980,6 +2980,17 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $prov = $eas('Provision', ['Provision:Provision', [['Provision:Policies', [['Provision:Policy', [['Provision:PolicyType', 'MS-EAS-Provisioning-WBXML']]]]]]]);
         ok($W::text($W::child($W::child($prov, 'Policies'), 'Policy'), 'PolicyKey') !== '', 'policy key given');
         $fs = $eas('FolderSync', ['FolderHierarchy:FolderSync', [['FolderHierarchy:SyncKey', '0']]]);
+        // Asked again at once (the phone retries, or several connections): the same state, kept once.
+        $fs = $eas('FolderSync', ['FolderHierarchy:FolderSync', [['FolderHierarchy:SyncKey', '0']]]);
+        eq($W::text($fs, 'Status'), '1', 'FolderSync asked twice');
+        $srv = new \M4W\Mail\ActiveSync\Server($bob, '127.0.0.1');
+        $fsBody = $W::encode(['FolderHierarchy:FolderSync', [['FolderHierarchy:SyncKey', '0']]]);
+        for ($i = 0; $i < 3; $i++) {
+            [$code, , $out] = $srv->handle(['Cmd' => 'FolderSync', 'DeviceId' => 'twice'], [], $fsBody);
+            ok($code === 200 && $W::text($W::decode($out), 'Status') === '1', 'FolderSync unchanged state saved again (MariaDB)');
+            // Then nothing new: the same key, the same state.
+            $fsBody = $W::encode(['FolderHierarchy:FolderSync', [['FolderHierarchy:SyncKey', $W::text($W::decode($out), 'SyncKey')]]]);
+        }
         $folders = [];
         foreach ($W::children($W::child($fs, 'Changes'), 'Add') as $a) {
             $folders[$W::text($a, 'Type')][] = $W::text($a, 'ServerId');
