@@ -212,7 +212,7 @@ function maild_login(string $dir, string $ip, string $email, string $pw, ?array 
 }
 
 /** IMAP until signed in, then the instance's ImapServer. */
-function maild_imap($c, string $ip, array $cfg, string $dir): void
+function maild_imap($c, string $ip, array $cfg, string $dir, ?string $first = null): void
 {
     $out = static function (string $l) use ($c): void { @fwrite($c, $l . "\r\n"); };
     $out('* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR ID AUTH=PLAIN] Ready');
@@ -220,7 +220,8 @@ function maild_imap($c, string $ip, array $cfg, string $dir): void
     $instance = null;
     while (true) {
         stream_set_timeout($c, 60);
-        $line = fgets($c, 8192);
+        $line = $first ?? fgets($c, 8192);
+        $first = null;
         if ($line === false) {
             return;
         }
@@ -397,6 +398,148 @@ function maild_has_instances(string $dir): bool
     return false;
 }
 
+// ---------------------------------------------------------------- HTTPS: ActiveSync, Autodiscover
+
+function maild_http_reply($c, int $code, array $headers, string $body): void
+{
+    $reason = [200 => 'OK', 401 => 'Unauthorized', 404 => 'Not Found', 400 => 'Bad Request', 413 => 'Payload Too Large', 500 => 'Internal Server Error'][$code] ?? 'OK';
+    $out = "HTTP/1.1 $code $reason\r\n";
+    foreach ($headers + ['Content-Length' => (string) strlen($body), 'Cache-Control' => 'private', 'Connection' => 'keep-alive'] as $k => $v) {
+        $out .= $k . ': ' . str_replace(["\r", "\n"], '', (string) $v) . "\r\n";
+    }
+    @fwrite($c, $out . "\r\n" . $body);
+}
+
+/** What mail apps find from an address alone (Exchange Autodiscover, Thunderbird autoconfig). */
+function maild_discover(string $path, string $body, array $cfg): ?array
+{
+    $host = htmlspecialchars($cfg['host'], ENT_XML1);
+    $imap = (int) $cfg['imap_port'];
+    $smtp = (int) $cfg['smtp_port'];
+    $email = preg_match('#<EMailAddress>\s*([^<\s]+)\s*</EMailAddress>#i', $body, $m) ? htmlspecialchars($m[1], ENT_XML1)
+        : htmlspecialchars((string) (parse_url($path, PHP_URL_QUERY) ? (static function ($q) { parse_str($q, $a); return $a['emailaddress'] ?? ''; })(parse_url($path, PHP_URL_QUERY)) : ''), ENT_XML1);
+    $p = strtolower((string) parse_url($path, PHP_URL_PATH));
+    if ($p === '/autodiscover/autodiscover.xml') {
+        if (stripos($body, 'mobilesync') !== false) {
+            return ['text/xml', '<?xml version="1.0" encoding="utf-8"?><Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006"><Response xmlns="http://schemas.microsoft.com/exchange/autodiscover/mobilesync/responseschema/2006">'
+                . '<Culture>fr:fr</Culture><User><EMailAddress>' . $email . '</EMailAddress></User><Action><Settings><Server><Type>MobileSync</Type>'
+                . '<Url>https://' . $host . ':' . $imap . '/Microsoft-Server-ActiveSync</Url><Name>https://' . $host . ':' . $imap . '/Microsoft-Server-ActiveSync</Name></Server></Settings></Action></Response></Autodiscover>'];
+        }
+        // Outlook (POX): IMAP and SMTP.
+        return ['text/xml', '<?xml version="1.0" encoding="utf-8"?><Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006"><Response xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a">'
+            . '<Account><AccountType>email</AccountType><Action>settings</Action>'
+            . '<Protocol><Type>IMAP</Type><Server>' . $host . '</Server><Port>' . $imap . '</Port><LoginName>' . $email . '</LoginName><SSL>on</SSL><Encryption>SSL</Encryption><SPA>off</SPA><AuthRequired>on</AuthRequired></Protocol>'
+            . '<Protocol><Type>SMTP</Type><Server>' . $host . '</Server><Port>' . $smtp . '</Port><LoginName>' . $email . '</LoginName><SSL>on</SSL><Encryption>SSL</Encryption><SPA>off</SPA><AuthRequired>on</AuthRequired><UsePOPAuth>on</UsePOPAuth></Protocol>'
+            . '</Account></Response></Autodiscover>'];
+    }
+    if ($p === '/mail/config-v1.1.xml' || $p === '/.well-known/autoconfig/mail/config-v1.1.xml') {
+        return ['text/xml', '<?xml version="1.0" encoding="UTF-8"?><clientConfig version="1.1"><emailProvider id="' . $host . '"><domain>' . $host . '</domain><displayName>' . $host . '</displayName>'
+            . '<incomingServer type="imap"><hostname>' . $host . '</hostname><port>' . $imap . '</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer>'
+            . '<outgoingServer type="smtp"><hostname>' . $host . '</hostname><port>' . $smtp . '</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer>'
+            . '</emailProvider></clientConfig>'];
+    }
+    return null;
+}
+
+/** HTTP/1.1 requests on the connection (kept open): ActiveSync once signed in, Autodiscover. */
+function maild_http($c, string $ip, array $cfg, string $dir, string $first): void
+{
+    $instance = null;
+    $user = null;
+    $login = '';
+    $fails = 0;
+    for ($n = 0; $n < 500; $n++) {
+        $line = $n === 0 ? $first : null;
+        if ($line === null) {
+            stream_set_timeout($c, 120);
+            $line = fgets($c, 8192);
+            if ($line === false) {
+                return;
+            }
+        }
+        if (!preg_match('#^(GET|POST|OPTIONS|HEAD) (\S+) HTTP/1\.[01]#', $line, $m)) {
+            return;
+        }
+        [$method, $target] = [$m[1], $m[2]];
+        $h = [];
+        while (($l = fgets($c, 8192)) !== false && trim($l) !== '') {
+            if (str_contains($l, ':')) {
+                [$k, $v] = explode(':', $l, 2);
+                $h[strtolower(trim($k))] = trim($v);
+            }
+        }
+        $body = '';
+        if (isset($h['content-length'])) {
+            $len = (int) $h['content-length'];
+            if ($len > 60 * 1048576) {
+                maild_http_reply($c, 413, ['Connection' => 'close'], '');
+                return;
+            }
+            while (strlen($body) < $len && !feof($c)) {
+                $body .= (string) fread($c, min(65536, $len - strlen($body)));
+            }
+        } elseif (strtolower($h['transfer-encoding'] ?? '') === 'chunked') {
+            while (($sz = fgets($c, 64)) !== false && ($size = hexdec(trim($sz))) > 0) {
+                $chunk = '';
+                while (strlen($chunk) < $size && !feof($c)) {
+                    $chunk .= (string) fread($c, $size - strlen($chunk));
+                }
+                $body .= $chunk;
+                fgets($c, 8);
+                if (strlen($body) > 60 * 1048576) {
+                    return;
+                }
+            }
+            fgets($c, 8);
+        }
+        $path = (string) parse_url($target, PHP_URL_PATH);
+        if ($d = maild_discover($target, $body, $cfg)) {
+            maild_http_reply($c, 200, ['Content-Type' => $d[0] . '; charset=utf-8'], $d[1]);
+            continue;
+        }
+        if (strcasecmp($path, '/Microsoft-Server-ActiveSync') !== 0) {
+            maild_http_reply($c, 404, [], '');
+            continue;
+        }
+        // Basic authentication with the app password; "DOMAIN\user" accepted.
+        $auth = preg_match('/^Basic\s+(\S+)/i', $h['authorization'] ?? '', $am) ? (string) base64_decode($am[1], true) : '';
+        [$email, $pw] = array_pad(explode(':', $auth, 2), 2, '');
+        $email = strtolower(trim((string) preg_replace('/^.*\\\\/', '', $email)));
+        $headers = ['MS-Server-ActiveSync' => '14.1', 'MS-ASProtocolVersions' => '12.1,14.0,14.1',
+            'MS-ASProtocolCommands' => 'Sync,SendMail,SmartForward,SmartReply,GetAttachment,FolderSync,FolderCreate,FolderDelete,FolderUpdate,MoveItems,GetItemEstimate,Search,Settings,Ping,ItemOperations,Provision'];
+        if ($user === null || $email !== $login) {
+            if ($email === '' || $user !== null) {
+                maild_http_reply($c, 401, ['WWW-Authenticate' => 'Basic realm="ActiveSync"'], '');
+                if ($user !== null) {
+                    return;
+                }
+                continue;
+            }
+            $user = maild_login($dir, $ip, $email, $pw, $instance, 'eas');
+            if (!$user) {
+                maild_http_reply($c, 401, ['WWW-Authenticate' => 'Basic realm="ActiveSync"'], '');
+                if (++$fails >= 3) {
+                    return;
+                }
+                continue;
+            }
+            $login = $email;
+        }
+        if ($method === 'OPTIONS') {
+            maild_http_reply($c, 200, $headers, '');
+            continue;
+        }
+        parse_str((string) parse_url($target, PHP_URL_QUERY), $q);
+        try {
+            [$code, $rh, $out] = (new \M4W\Mail\ActiveSync\Server($user, $ip))->handle($q, $h, $body);
+        } catch (\Throwable $e) {
+            maild_log($dir, "$ip activesync error: " . $e->getMessage());
+            [$code, $rh, $out] = [500, [], ''];
+        }
+        maild_http_reply($c, $code, $rh + $headers, $out);
+    }
+}
+
 // ---------------------------------------------------------------- known scanners
 
 /** Addresses of known scanners and bad networks (blocklist.json, kept by the instances), as ranges. */
@@ -547,7 +690,20 @@ while (!$stop) {
                 if (maild_scanner_name($ip)) {
                     maild_fail($dir, $ip, 'scanner', 1);
                 } elseif (maild_tls($c, $ip, $cfg, $dir)) {
-                    $proto === 'smtp' ? maild_smtp($c, $ip, $cfg, $dir) : maild_imap($c, $ip, $cfg, $dir);
+                    if ($proto === 'smtp') {
+                        maild_smtp($c, $ip, $cfg, $dir);
+                    } else {
+                        // The same port for IMAP and HTTPS (ActiveSync, Autodiscover): an HTTP
+                        // client speaks first, an IMAP client waits for the greeting.
+                        $r = [$c];
+                        $w = $x = null;
+                        $first = @stream_select($r, $w, $x, 0, 400000) > 0 ? fgets($c, 8192) : null;
+                        if (is_string($first) && preg_match('#^(GET|POST|OPTIONS|HEAD) (\S+) HTTP/1\.[01]\r?\n$#', $first)) {
+                            maild_http($c, $ip, $cfg, $dir, $first);
+                        } elseif ($first !== false) {
+                            maild_imap($c, $ip, $cfg, $dir, $first);
+                        }
+                    }
                 }
             } catch (\Throwable $e) {
                 maild_log($dir, "$ip error: " . $e->getMessage());

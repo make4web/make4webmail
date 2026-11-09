@@ -219,6 +219,15 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
       <ul class="list-unstyled small mt-3 mb-0" data-maild-steps></ul>
       <p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle me-1"></i><?= te('cf.firewall', ['imap' => (int) $mg['imap_port'], 'smtp' => (int) $mg['smtp_port']]) ?></p>
     </div>
+    <div class="border rounded-3 p-3 mt-3" data-maild-dns>
+      <div class="d-flex align-items-center gap-2 mb-2"><div class="fw-semibold flex-grow-1"><i class="bi bi-diagram-2 me-1 text-primary"></i><?= te('cf.dns_title') ?></div>
+        <button type="button" class="btn btn-light btn-sm" data-maild-dns-check><i class="bi bi-arrow-repeat me-1"></i><?= te('cf.check') ?></button>
+        <button type="button" class="btn btn-primary btn-sm d-none" data-maild-dns-fix><i class="bi bi-wrench me-1"></i><?= te('cf.dns_fix') ?></button></div>
+      <p class="small text-muted mb-2"><?= te('cf.dns_desc') ?></p>
+      <div class="table-responsive"><table class="table table-sm small align-middle mb-1"><thead><tr><th></th><th><?= te('cf.dns_record') ?></th><th><?= te('cf.dns_expected') ?></th><th><?= te('cf.dns_found') ?></th></tr></thead>
+        <tbody data-maild-dns-rows><tr><td colspan="4" class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span><?= te('cf.dns_checking') ?></td></tr></tbody></table></div>
+      <div class="small" data-maild-dns-result></div>
+    </div>
     <details class="mt-3 small"><summary><?= te('maild.howto') ?></summary>
       <ol class="mt-2 mb-0">
         <li><?= te('maild.howto_dns', ['host' => $mg['host']]) ?></li>

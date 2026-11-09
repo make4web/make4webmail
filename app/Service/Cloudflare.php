@@ -98,6 +98,20 @@ final class Cloudflare
         return (string) (self::api('POST', '/zones/' . $zoneId . '/dns_records', $body)['result']['id'] ?? '');
     }
 
+    /** @return array[] the records of this type and name */
+    public static function records(string $zoneId, string $type, string $name): array
+    {
+        return (array) (self::api('GET', '/zones/' . $zoneId . '/dns_records?type=' . $type . '&name=' . rawurlencode($name))['result'] ?? []);
+    }
+
+    /** A service record (autodiscovery of mail apps), created or changed. */
+    public static function upsertSrv(string $zoneId, string $name, string $target, int $port, int $priority = 0, int $weight = 1): void
+    {
+        $body = ['type' => 'SRV', 'name' => $name, 'ttl' => 3600, 'data' => ['priority' => $priority, 'weight' => $weight, 'port' => $port, 'target' => $target]];
+        $id = (string) (self::records($zoneId, 'SRV', $name)[0]['id'] ?? '');
+        $id !== '' ? self::api('PUT', '/zones/' . $zoneId . '/dns_records/' . $id, $body) : self::api('POST', '/zones/' . $zoneId . '/dns_records', $body);
+    }
+
     public static function delete(string $zoneId, string $recordId): void
     {
         try {

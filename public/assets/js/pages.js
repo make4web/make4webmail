@@ -581,6 +581,33 @@
     M4W.get('admin/mail/maild/setup', {}, { silent: true, quiet: true }).done(function (s) { render(s); if (s.running) setTimeout(poll, 2000); });
   });
 
+  // Mail apps: the DNS records they need (service name, autodiscovery), checked, put right.
+  $(function () {
+    var $box = $('[data-maild-dns]');
+    if (!$box.length) return;
+    var icon = { ok: '<i class="bi bi-check-circle-fill text-success"></i>', missing: '<i class="bi bi-x-circle-fill text-danger"></i>', wrong: '<i class="bi bi-exclamation-triangle-fill text-warning"></i>', unreachable: '<i class="bi bi-question-circle text-muted"></i>' };
+    function render(r) {
+      var bad = (r.records || []).filter(function (x) { return x.state !== 'ok'; });
+      $box.find('[data-maild-dns-rows]').html((r.records || []).map(function (x) {
+        return '<tr><td>' + (icon[x.state] || '') + '</td><td><span class="badge badge-soft me-1">' + M4W.esc(x.type) + '</span><code>' + M4W.esc(x.name) + '</code></td>'
+          + '<td><code>' + M4W.esc(x.value || M4W.t('dns_this_server')) + '</code></td><td class="text-break ' + (x.state === 'ok' ? '' : 'text-danger') + '">' + M4W.esc(x.found || '—') + '</td></tr>';
+      }).join(''));
+      $box.find('[data-maild-dns-fix]').toggleClass('d-none', !r.api || !bad.some(function (x) { return x.type === 'SRV'; }));
+      if (!r.api && bad.length) $box.find('[data-maild-dns-result]').addClass('text-muted').text(M4W.t('dns_no_token'));
+    }
+    function check() {
+      return M4W.get('admin/mail/maild/dns', {}, { silent: true, quiet: true }).done(render);
+    }
+    $box.on('click', '[data-maild-dns-check]', check);
+    $box.on('click', '[data-maild-dns-fix]', function () {
+      var $b = $(this).prop('disabled', true), $r = $box.find('[data-maild-dns-result]').removeClass('text-success text-danger text-muted').html('<span class="spinner-border spinner-border-sm"></span>');
+      M4W.post('admin/mail/maild/dns', {}, { silent: true }).done(function (r) { render(r); $r.addClass('text-success').text(r.message || ''); })
+        .fail(function (x) { $r.addClass('text-danger').text((x.responseJSON && x.responseJSON.error) || M4W.t('error_network')); })
+        .always(function () { $b.prop('disabled', false); });
+    });
+    check();
+  });
+
   // Backups: the list follows a backup under way (step, upload percentage), or one asked for
   // and waiting for the scheduled task, then shows how it ended.
   $(function () {

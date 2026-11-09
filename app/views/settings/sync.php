@@ -25,7 +25,10 @@ $login = mb_strtolower($user['email']);
       <dt><?= te('dav.login') ?></dt><dd><code><?= e($login) ?></code></dd>
       <dt><?= te('dav.password') ?></dt><dd><?= te('dav.password_hint') ?></dd>
     </dl>
-    <p class="small text-muted mb-0"><?= te('maild.user_note') ?></p>
+    <p class="small text-muted"><?= te('maild.user_note') ?></p>
+    <div class="fw-semibold small mb-1"><i class="bi bi-lightning-charge me-1 text-primary"></i><?= te('maild.eas_title') ?></div>
+    <p class="small text-muted mb-1"><?= te('maild.eas_desc') ?></p>
+    <dl class="m4w-dav-settings mb-0"><dt><?= te('maild.eas_server') ?></dt><dd><code><?= e($mg['host']) ?>:<?= (int) $mg['imap_port'] ?></code> · SSL/TLS</dd></dl>
   </div>
 </div>
 <?php endif; ?>

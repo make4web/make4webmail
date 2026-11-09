@@ -2932,6 +2932,109 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $say('DATA');
         ok(str_starts_with($say("From: ceo@bank.example\r\nTo: admin@test.local\r\nSubject: x\r\n\r\nx\r\n."), '550 5.7.1'), 'not one of the person\'s addresses');
         $say('QUIT');
+        // ---- Exchange ActiveSync on the same port (phones' mail apps, in push).
+        $W = M4W\Mail\ActiveSync\Wbxml::class;
+        $doc = ['AirSync:Sync', [['AirSync:Collections', [['AirSync:Collection', [['AirSync:SyncKey', '0'], ['AirSync:CollectionId', '7'], ['AirSync:Options', [['AirSyncBase:BodyPreference', [['AirSyncBase:Type', '2']]]]]]]]]]];
+        eq($W::decode($W::encode($doc)), $doc, 'WBXML both ways');
+        $http = static function (string $method, string $path, string $body = '', array $headers = []) use ($port): array {
+            $ctx = stream_context_create(['ssl' => ['peer_name' => 'webmail.test', 'verify_peer' => false, 'verify_peer_name' => false]]);
+            $s = stream_socket_client('ssl://127.0.0.1:' . $port, $en, $es, 5, STREAM_CLIENT_CONNECT, $ctx);
+            stream_set_timeout($s, 30);
+            $req = "$method $path HTTP/1.1\r\nHost: webmail.test\r\nContent-Length: " . strlen($body) . "\r\n";
+            foreach ($headers as $k => $v) {
+                $req .= "$k: $v\r\n";
+            }
+            fwrite($s, $req . "\r\n" . $body);
+            $status = (int) substr((string) fgets($s), 9, 3);
+            $hd = [];
+            while (($l = fgets($s)) !== false && trim($l) !== '') {
+                [$k, $v] = array_pad(explode(':', $l, 2), 2, '');
+                $hd[strtolower(trim($k))] = trim($v);
+            }
+            $out = '';
+            while (strlen($out) < (int) ($hd['content-length'] ?? 0) && !feof($s)) {
+                $out .= fread($s, 65536);
+            }
+            fclose($s);
+            return [$status, $hd, $out];
+        };
+        $auth = ['Authorization' => 'Basic ' . base64_encode('bob@test.local:' . $pw), 'Content-Type' => 'application/vnd.ms-sync.wbxml', 'MS-ASProtocolVersion' => '14.1'];
+        $eas = static function (string $cmd, ?array $doc, array $extra = []) use ($http, $auth, $W) {
+            [$st, , $out] = $http('POST', '/Microsoft-Server-ActiveSync?Cmd=' . $cmd . '&User=bob&DeviceId=PHONE1&DeviceType=Android', $doc ? $W::encode($doc) : '', $extra + $auth);
+            ok($st === 200, $cmd . ': HTTP ' . $st);
+            return $W::decode($out);
+        };
+        [$st, , $xml] = $http('POST', '/autodiscover/autodiscover.xml', '<Autodiscover><Request><EMailAddress>bob@test.local</EMailAddress><AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/mobilesync/responseschema/2006</AcceptableResponseSchema></Request></Autodiscover>');
+        ok($st === 200 && str_contains($xml, 'https://webmail.test:' . $port . '/Microsoft-Server-ActiveSync'), 'Autodiscover: ' . $xml);
+        [$st, $hd] = $http('OPTIONS', '/Microsoft-Server-ActiveSync', '', ['Authorization' => $auth['Authorization']]);
+        ok($st === 200 && str_contains($hd['ms-asprotocolversions'] ?? '', '14.1'), 'OPTIONS');
+        eq($http('POST', '/Microsoft-Server-ActiveSync?Cmd=FolderSync&DeviceId=X', '', ['Authorization' => 'Basic ' . base64_encode('bob@test.local:wrong')])[0], 401, 'app password required');
+        $prov = $eas('Provision', ['Provision:Provision', [['Provision:Policies', [['Provision:Policy', [['Provision:PolicyType', 'MS-EAS-Provisioning-WBXML']]]]]]]);
+        ok($W::text($W::child($W::child($prov, 'Policies'), 'Policy'), 'PolicyKey') !== '', 'policy key given');
+        $fs = $eas('FolderSync', ['FolderHierarchy:FolderSync', [['FolderHierarchy:SyncKey', '0']]]);
+        $folders = [];
+        foreach ($W::children($W::child($fs, 'Changes'), 'Add') as $a) {
+            $folders[$W::text($a, 'Type')][] = $W::text($a, 'ServerId');
+        }
+        $inboxId = $folders['2'][0] ?? '';
+        eq($inboxId, (string) $inbox, 'the webmail inbox, as Exchange types it: ' . json_encode($folders));
+        ok(isset($folders['5'], $folders['3'], $folders['4']), 'Sent, Drafts, Deleted');
+        $sync = static function (string $key) use ($eas, $inboxId) {
+            return $eas('Sync', ['AirSync:Sync', [['AirSync:Collections', [['AirSync:Collection', [['AirSync:SyncKey', $key], ['AirSync:CollectionId', $inboxId],
+                ['AirSync:WindowSize', '50'], ['AirSync:Options', [['AirSync:FilterType', '0'], ['AirSyncBase:BodyPreference', [['AirSyncBase:Type', '2'], ['AirSyncBase:TruncationSize', '200000']]]]]]]]]]]);
+        };
+        $col = static fn($r) => $W::child($W::child($r, 'Collections'), 'Collection');
+        eq($W::text($col($sync('0')), 'SyncKey'), '1');
+        $r = $col($sync('1'));
+        $adds = $W::children($W::child($r, 'Commands'), 'Add');
+        eq(count($adds), (int) DB::value('SELECT COUNT(*) FROM messages WHERE folder_id = :f', ['f' => $inbox]), 'the inbox sent to the phone');
+        $one = null;
+        foreach ($adds as $a) {
+            if (str_contains($W::text($W::child($a, 'ApplicationData'), 'Subject'), 'IDLE')) {
+                $one = $a;
+            }
+        }
+        ok($one && str_contains($W::text($W::child($W::child($one, 'ApplicationData'), 'Body'), 'Data'), 'Bonjour Bob'), 'subject and HTML body');
+        $sid = $W::text($one, 'ServerId');
+        $mid = (int) explode(':', $sid)[1];
+        $att = $W::child($W::child($W::child($one, 'ApplicationData'), 'Attachments'), 'Attachment');
+        ok($att && $W::text($att, 'DisplayName') === 'devis.pdf', 'attachment listed');
+        // Read on the phone: read in the webmail; nothing more to send.
+        $key = $W::text($r, 'SyncKey');
+        $r = $col($eas('Sync', ['AirSync:Sync', [['AirSync:Collections', [['AirSync:Collection', [['AirSync:SyncKey', $key], ['AirSync:CollectionId', $inboxId],
+            ['AirSync:Commands', [['AirSync:Change', [['AirSync:ServerId', $sid], ['AirSync:ApplicationData', [['Email:Read', '1'], ['Email:Flag', [['Email:FlagStatus', '2']]]]]]]]]]]]]]]));
+        eq([(int) DB::value('SELECT is_read FROM messages WHERE id = :i', ['i' => $mid]), (int) DB::value('SELECT is_flagged FROM messages WHERE id = :i', ['i' => $mid])], [1, 1], 'read and flagged from the phone');
+        ok(!$W::child($r, 'Commands'), 'not sent back');
+        $key = $W::text($r, 'SyncKey');
+        // Push: Ping tells of new mail at once.
+        $new = Mailbox::store($uid, $inbox, $mk('Pousse'));
+        $ping = $eas('Ping', ['Ping:Ping', [['Ping:HeartbeatInterval', '120'], ['Ping:Folders', [['Ping:Folder', [['Ping:Id', $inboxId], ['Ping:Class', 'Email']]]]]]]);
+        eq([$W::text($ping, 'Status'), $W::text($W::child($ping, 'Folders'), 'Folder')], ['2', $inboxId], 'new mail told');
+        $r = $col($sync($key));
+        ok((bool) array_filter($W::children($W::child($r, 'Commands'), 'Add'), static fn($a) => $W::text($a, 'ServerId') === $inboxId . ':' . $new), 'and sent');
+        // The attachment, then a move to another folder.
+        $io = $eas('ItemOperations', ['ItemOperations:ItemOperations', [['ItemOperations:Fetch', [['ItemOperations:Store', 'Mailbox'], ['AirSyncBase:FileReference', $W::text($att, 'FileReference')]]]]]);
+        eq(base64_decode($W::text($W::child($W::child($W::child($io, 'Response'), 'Fetch'), 'Properties'), 'Data')), "%PDF-1.4\n", 'attachment fetched');
+        $arch = (string) Folders::byRole($uid, 'archive')['id'];
+        $mv = $eas('MoveItems', ['Move:MoveItems', [['Move:Move', [['Move:SrcMsgId', $sid], ['Move:SrcFldId', $inboxId], ['Move:DstFldId', $arch]]]]]);
+        eq([$W::text($W::child($mv, 'Response'), 'Status'), (int) DB::value('SELECT folder_id FROM messages WHERE id = :i', ['i' => $mid])], ['3', (int) $arch], 'moved');
+        // Sending (SendMail) and answering (SmartReply: the original quoted here).
+        $mid3 = 'eas-' . bin2hex(random_bytes(4)) . '@phone.example';
+        $mime = "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Depuis Exchange\r\nMessage-ID: <$mid3>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nEnvoi ActiveSync\r\n";
+        $sent = $eas('SendMail', ['ComposeMail:SendMail', [['ComposeMail:ClientId', 'c1'], ['ComposeMail:SaveInSentItems', ''], ['ComposeMail:Mime', ['opaque' => $mime]]]]);
+        ok($sent === null, 'sent (empty answer)');
+        ok((bool) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid3]), 'delivered');
+        $mid4 = 'eas-' . bin2hex(random_bytes(4)) . '@phone.example';
+        $eas('SmartReply', ['ComposeMail:SmartReply', [['ComposeMail:ClientId', 'c2'], ['ComposeMail:Source', [['ComposeMail:FolderId', $arch], ['ComposeMail:ItemId', $arch . ':' . $mid]]],
+            ['ComposeMail:Mime', ['opaque' => "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: Premier\r\nMessage-ID: <$mid4>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMa reponse\r\n"]]]]);
+        $rep = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid4]);
+        ok($rep && str_contains(Mailbox::raw($rep), 'Bonjour Bob') && str_contains(Mailbox::raw($rep), 'Ma reponse'), 'the original quoted');
+        eq((int) DB::value('SELECT is_answered FROM messages WHERE id = :i', ['i' => $mid]), 1, 'marked answered');
+        // IMAP still served on the same port.
+        $c3 = $client();
+        $c3->connect('bob@test.local', $pw);
+        ok(isset($c3->folders()['INBOX']), 'IMAP on the same port');
+        $c3->logout();
         // Known bad networks (shared list), never the server's own (private, loopback).
         $n = M4W\Service\MailGateway::refreshBlocklist(static fn($u) => "# list\n10.0.0.0/8\n127.0.0.0/8\n192.168.0.0/16\n45.83.64.0/22\n185.220.101.7\n", true);
         eq($n, 2, 'bad networks, without private ranges');
@@ -2979,7 +3082,7 @@ test('mail apps certificate in one click: DNS name and Let\'s Encrypt proof thro
         $path = (string) parse_url($url, PHP_URL_PATH);
         parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
         if (str_ends_with($path, '/user/tokens/verify')) return $ok(['status' => 'active']);
-        if (str_ends_with($path, '/zones')) return $ok(($q['name'] ?? '') === 'test.example' ? [['id' => 'z1']] : []);
+        if (str_ends_with($path, '/zones')) return $ok(in_array($q['name'] ?? '', ['test.example', 'test.local'], true) ? [['id' => 'z-' . $q['name']]] : []);
         if (preg_match('#/dns_records/(\w+)$#', $path, $r)) {
             if ($m === 'DELETE') { unset($records[$r[1]]); return $ok(['id' => $r[1]]); }
             $records[$r[1]] = $body; return $ok(['id' => $r[1]]);
@@ -3054,6 +3157,17 @@ test('mail apps certificate in one click: DNS name and Let\'s Encrypt proof thro
         $x = openssl_x509_parse((string) file_get_contents($c['cert']));
         ok($x['subject']['CN'] === $host && openssl_x509_check_private_key((string) file_get_contents($c['cert']), (string) file_get_contents($c['key'])), 'the certificate and its key, for the service');
         ok(str_starts_with($A::renewIfDue(), 'valid until'), 'not renewed while far from its end');
+        // DNS for autodiscovery: checked, then put right in one click.
+        $G = M4W\Service\MailGateway::class;
+        $states = static fn() => array_column(array_map(static fn($w) => [$w['name'], $w['state']], $G::dnsChecks()), 1, 0);
+        $s1 = $states();
+        eq($s1[$host] ?? '', 'ok', 'the service name, DNS only');
+        eq($s1['_autodiscover._tcp.test.local'] ?? '', 'missing', 'autodiscovery missing at first');
+        ok(count($G::fixDns()) >= 3, 'made');
+        $s2 = $states();
+        ok(!array_filter($s2, static fn($st) => $st !== 'ok'), 'all in place: ' . json_encode($s2));
+        $srv = array_values(array_filter($records, static fn($r) => $r['type'] === 'SRV' && $r['name'] === '_imaps._tcp.test.local'))[0] ?? [];
+        eq([$srv['data']['port'] ?? 0, $srv['data']['target'] ?? ''], [M4W\Service\MailGateway::config()['imap_port'], $host], 'IMAP service record');
         // A proof that does not match: said plainly, nothing replaced.
         $st['auth'] = 'pending';
         $st['token'] = 'other';

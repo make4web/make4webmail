@@ -882,6 +882,29 @@ final class AdminController extends Controller
         }
     }
 
+    /** The DNS records mail apps need, checked (AJAX). */
+    public function maildDns(): Response
+    {
+        \M4W\Core\Session::close();
+        return $this->ok(['records' => \M4W\Service\MailGateway::dnsChecks(), 'api' => \M4W\Service\Cloudflare::token() !== '']);
+    }
+
+    /** "Install / fix": made through Cloudflare, then checked again (AJAX). */
+    public function maildDnsFix(): Response
+    {
+        \M4W\Core\Session::close();
+        if (\M4W\Service\Cloudflare::token() === '') {
+            return $this->fail(t('cf.token_missing'));
+        }
+        try {
+            $done = \M4W\Service\MailGateway::fixDns();
+            Audit::log('admin.maild_dns', implode(', ', $done));
+        } catch (\Throwable $e) {
+            return $this->fail($e->getMessage());
+        }
+        return $this->ok(['records' => \M4W\Service\MailGateway::dnsChecks(), 'api' => true, 'message' => t('cf.dns_fixed', ['n' => count($done)])]);
+    }
+
     public function maildSetupStatus(): Response
     {
         \M4W\Core\Session::close();
