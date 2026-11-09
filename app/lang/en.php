@@ -2771,4 +2771,10 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'acme.refused' => 'Let\'s Encrypt refused the proof: :why',
     'acme.no_ip' => 'The server\'s public IP address could not be found or is invalid: give it.',
     'acme.stalled' => 'The start did not succeed (no news for two minutes). Details in :log. You can also run the setting up by hand, as the web server\'s account: sudo -u www-data :cmd',
+    'cf.check' => 'Check',
+    'cf.detect' => 'Detect',
+    'cf.token_ok' => 'Token valid: the zone :zone is reachable, :host can be made there.',
+    'cf.ip_found' => 'This server\'s public address: :ip',
+    'acme.step_ip' => 'Finding the server\'s public IP address',
+    'js.cf_token_kept' => '•••••••• saved — type to replace',
 ];

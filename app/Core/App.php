@@ -506,6 +506,7 @@ final class App
         $r->post('/admin/mail/maild', [Controller\AdminController::class, 'saveMaild'], $super);
         $r->post('/admin/mail/maild/setup', [Controller\AdminController::class, 'maildSetup'], $super);
         $r->get('/admin/mail/maild/setup', [Controller\AdminController::class, 'maildSetupStatus'], $super);
+        $r->post('/admin/mail/maild/check', [Controller\AdminController::class, 'maildCheck'], $super);
         $r->get('/admin/health', [Controller\AdminController::class, 'health'], $admin);
         $r->post('/admin/health', [Controller\AdminController::class, 'saveHealth'], $admin);
         $r->get('/admin/security', [Controller\AdminController::class, 'security'], $super);

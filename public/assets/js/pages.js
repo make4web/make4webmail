@@ -564,6 +564,19 @@
       M4W.post('admin/mail/maild/setup', { cf_token: $box.find('[name=cf_token]').val(), dns: $box.find('[name=cf_dns]').is(':checked') ? 1 : 0, ip: $box.find('[name=cf_ip]').val(), email: $box.find('[name=cf_email]').val() })
         .done(function (s) { $box.find('[name=cf_token]').val(''); render(s); setTimeout(poll, 1500); });
     });
+    // The token and the zone it reaches; this server's public address (filled in).
+    $box.on('click', '[data-maild-check]', function () {
+      var what = $(this).data('maild-check'), $b = $(this).prop('disabled', true), $r = $box.find('[data-maild-check-result="' + what + '"]');
+      $r.removeClass('text-success text-danger').html('<span class="spinner-border spinner-border-sm"></span>');
+      M4W.post('admin/mail/maild/check', { what: what, cf_token: $box.find('[name=cf_token]').val() }, { silent: true })
+        .done(function (r) {
+          $r.addClass('text-success').text(r.message || '');
+          if (what === 'ip' && r.ip) $box.find('[name=cf_ip]').val(r.ip);
+          if (what === 'token') $box.find('[name=cf_token]').val('').attr('placeholder', M4W.t('cf_token_kept'));
+        })
+        .fail(function (x) { $r.addClass('text-danger').text((x.responseJSON && x.responseJSON.error) || M4W.t('error_network')); })
+        .always(function () { $b.prop('disabled', false); });
+    });
     // A setting up already under way (page reloaded meanwhile): followed.
     M4W.get('admin/mail/maild/setup', {}, { silent: true, quiet: true }).done(function (s) { render(s); if (s.running) setTimeout(poll, 2000); });
   });

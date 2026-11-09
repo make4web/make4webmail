@@ -264,7 +264,10 @@ final class Acme
             $say(t('acme.step_token'));
             Cloudflare::verify();
             if ($dnsRecord) {
-                $ip = $ip !== '' ? $ip : Cloudflare::publicIp();
+                if ($ip === '') {
+                    $say(t('acme.step_ip'));
+                    $ip = Cloudflare::publicIp();
+                }
                 if (!filter_var($ip, FILTER_VALIDATE_IP)) {
                     throw new \RuntimeException(t('acme.no_ip'));
                 }
