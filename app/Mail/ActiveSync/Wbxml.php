@@ -33,7 +33,7 @@ final class Wbxml
         13 => ['Ping', [0x05 => 'Ping', 'AutdState', 'Status', 'HeartbeatInterval', 'Folders', 'Folder', 'Id', 'Class', 'MaxFolders']],
         14 => ['Provision', [0x05 => 'Provision', 'Policies', 'Policy', 'PolicyType', 'PolicyKey', 'Data', 'Status', 'RemoteWipe', 'EASProvisionDoc', 'DevicePasswordEnabled']],
         15 => ['Search', [0x05 => 'Search', 'Stores', 'Store', 'Name', 'Query', 'Options', 'Range', 'Status', 'Response', 'Result', 'Properties', 'Total']],
-        16 => ['GAL', []],
+        16 => ['GAL', [0x05 => 'DisplayName', 'Phone', 'Office', 'Title', 'Company', 'Alias', 'FirstName', 'LastName', 'HomePhone', 'MobilePhone', 'EmailAddress', 'Picture', 'Status', 'Data']],
         17 => ['AirSyncBase', [0x05 => 'BodyPreference', 'Type', 'TruncationSize', 'AllOrNone', 0x0A => 'Body', 'Data', 'EstimatedDataSize', 'Truncated', 'Attachments', 'Attachment', 'DisplayName', 'FileReference', 'Method', 'ContentId', 'ContentLocation', 'IsInline', 'NativeBodyType', 'ContentType', 'Preview', 'BodyPartPreference', 'BodyPart', 'Status']],
         18 => ['Settings', [0x05 => 'Settings', 'Status', 'Get', 'Set', 'Oof', 'OofState', 'StartTime', 'EndTime', 'OofMessage', 'AppliesToInternal', 'AppliesToExternalKnown', 'AppliesToExternalUnknown', 'Enabled', 'ReplyMessage', 'BodyType', 'DevicePassword', 'Password', 'DeviceInformation', 'Model', 'IMEI', 'FriendlyName', 'OS', 'OSLanguage', 'PhoneNumber', 'UserInformation', 'EmailAddresses', 'SmtpAddress', 'UserAgent', 'EnableOutboundSMS', 'MobileOperator', 'PrimarySmtpAddress', 'Accounts', 'Account', 'AccountId', 'AccountName', 'UserDisplayName', 'SendDisabled']],
         19 => ['DocumentLibrary', []],

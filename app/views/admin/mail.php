@@ -269,6 +269,29 @@ sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials /root/.secre
     <button class="btn btn-primary mt-3"><i class="bi bi-check2 me-1"></i><?= te('common.save') ?></button>
   </div>
 </form>
+<?php if (M4W\Service\MailGateway::enabled()): ?>
+<div class="card mb-4" id="maild-activity" data-maild-activity="<?= e(url('admin/mail/maild/activity')) ?>">
+  <div class="card-header d-flex align-items-center gap-2"><i class="bi bi-activity text-primary"></i><span class="flex-grow-1"><?= te('mact.title') ?></span>
+    <span class="small text-muted" data-mact-state></span></div>
+  <div class="card-body">
+    <p class="small text-muted"><?= te('mact.desc') ?></p>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <input type="search" class="form-control form-control-sm" style="max-width:280px" placeholder="<?= te('mact.filter') ?>" data-mact-filter aria-label="<?= te('mact.filter') ?>">
+      <div class="btn-group btn-group-sm" role="group">
+        <button type="button" class="btn btn-light active" data-mact-tab="events"><?= te('mact.tab_events') ?></button>
+        <button type="button" class="btn btn-light" data-mact-tab="devices"><?= te('mact.tab_devices') ?></button>
+        <button type="button" class="btn btn-light" data-mact-tab="journal"><?= te('mact.tab_journal') ?></button>
+      </div>
+      <label class="form-check form-check-inline small ms-auto mb-0 align-self-center"><input class="form-check-input" type="checkbox" data-mact-fails> <?= te('mact.only_fails') ?></label>
+    </div>
+    <div class="table-responsive" style="max-height:420px">
+      <table class="table table-sm small align-middle mb-0" data-mact-pane="events"><thead><tr><th><?= te('mact.when') ?></th><th><?= te('mact.who') ?></th><th><?= te('mact.what') ?></th><th><?= te('mact.ip') ?></th></tr></thead><tbody></tbody></table>
+      <table class="table table-sm small align-middle mb-0 d-none" data-mact-pane="devices"><thead><tr><th><?= te('mact.who') ?></th><th><?= te('mact.device') ?></th><th><?= te('mact.syncs') ?></th><th><?= te('mact.last') ?></th><th><?= te('mact.ip') ?></th></tr></thead><tbody></tbody></table>
+      <div class="d-none" data-mact-pane="journal"><pre class="m4w-help-code small mb-0" style="white-space:pre-wrap"></pre></div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 <form method="post" action="<?= e(url('admin/mail/maild/unban')) ?>" id="maild-unban"><?= csrf_field() ?></form>
 <form method="post" action="<?= e(url('admin/mail/dkim')) ?>" id="dkim-gen" data-confirm="<?= te('admin.dkim_confirm') ?>"><?= csrf_field() ?></form>
 <div class="modal fade" id="test-modal" tabindex="-1" aria-hidden="true">
