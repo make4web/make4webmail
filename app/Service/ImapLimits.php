@@ -55,9 +55,9 @@ final class ImapLimits
     /** The folder shared by the instances of the server (all running as the same user). */
     public static function dir(): string
     {
-        // config/config.php 'imap_ledger_dir' => '/var/lib/make4webmail-imap': the same folder in
-        // every instance, when they do not share the temporary folder.
-        $d = self::$dir ?? ((string) \M4W\Core\Config::get('imap_ledger_dir', '') ?: rtrim(sys_get_temp_dir(), '/') . '/m4w-imap');
+        // Shared by the instances and seen alike by the web server and the scheduled task
+        // (shared_dir); config/config.php 'imap_ledger_dir' chooses another folder.
+        $d = self::$dir ?? ((string) \M4W\Core\Config::get('imap_ledger_dir', '') ?: shared_dir('m4w-imap'));
         if (!is_dir($d)) {
             @mkdir($d, 0770, true);
         }

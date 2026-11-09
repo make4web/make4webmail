@@ -2843,4 +2843,5 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'acme.done' => 'Certificat en place, valable jusqu\'au :date : le service l\'utilise déjà, il sera renouvelé tout seul.',
     'acme.refused' => 'Let\'s Encrypt a refusé la preuve : :why',
     'acme.no_ip' => 'Adresse IP publique du serveur introuvable ou invalide : indiquez-la.',
+    'acme.stalled' => 'Le lancement n\'a pas abouti (aucune nouvelle depuis deux minutes). Détails dans :log. Vous pouvez aussi lancer la mise en place à la main, sous le compte du serveur web : sudo -u www-data :cmd',
 ];

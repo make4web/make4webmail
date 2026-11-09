@@ -8,7 +8,7 @@ After=network.target
 [Service]
 User=www-data
 Group=www-data
-ExecStart=/usr/bin/php /var/www/make4webmail/bin/maild.php --dir=/tmp/m4w-maild
+ExecStart=/usr/bin/php /var/www/make4webmail/bin/maild.php --dir=/dev/shm/m4w-maild
 Restart=always
 RestartSec=10
 
