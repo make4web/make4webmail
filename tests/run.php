@@ -2936,6 +2936,14 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $W = M4W\Mail\ActiveSync\Wbxml::class;
         $doc = ['AirSync:Sync', [['AirSync:Collections', [['AirSync:Collection', [['AirSync:SyncKey', '0'], ['AirSync:CollectionId', '7'], ['AirSync:Options', [['AirSyncBase:BodyPreference', [['AirSyncBase:Type', '2']]]]]]]]]]];
         eq($W::decode($W::encode($doc)), $doc, 'WBXML both ways');
+        // The encoded query (Outlook, iOS): version 14.1, Sync, device, policy key, type, options.
+        $hq = [];
+        $enc = base64_encode(chr(141) . chr(0) . "\x09\x04" . chr(4) . "\xAB\xCD\x01\x02" . chr(4) . pack('V', 1234) . chr(7) . 'Outlook' . chr(1) . chr(2) . '42' . chr(7) . chr(1) . "\x03");
+        $qq = \M4W\Mail\ActiveSync\Server::query(rawurlencode($enc), $hq);
+        ok(($qq['Cmd'] ?? '') === 'Sync' && ($qq['DeviceId'] ?? '') === 'abcd0102' && ($qq['DeviceType'] ?? '') === 'Outlook' && ($qq['CollectionId'] ?? '') === '42'
+            && ($qq['SaveInSent'] ?? '') === 'T' && ($hq['x-ms-policykey'] ?? '') === '1234' && ($hq['ms-asprotocolversion'] ?? '') === '14.1', 'ActiveSync encoded query: ' . json_encode($qq + $hq));
+        $hq = [];
+        eq(\M4W\Mail\ActiveSync\Server::query('Cmd=FolderSync&User=bob&DeviceId=abc&DeviceType=Android', $hq)['Cmd'], 'FolderSync', 'ActiveSync plain query');
         $http = static function (string $method, string $path, string $body = '', array $headers = []) use ($port): array {
             $ctx = stream_context_create(['ssl' => ['peer_name' => 'webmail.test', 'verify_peer' => false, 'verify_peer_name' => false]]);
             $s = stream_socket_client('ssl://127.0.0.1:' . $port, $en, $es, 5, STREAM_CLIENT_CONNECT, $ctx);
@@ -3035,6 +3043,17 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $c3->connect('bob@test.local', $pw);
         ok(isset($c3->folders()['INBOX']), 'IMAP on the same port');
         $c3->logout();
+        // A service started from older code gives way to the newer version at the next task.
+        $st = json_decode((string) file_get_contents($dir . '/maild-status.json'), true);
+        ok(($st['version'] ?? '') === M4W_VERSION, 'the service tells its version');
+        file_put_contents($dir . '/maild-status.json', json_encode(['version' => '1.0.2020.0101.1'] + $st));
+        eq(M4W\Service\MailGateway::tick(), 'registered, started', 'older service replaced');
+        for ($i = 0; $i < 50 && (int) (json_decode((string) @file_get_contents($dir . '/maild-status.json'), true)['pid'] ?? $pid) === $pid; $i++) {
+            usleep(100000);
+        }
+        $old = $pid;
+        $pid = (int) trim((string) file_get_contents($dir . '/maild.lock'));
+        ok($pid !== $old && M4W\Service\MailGateway::running(), "new service ($old → $pid): " . substr((string) @file_get_contents($dir . '/maild.log'), -400));
         // Known bad networks (shared list), never the server's own (private, loopback).
         $n = M4W\Service\MailGateway::refreshBlocklist(static fn($u) => "# list\n10.0.0.0/8\n127.0.0.0/8\n192.168.0.0/16\n45.83.64.0/22\n185.220.101.7\n", true);
         eq($n, 2, 'bad networks, without private ranges');

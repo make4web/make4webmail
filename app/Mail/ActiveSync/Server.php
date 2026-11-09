@@ -42,6 +42,61 @@ final class Server
         return ['MS-Server-ActiveSync' => '14.1', 'MS-ASProtocolVersions' => self::VERSIONS, 'MS-ASProtocolCommands' => self::COMMANDS, 'Allow' => 'OPTIONS,POST', 'Public' => 'OPTIONS,POST'];
     }
 
+    /** Command codes of the encoded query (MS-ASHTTP 2.2.1.1.1.1.2). */
+    private const CMD_CODES = [0 => 'Sync', 1 => 'SendMail', 2 => 'SmartForward', 3 => 'SmartReply', 4 => 'GetAttachment', 9 => 'FolderSync',
+        10 => 'FolderCreate', 11 => 'FolderDelete', 12 => 'FolderUpdate', 13 => 'MoveItems', 14 => 'GetItemEstimate', 15 => 'MeetingResponse',
+        16 => 'Search', 17 => 'Settings', 18 => 'Ping', 19 => 'ItemOperations', 20 => 'Provision', 21 => 'ResolveRecipients', 22 => 'ValidateCert'];
+
+    /**
+     * The request's query, plain ("Cmd=Sync&DeviceId=…") or base64-encoded as Outlook and iOS
+     * send it; what the encoded form carries in place of headers goes into $h.
+     * @return array<string,string>
+     */
+    public static function query(string $raw, array &$h): array
+    {
+        if ($raw === '' || str_contains($raw, '=') && !preg_match('/^[A-Za-z0-9+\/%]+={0,2}$/', $raw)) {
+            parse_str($raw, $q);
+            return $q;
+        }
+        $b = base64_decode(rawurldecode($raw), true);
+        if (!is_string($b) || strlen($b) < 7) {
+            parse_str($raw, $q);
+            return $q;
+        }
+        $p = 0;
+        $ver = ord($b[$p++]);
+        $q = ['Cmd' => self::CMD_CODES[ord($b[$p++])] ?? ''];
+        $p += 2; // locale
+        $read = static function () use ($b, &$p): string {
+            $n = ord($b[$p++] ?? "\0");
+            $v = substr($b, $p, $n);
+            $p += $n;
+            return $v;
+        };
+        $q['DeviceId'] = bin2hex($read());
+        $key = $read();
+        if (strlen($key) === 4) {
+            $h['x-ms-policykey'] = (string) unpack('V', $key)[1];
+        }
+        $q['DeviceType'] = $read();
+        $h['ms-asprotocolversion'] = sprintf('%d.%d', intdiv($ver, 10), $ver % 10);
+        while ($p < strlen($b)) {
+            $tag = ord($b[$p++]);
+            $v = $read();
+            match ($tag) {
+                0 => $q['AttachmentName'] = $v,
+                1 => $q['CollectionId'] = $v,
+                3 => $q['ItemId'] = $v,
+                4 => $q['LongId'] = $v,
+                6 => $q['Occurrence'] = $v,
+                7 => [$q['SaveInSent'], $h['ms-asacceptmultipart']] = [ord($v[0] ?? "\0") & 1 ? 'T' : 'F', ord($v[0] ?? "\0") & 2 ? 'T' : 'F'],
+                8 => $q['User'] = $v,
+                default => null,
+            };
+        }
+        return $q;
+    }
+
     /**
      * One request: [HTTP status, headers, body].
      * @param array<string,string> $q the query (Cmd, DeviceId, DeviceType…)
