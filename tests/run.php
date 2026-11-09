@@ -3150,6 +3150,7 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $c3 = $client();
         $c3->connect('bob@test.local', $pw);
         ok(isset($c3->folders()['INBOX']), 'IMAP on the same port');
+        eq((int) DB::value("SELECT COUNT(*) FROM audit_log WHERE user_id = :u AND action = 'imap.login'", ['u' => $uid]), 1, 'many connections, one line in the audit log');
         // The log tells each ActiveSync request: what the phone sent, what it got.
         $log = (string) file_get_contents($dir . '/maild.log');
         ok((bool) preg_match('/activesync Sync \{Change \d+\} → 200 \[status 1/u', $log) && str_contains($log, 'activesync FolderSync → 200 [status 1; Add '), 'ActiveSync log: ' . substr($log, -1500));
