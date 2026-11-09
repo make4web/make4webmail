@@ -41,6 +41,11 @@ if (!function_exists('pcntl_fork')) {
 pcntl_async_signals(true);
 $stop = false;
 pcntl_signal(SIGTERM, static function () use (&$stop) { $stop = true; });
+// Its own code: an update of this file restarts the service (otherwise it would keep serving the
+// old version until the server reboots). The version is told to the instances (MailGateway::tick).
+$selfMtime = (int) @filemtime(__FILE__);
+$selfVersion = preg_match("/M4W_VERSION', '([^']+)'/", (string) @file_get_contents(dirname(__DIR__) . '/app/bootstrap.php'), $vm) ? $vm[1] : '';
+$restart = false;
 
 function maild_log(string $dir, string $m): void
 {
@@ -529,12 +534,15 @@ function maild_http($c, string $ip, array $cfg, string $dir, string $first): voi
             maild_http_reply($c, 200, $headers, '');
             continue;
         }
-        parse_str((string) parse_url($target, PHP_URL_QUERY), $q);
+        $q = \M4W\Mail\ActiveSync\Server::query((string) parse_url($target, PHP_URL_QUERY), $h);
         try {
             [$code, $rh, $out] = (new \M4W\Mail\ActiveSync\Server($user, $ip))->handle($q, $h, $body);
         } catch (\Throwable $e) {
             maild_log($dir, "$ip activesync error: " . $e->getMessage());
             [$code, $rh, $out] = [500, [], ''];
+        }
+        if ($code >= 400 || $n === 0) {
+            maild_log($dir, "$ip activesync " . ($q['Cmd'] ?? $method) . " → $code (" . mb_substr($h['user-agent'] ?? '', 0, 60) . ')');
         }
         maild_http_reply($c, $code, $rh + $headers, $out);
     }
@@ -647,7 +655,13 @@ while (!$stop) {
         $blockAt = time();
         $blocked = maild_blocklist($dir);
     }
-    $status(['listening' => true, 'host' => $cfg['host'], 'imap_port' => $cfg['imap_port'], 'smtp_port' => $cfg['smtp_port'],
+    clearstatcache(true, __FILE__);
+    if ((int) @filemtime(__FILE__) !== $selfMtime) {
+        maild_log($dir, 'code updated: restarting');
+        $restart = true;
+        break;
+    }
+    $status(['listening' => true, 'version' => $selfVersion, 'root' => dirname(__DIR__), 'host' => $cfg['host'], 'imap_port' => $cfg['imap_port'], 'smtp_port' => $cfg['smtp_port'],
         'protocols' => array_keys($listeners), 'error' => $error ?? '', 'blocklist' => count($blocked)]);
     // No instance left (all removed or turned off): stopped after ten minutes.
     if (!maild_has_instances($dir)) {
@@ -723,3 +737,8 @@ foreach ($listeners as $l) {
 maild_log($dir, 'stopped');
 @unlink($dir . '/maild-status.json');
 flock($lock, LOCK_UN);
+fclose($lock);
+// Connections already open stay with their process; the new code takes the next ones.
+if ($restart && function_exists('pcntl_exec')) {
+    pcntl_exec(PHP_BINARY, array_slice($argv, 0));
+}

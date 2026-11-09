@@ -123,6 +123,16 @@ final class MailGateway
             }
             @unlink($old . '/instances/' . self::instanceId() . '.json');
         }
+        // A service started from older code (another instance not yet updated, or this one before
+        // its update): it gives way to this version.
+        $st = json_decode((string) @file_get_contents(self::dir() . '/maild-status.json'), true) ?: [];
+        if ($spawn && self::running() && !empty($st['pid']) && function_exists('posix_kill')
+            && version_compare((string) ($st['version'] ?? '0'), M4W_VERSION, '<')) {
+            @posix_kill((int) $st['pid'], SIGTERM);
+            for ($i = 0; $i < 40 && self::running(); $i++) {
+                usleep(250000);
+            }
+        }
         if (!$spawn || self::running()) {
             return 'registered, running';
         }
