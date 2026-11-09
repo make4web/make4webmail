@@ -269,7 +269,7 @@ final class Composer
      * its thread. Blind copies: the envelope's recipients not in To and Cc.
      * @param string[] $rcpts
      */
-    public static function submit(array $user, string $raw, array $rcpts): array
+    public static function submit(array $user, string $raw, array $rcpts, array $source = []): array
     {
         $p = MimeParser::parse(str_replace(["\r\n", "\r"], "\n", $raw));
         $from = mb_strtolower((string) ($p->from()['email'] ?? ''));
@@ -287,14 +287,30 @@ final class Composer
         // Answering or forwarding a message of this mailbox: marked so, like from the webmail.
         $mode = 'new';
         $ref = null;
-        if ($p->inReplyTo() !== '') {
+        $refParts = [];
+        // ActiveSync's SmartReply / SmartForward: the app sends its text only; the original is
+        // quoted here (and its attachments forwarded).
+        $orig = !empty($source['id']) ? Mailbox::get((int) $user['id'], (int) $source['id']) : null;
+        if ($orig) {
+            $ref = ['id' => (int) $orig['id']];
+            $mode = ($source['mode'] ?? '') === 'forward' ? 'forward' : 'reply';
+            $op = Mailbox::parsed($orig);
+            $quoted = $op->html() !== '' ? (new HtmlSanitizer(false, null, true))->sanitize($op->html()) : nl2br(htmlspecialchars($op->text(), ENT_QUOTES, 'UTF-8'), false);
+            $head = t($mode === 'forward' ? 'mail.forwarded_header' : 'mail.reply_header', ['date' => format_datetime((int) $orig['date_received']), 'name' => $orig['from_name'] ?: $orig['from_email']]);
+            $html .= '<br><div data-m4w-quote="1"><div>' . htmlspecialchars($head, ENT_QUOTES, 'UTF-8') . '</div><blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">' . $quoted . '</blockquote></div>';
+            if ($mode === 'forward') {
+                $refParts = array_map(static fn($part) => $part->id, $op->attachmentParts());
+            }
+        } elseif ($p->inReplyTo() !== '') {
             $ref = DB::one('SELECT id FROM messages WHERE user_id = :u AND message_id = :m ORDER BY id DESC LIMIT 1', ['u' => $user['id'], 'm' => trim($p->inReplyTo(), '<>')]);
             $mode = $ref ? 'reply' : 'new';
         }
         // The signature: not twice when the app already put it.
         $sig = Signatures::render($user, 'send', $mode !== 'new');
+        // Looked for in what was written now only: the quoted message often holds the person's
+        // signature from an earlier exchange (a reply to a colleague), which must not count.
         $sigText = trim((string) preg_replace('/\s+/u', ' ', strip_tags((string) $sig['html'])));
-        $bodyText = (string) preg_replace('/\s+/u', ' ', strip_tags($html) . ' ' . $p->text());
+        $bodyText = (string) preg_replace('/\s+/u', ' ', strip_tags(self::unquoted($html)) . ' ' . self::unquoted($p->text()));
         $already = $sigText === '' || str_contains($bodyText, mb_substr($sigText, 0, 40));
         $parts = [];
         foreach ($p->attachmentParts() as $part) {
@@ -302,11 +318,18 @@ final class Composer
         }
         return self::send($user, [
             'from' => $from, 'to' => $list($p->to()), 'cc' => $list($p->cc()), 'bcc' => implode(', ', $bcc),
-            'subject' => $p->subject(), 'html' => $html, 'mode' => $mode, 'ref_id' => $ref ? (int) $ref['id'] : 0,
+            'subject' => $p->subject(), 'html' => $html, 'mode' => $mode, 'ref_id' => $ref ? (int) $ref['id'] : 0, 'ref_parts' => $refParts,
             'priority' => $p->priority(), '_parts' => $parts, '_no_signature' => $already,
             '_message_id' => trim($p->messageId(), '<>'), '_in_reply_to' => trim($p->inReplyTo(), '<>'),
             '_references' => array_map(static fn($r) => trim((string) $r, '<>'), $p->references()),
         ]);
+    }
+
+    /** A message without what it quotes (HTML blockquote / quote blocks, or text after "… a écrit :"). */
+    private static function unquoted(string $s): string
+    {
+        $cut = preg_split('/<blockquote\b|<div[^>]*(?:gmail_quote|data-m4w-quote|divRplyFwdMsg|moz-cite-prefix)|^\s*>|^.{0,200}(?:a écrit|wrote|schrieb|escribió)\s*:\s*$|^-{2,}\s*(?:Original Message|Message d\'origine|Forwarded message|Message transféré)/imu', $s, 2);
+        return (string) ($cut[0] ?? $s);
     }
 
     public static function saveDraft(array $user, array $in): int

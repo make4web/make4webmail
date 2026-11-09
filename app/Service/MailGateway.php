@@ -190,6 +190,88 @@ final class MailGateway
         return count($ranges);
     }
 
+    /** The mail domains of this instance (its domains, and those of its people's addresses). */
+    public static function mailDomains(): array
+    {
+        $d = array_column(DB::all('SELECT name FROM domains WHERE active = 1'), 'name');
+        foreach (DB::all("SELECT email FROM users WHERE status = 'active'") as $u) {
+            $d[] = substr(strrchr((string) $u['email'], '@') ?: '', 1);
+        }
+        return array_values(array_unique(array_filter(array_map('mb_strtolower', $d))));
+    }
+
+    /**
+     * What the DNS must hold for mail apps to find everything from an address alone: the
+     * service's name, and for each mail domain the service records (Exchange Autodiscover,
+     * IMAP and SMTP submission, RFC 6186). Each with its state: ok, missing, wrong.
+     * Through Cloudflare's API when a token is there (exact, at once), else the DNS.
+     */
+    public static function dnsChecks(): array
+    {
+        $c = self::config();
+        $want = [['type' => 'A', 'name' => $c['host'], 'value' => '']];
+        foreach (self::mailDomains() as $d) {
+            foreach (['_autodiscover._tcp' => $c['imap_port'], '_imaps._tcp' => $c['imap_port'], '_submissions._tcp' => $c['smtp_port']] as $svc => $port) {
+                $want[] = ['type' => 'SRV', 'name' => $svc . '.' . $d, 'value' => $port . ' ' . $c['host'], 'port' => (int) $port];
+            }
+        }
+        $api = Cloudflare::token() !== '';
+        $zones = [];
+        foreach ($want as &$w) {
+            $w['state'] = 'missing';
+            $w['found'] = '';
+            try {
+                if ($api) {
+                    $zoneName = '';
+                    foreach ($zones as $zn => $zid) {
+                        if (str_ends_with($w['name'], '.' . $zn) || $w['name'] === $zn) {
+                            $zoneName = $zn;
+                        }
+                    }
+                    if ($zoneName === '') {
+                        $z = Cloudflare::zoneFor($w['name']);
+                        $zones[$z['name']] = $z['id'];
+                        $zoneName = $z['name'];
+                    }
+                    $w['zone'] = $zones[$zoneName];
+                    $recs = $w['type'] === 'A' ? array_merge(Cloudflare::records($zones[$zoneName], 'A', $w['name']), Cloudflare::records($zones[$zoneName], 'AAAA', $w['name'])) : Cloudflare::records($zones[$zoneName], 'SRV', $w['name']);
+                    foreach ($recs as $r) {
+                        $found = $w['type'] === 'A' ? (string) $r['content'] . (!empty($r['proxied']) ? ' (proxied)' : '') : ((int) ($r['data']['port'] ?? 0)) . ' ' . rtrim((string) ($r['data']['target'] ?? ''), '.');
+                        $w['found'] = $found;
+                        $w['state'] = $w['type'] === 'A' ? (empty($r['proxied']) ? 'ok' : 'wrong') : (strcasecmp($found, $w['value']) === 0 ? 'ok' : 'wrong');
+                    }
+                } else {
+                    $recs = @dns_get_record($w['name'], $w['type'] === 'A' ? DNS_A : DNS_SRV) ?: [];
+                    foreach ($recs as $r) {
+                        $found = $w['type'] === 'A' ? (string) $r['ip'] : ((int) $r['port']) . ' ' . rtrim((string) $r['target'], '.');
+                        $w['found'] = $found;
+                        $w['state'] = $w['type'] === 'A' || strcasecmp($found, $w['value']) === 0 ? 'ok' : 'wrong';
+                    }
+                }
+            } catch (\Throwable $e) {
+                $w['state'] = 'unreachable';
+                $w['found'] = $e->getMessage();
+            }
+        }
+        unset($w);
+        return $want;
+    }
+
+    /** "Install / fix": the service records missing or wrong put right through Cloudflare. */
+    public static function fixDns(): array
+    {
+        $c = self::config();
+        $done = [];
+        foreach (self::dnsChecks() as $w) {
+            if ($w['state'] === 'ok' || $w['type'] !== 'SRV' || empty($w['zone'])) {
+                continue;
+            }
+            Cloudflare::upsertSrv((string) $w['zone'], $w['name'], $c['host'], (int) $w['port']);
+            $done[] = $w['name'];
+        }
+        return $done;
+    }
+
     /** The service holds its lock. */
     public static function running(): bool
     {

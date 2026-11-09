@@ -162,7 +162,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <a class="dropdown-item" href="<?= e(url('help')) ?>"><i class="bi bi-book"></i><?= te('nav.guide') ?></a>
         <?php if (is_admin($u)): ?><a class="dropdown-item" href="<?= e(url('admin')) ?>"><i class="bi bi-speedometer2"></i><?= te('nav.admin') ?></a><?php endif; ?>
         <div class="dropdown-divider"></div>
-        <form method="post" action="<?= e(url('logout')) ?>"><?= csrf_field() ?><button class="dropdown-item text-danger" type="submit"><i class="bi bi-box-arrow-right text-danger"></i><?= te('nav.logout') ?></button></form>
+        <form method="post" action="<?= e(url('logout')) ?>" data-m4w-logout><?= csrf_field() ?><input type="hidden" name="device" value=""><button class="dropdown-item text-danger" type="submit"><i class="bi bi-box-arrow-right text-danger"></i><?= te('nav.logout') ?></button></form>
       </div>
     </div>
   </div>

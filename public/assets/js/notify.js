@@ -142,6 +142,23 @@
     try { fetch(M4W.url('api/stamp') + '?device=' + device + '&away=1', { credentials: 'same-origin', keepalive: true }); } catch (e) { /* closing */ }
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden) tellAway(); });
+
+  // Signing out on purpose: no more notifications on this device (the server forgets it, the
+  // browser drops its subscription); then the sign-out itself.
+  $(document).on('submit', 'form[data-m4w-logout]', function (e) {
+    var form = this;
+    if (form.dataset.done) return;
+    e.preventDefault();
+    form.dataset.done = '1';
+    $(form).find('[name=device]').val(device);
+    var sent = false, go = function () { if (!sent) { sent = true; form.submit(); } };
+    setTimeout(go, 1500); // never held up
+    if (!navigator.serviceWorker) { go(); return; }
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager && reg.pushManager.getSubscription(); })
+      .then(function (sub) { return sub && sub.unsubscribe(); })
+      .then(function () { if (navigator.clearAppBadge) navigator.clearAppBadge(); })
+      .catch(function () {}).then(go);
+  });
   window.addEventListener('pagehide', tellAway);
 
   /** Something arrived: the open page checks at once (mail.js sets its own way, see refresh). */

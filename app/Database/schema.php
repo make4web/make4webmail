@@ -1117,4 +1117,31 @@ static function (): void {
 "ALTER TABLE messages ADD COLUMN imap_deleted INTEGER NOT NULL DEFAULT 0",
 "CREATE INDEX messages_imap ON messages(folder_id, imap_uid)",
 ],
+48 => [
+// Exchange ActiveSync (mail apps of phones in push): each device, and where each of its folders
+// stands (sync key, what it holds: message => flags), to send it only what changed.
+"CREATE TABLE eas_devices (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  device_id VARCHAR(64) NOT NULL,
+  device_type VARCHAR(64) NOT NULL DEFAULT '',
+  user_agent VARCHAR(190) NOT NULL DEFAULT '',
+  policy_key INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE UNIQUE INDEX eas_devices_key ON eas_devices(user_id, device_id)",
+"CREATE TABLE eas_states (
+  id {PK},
+  device INTEGER NOT NULL,
+  collection VARCHAR(32) NOT NULL,
+  sync_key INTEGER NOT NULL DEFAULT 0,
+  data {TEXT},
+  previous {TEXT},
+  stamp VARCHAR(64) NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE UNIQUE INDEX eas_states_key ON eas_states(device, collection)",
+],
 ];

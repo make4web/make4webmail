@@ -149,6 +149,12 @@ final class AuthController extends Controller
 
     public function logout(): Response
     {
+        // Signed out on purpose: this device gets no more notifications (an ended session, by
+        // contrast, keeps them: the person did not ask to stop them).
+        $device = $this->req->str('device');
+        if (($u = Auth::user()) && preg_match('/^[0-9a-f]{64}$/', $device)) {
+            \M4W\Core\Database::delete('push_subscriptions', 'user_id = :u AND endpoint_hash = :h', ['u' => $u['id'], 'h' => $device]);
+        }
         Audit::log('logout');
         Auth::logout();
         return Response::redirect('/login');
