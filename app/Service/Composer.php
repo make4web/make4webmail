@@ -292,6 +292,11 @@ final class Composer
         // quoted here (and its attachments forwarded).
         $orig = !empty($source['id']) ? Mailbox::get((int) $user['id'], (int) $source['id']) : null;
         if ($orig) {
+            // What the app wrote stops at its own "… a écrit :" (its quote, often cut short): the
+            // original is quoted here, once, under the signature.
+            $html = trim($p->html()) !== '' ? self::unquoted($p->html())
+                : '<div>' . nl2br(htmlspecialchars(rtrim(self::unquoted($p->text())), ENT_QUOTES, 'UTF-8'), false) . '</div>';
+            $html = (string) preg_replace('#(?:\s|<br\s*/?>|<div>\s*</div>)+$#i', '', $html);
             $ref = ['id' => (int) $orig['id']];
             $mode = ($source['mode'] ?? '') === 'forward' ? 'forward' : 'reply';
             $op = Mailbox::parsed($orig);
@@ -328,7 +333,7 @@ final class Composer
     /** A message without what it quotes (HTML blockquote / quote blocks, or text after "… a écrit :"). */
     private static function unquoted(string $s): string
     {
-        $cut = preg_split('/<blockquote\b|<div[^>]*(?:gmail_quote|data-m4w-quote|divRplyFwdMsg|moz-cite-prefix)|^\s*>|^.{0,200}(?:a écrit|wrote|schrieb|escribió)\s*:\s*$|^-{2,}\s*(?:Original Message|Message d\'origine|Forwarded message|Message transféré)/imu', $s, 2);
+        $cut = preg_split('/<blockquote\b|<div[^>]*(?:gmail_quote|data-m4w-quote|divRplyFwdMsg|moz-cite-prefix)|^\s*>|^.{0,200}(?:a écrit|wrote|schrieb|escribió)\s*:\s*(?:<[^>]*>\s*)*$|^-{2,}\s*(?:Original Message|Message d\'origine|Forwarded message|Message transféré)/imu', $s, 2);
         return (string) ($cut[0] ?? $s);
     }
 

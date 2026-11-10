@@ -3049,9 +3049,13 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         ok((bool) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid3]), 'delivered');
         $mid4 = 'eas-' . bin2hex(random_bytes(4)) . '@phone.example';
         $eas('SmartReply', ['ComposeMail:SmartReply', [['ComposeMail:ClientId', 'c2'], ['ComposeMail:Source', [['ComposeMail:FolderId', $arch], ['ComposeMail:ItemId', $arch . ':' . $mid]]],
-            ['ComposeMail:Mime', ['opaque' => "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: Premier\r\nMessage-ID: <$mid4>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMa reponse\r\n"]]]]);
+            ['ComposeMail:Mime', ['opaque' => "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: Premier\r\nMessage-ID: <$mid4>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMa reponse\r\n\r\nLe 10 nov. 2026 02:21, Client <client@ext.example> a écrit :\r\n"]]]]);
         $rep = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid4]);
         ok($rep && str_contains(Mailbox::raw($rep), 'Bonjour Bob') && str_contains(Mailbox::raw($rep), 'Ma reponse'), 'the original quoted');
+        $rh = Mailbox::parsed($rep)->html();
+        $sigAt = strpos($rh, 'data-m4w-signature');
+        ok(!str_contains($rh, 'Le 10 nov. 2026') && $sigAt !== false && $sigAt > strpos($rh, 'Ma reponse') && $sigAt < strpos($rh, 'data-m4w-quote'),
+            "the app's own quote line dropped, the signature between the answer and the quote: " . substr(strip_tags(str_replace('<', ' <', $rh)), 0, 400));
         eq((int) DB::value('SELECT is_answered FROM messages WHERE id = :i', ['i' => $mid]), 1, 'marked answered');
         // ---- Calendars and contacts (Exchange account on a phone).
         $calDefault = $folders['8'][0] ?? '';
