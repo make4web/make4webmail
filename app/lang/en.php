@@ -2902,4 +2902,27 @@ If you did not know, change your mailbox\'s password right away and tell your ad
     'js.mact_no_device' => 'No Exchange phone in the last 30 days.',
     'sync.mode_seen_eas' => 'You already use an Exchange account on a device: this mode is chosen. Change it if you set up another device differently.',
     'sync.mode_seen_imap' => 'You already connect over IMAP from a device: this mode is chosen. Change it if you set up another device differently.',
+    'maild.ret_logins' => 'Keep the mail apps connections',
+    'maild.ret_logins_desc' => 'Who connected and from which IP address (audit log). Refused passwords are kept 7 days.',
+    'maild.ret_devices' => 'Forget idle Exchange phones after',
+    'maild.ret_devices_desc' => 'A phone coming back afterwards synchronises everything again.',
+    'dav.first_use_subject' => 'App password ":name" used',
+    'dav.first_use_text' => 'Your app password ":name" has just been used for the first time, from :ip, on :date.
+
+If you are setting up a device, all is well. Otherwise, revoke it at once in Settings › Phone and calendar.',
+    'dav.new_device_subject' => 'New device connected: :device',
+    'dav.new_device_text' => 'A new device (:device) has just connected to your Exchange account from :ip, on :date, with an app password already used elsewhere.
+
+If it is not you, disconnect it in Settings › Phone and calendar › Your devices.',
+    'sync.devices_title' => 'Your devices',
+    'sync.devices_desc' => 'Each app password and the phones using it. Lost or sold device: "Disconnect" revokes its password; the device gets nothing more and asks for a password.',
+    'sync.device_line' => ':device, synchronised on :date',
+    'sync.disconnect' => 'Disconnect',
+    'sync.disconnect_confirm' => 'Disconnect the devices using ":name"? The password is revoked; a new one will be needed to connect them again.',
+    'sync.qr_alt' => 'QR code to scan with the iPhone',
+    'sync.qr_title' => 'On iPhone or iPad: in one go',
+    'sync.qr_desc_eas' => 'Point the iPhone\'s camera at this code, open the link, then Settings › Profile downloaded › Install: the Exchange account (mail, calendar, contacts) is ready, password included. The link works once, for 15 minutes.',
+    'sync.qr_desc_imap' => 'Point the iPhone\'s camera at this code, open the link, then Settings › Profile downloaded › Install: mail (IMAP), calendar and contacts are ready, password included. The link works once, for 15 minutes.',
+    'sync.qr_link' => 'Already on the iPhone? Tap here',
+    'sync.profile_gone' => 'This link has been used already or has expired (15 minutes). Create a new app password to get another one.',
 ];

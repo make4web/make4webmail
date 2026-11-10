@@ -378,6 +378,9 @@ final class Scheduling
      * The person answers an invitation from the message: the event goes into their calendar
      * with their answer, and the organizer gets the reply.
      */
+    /** The reply to the organizer sent from here (an ActiveSync phone sends its own). */
+    public static bool $reply = true;
+
     public static function respond(array $user, ParsedMessage $msg, string $partstat, string $comment = ''): void
     {
         $partstat = strtoupper($partstat);
@@ -412,7 +415,7 @@ final class Scheduling
             Calendar::put($calId, $uri, $c->serialize());
             [, , $row] = self::locate((int) $user['id'], $uid);
         }
-        if ($before !== null && $row) {
+        if ($before !== null && $row && self::$reply) {
             // The broker sees the attendee's answer change and builds the REPLY.
             $old = VObject\Reader::read($before, VObject\Reader::OPTION_FORGIVING);
             foreach ($old->VEVENT as $ev) {

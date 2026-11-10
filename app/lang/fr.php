@@ -2975,4 +2975,27 @@ Si vous n\'êtes pas au courant, changez tout de suite le mot de passe de votre 
     'js.mact_no_device' => 'Aucun téléphone Exchange depuis 30 jours.',
     'sync.mode_seen_eas' => 'Vous utilisez déjà un compte Exchange sur un appareil : c\'est ce mode qui est choisi. Changez-le si vous configurez un autre appareil autrement.',
     'sync.mode_seen_imap' => 'Vous vous connectez déjà en IMAP depuis un appareil : c\'est ce mode qui est choisi. Changez-le si vous configurez un autre appareil autrement.',
+    'maild.ret_logins' => 'Garder les connexions des applications mail',
+    'maild.ret_logins_desc' => 'Qui s\'est connecté et depuis quelle adresse IP (journal d\'audit). Les mots de passe refusés sont gardés 7 jours.',
+    'maild.ret_devices' => 'Oublier les téléphones Exchange inactifs après',
+    'maild.ret_devices_desc' => 'Un téléphone qui revient ensuite resynchronise tout.',
+    'dav.first_use_subject' => 'Mot de passe d\'application « :name » utilisé',
+    'dav.first_use_text' => 'Votre mot de passe d\'application « :name » vient d\'être utilisé pour la première fois, depuis l\'adresse :ip, le :date.
+
+Si c\'est vous qui configurez un appareil, tout va bien. Sinon, révoquez-le tout de suite dans Paramètres › Téléphone et agenda.',
+    'dav.new_device_subject' => 'Nouvel appareil connecté : :device',
+    'dav.new_device_text' => 'Un nouvel appareil (:device) vient de se connecter à votre compte Exchange depuis l\'adresse :ip, le :date, avec un mot de passe d\'application déjà utilisé ailleurs.
+
+Si ce n\'est pas vous, déconnectez-le dans Paramètres › Téléphone et agenda › Vos appareils.',
+    'sync.devices_title' => 'Vos appareils',
+    'sync.devices_desc' => 'Chaque mot de passe d\'application et les téléphones qui s\'en servent. Appareil perdu ou vendu : « Déconnecter » révoque son mot de passe, l\'appareil ne reçoit plus rien et demande un mot de passe.',
+    'sync.device_line' => ':device, synchronisé le :date',
+    'sync.disconnect' => 'Déconnecter',
+    'sync.disconnect_confirm' => 'Déconnecter les appareils qui utilisent « :name » ? Le mot de passe est révoqué ; il faudra en créer un nouveau pour les reconnecter.',
+    'sync.qr_alt' => 'QR code à scanner avec l\'iPhone',
+    'sync.qr_title' => 'Sur iPhone ou iPad : en un geste',
+    'sync.qr_desc_eas' => 'Visez ce code avec l\'appareil photo de l\'iPhone, ouvrez le lien, puis Réglages › Profil téléchargé › Installer : le compte Exchange (messages, agenda, contacts) est prêt, mot de passe compris. Le lien ne sert qu\'une fois, pendant 15 minutes.',
+    'sync.qr_desc_imap' => 'Visez ce code avec l\'appareil photo de l\'iPhone, ouvrez le lien, puis Réglages › Profil téléchargé › Installer : messages (IMAP), agenda et contacts sont prêts, mot de passe compris. Le lien ne sert qu\'une fois, pendant 15 minutes.',
+    'sync.qr_link' => 'Déjà sur l\'iPhone ? Touchez ici',
+    'sync.profile_gone' => 'Ce lien a déjà servi ou a expiré (15 minutes). Créez un nouveau mot de passe d\'application pour en obtenir un autre.',
 ];

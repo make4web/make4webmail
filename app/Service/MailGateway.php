@@ -173,12 +173,18 @@ final class MailGateway
             return $body;
         };
         $ranges = [];
+        $ranges6 = [];
         $errors = [];
         foreach (self::BLOCKLISTS as $url) {
             try {
                 foreach (preg_split('/\R/', $fetch($url)) ?: [] as $l) {
                     $l = trim(explode('#', $l)[0]);
                     [$net, $bits] = array_pad(explode('/', $l, 2), 2, '32');
+                    if (filter_var($net, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) && !str_contains($net, '.')) {
+                        // IPv6: by the /64 of the address (what one machine is given).
+                        $ranges6[inet_ntop(substr((string) inet_pton($net), 0, 8) . str_repeat("\0", 8)) . '/64'] = true;
+                        continue;
+                    }
                     if (!filter_var($net, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || !ctype_digit($bits) || (int) $bits < 8 || (int) $bits > 32) {
                         continue;
                     }
@@ -195,7 +201,7 @@ final class MailGateway
         if (!$ranges) {
             throw new \RuntimeException('no list fetched (' . implode('; ', $errors) . ')');
         }
-        @file_put_contents($file . '.tmp', json_encode(['at' => time(), 'ranges' => array_keys($ranges), 'errors' => $errors]));
+        @file_put_contents($file . '.tmp', json_encode(['at' => time(), 'ranges' => array_keys($ranges), 'ranges6' => array_keys($ranges6), 'errors' => $errors]));
         @rename($file . '.tmp', $file);
         return count($ranges);
     }

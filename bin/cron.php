@@ -119,9 +119,9 @@ if ($hourly) {
         DB::run('DELETE FROM mail_log WHERE created_at < :t', ['t' => $now - 90 * 86400]);
         DB::run('DELETE FROM audit_log WHERE created_at < :t', ['t' => $now - 365 * 86400]);
         // Mail apps: who connected from where, kept a month (enough to follow a problem), not a year.
-        DB::run("DELETE FROM audit_log WHERE action IN ('imap.login', 'smtp.login', 'eas.login') AND created_at < :t", ['t' => $now - 30 * 86400]);
-        // Exchange phones silent for three months: forgotten, with where they stood.
-        foreach (DB::all('SELECT id FROM eas_devices WHERE last_seen_at < :t', ['t' => $now - 90 * 86400]) as $d) {
+        DB::run("DELETE FROM audit_log WHERE action IN ('imap.login', 'smtp.login', 'eas.login') AND created_at < :t", ['t' => $now - max(1, (int) Settings::get('retention.mailapps_days', 30)) * 86400]);
+        // Exchange phones silent for three months (by default): forgotten, with where they stood.
+        foreach (DB::all('SELECT id FROM eas_devices WHERE last_seen_at < :t', ['t' => $now - max(7, (int) Settings::get('retention.eas_days', 90)) * 86400]) as $d) {
             DB::run('DELETE FROM eas_states WHERE device = :d', ['d' => $d['id']]);
             DB::run('DELETE FROM eas_devices WHERE id = :d', ['d' => $d['id']]);
         }

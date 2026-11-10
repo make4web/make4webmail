@@ -617,6 +617,7 @@ final class CalendarController extends Controller
         $user = $this->user();
         $mode = $this->req->str('mode');
         return $this->view('settings/sync', ['section' => 'sync', 'user' => $user, 'passwords' => AppPasswords::list((int) $user['id']), 'created' => self::once('app_pw'),
+            'easDevices' => DB::all('SELECT * FROM eas_devices WHERE user_id = :u ORDER BY last_seen_at DESC', ['u' => (int) $user['id']]),
             'mode' => in_array($mode, ['eas', 'imap'], true) ? $mode : ($seen = \M4W\Service\MailAppsActivity::modeOf($user)), 'modeSeen' => $seen ?? '',
             'dav' => public_url('dav/'), 'host' => (string) parse_url(public_url('/'), PHP_URL_HOST)]);
     }
@@ -630,10 +631,10 @@ final class CalendarController extends Controller
         $user = $this->user();
         Session::close();
         $a = \M4W\Service\MailAppsActivity::collect($user, time() - 3600);
-        $ips = array_merge([\M4W\Service\MailAppsActivity::plainIp($this->req->ip())], $a['ips']);
+        $ips = array_map([\M4W\Service\MailAppsActivity::class, 'banKey'], array_merge([$this->req->ip()], $a['ips']));
         $banned = 0;
         foreach (\M4W\Service\MailGateway::bans() as $ip => $b) {
-            if (in_array(\M4W\Service\MailAppsActivity::plainIp((string) $ip), $ips, true)) {
+            if (in_array(\M4W\Service\MailAppsActivity::banKey((string) $ip), $ips, true)) {
                 $banned = max($banned, (int) $b['until']);
             }
         }
@@ -677,7 +678,8 @@ final class CalendarController extends Controller
             return $this->back('/settings/sync', 'danger', t('deleg.not_allowed'));
         }
         $pw = AppPasswords::create((int) $user['id'], $this->req->str('name'));
-        Session::set('app_pw', ['name' => $this->req->str('name') ?: 'Appareil', 'password' => $pw]);
+        $profile = \M4W\Service\MailGateway::enabled() ? public_url('p/' . \M4W\Service\PhoneProfile::issue($user, $pw, $this->req->str('mode'))) : '';
+        Session::set('app_pw', ['name' => $this->req->str('name') ?: 'Appareil', 'password' => $pw, 'profile' => $profile, 'profile_mode' => $this->req->str('mode') === 'imap' ? 'imap' : 'eas']);
         Audit::log('dav.password_created', $this->req->str('name'), [], (int) $user['id']);
         $mode = $this->req->str('mode');
         return Response::redirect('/settings/sync' . (in_array($mode, ['eas', 'imap'], true) ? '?mode=' . $mode : '') . '#step-password');
@@ -689,6 +691,18 @@ final class CalendarController extends Controller
         AppPasswords::revoke((int) $user['id'], $this->req->int('id'));
         Audit::log('dav.password_revoked', (string) $this->req->int('id'), [], (int) $this->actor()['id']);
         return $this->back('/settings/sync', 'success', t('dav.revoked'));
+    }
+
+    /** The iPhone profile behind a one-time link (opened from the QR code, signed out). */
+    public function phoneProfile(string $token): Response
+    {
+        $p = \M4W\Service\PhoneProfile::take($token);
+        if (!$p) {
+            return new Response(t('sync.profile_gone'), 410, ['Content-Type' => 'text/plain; charset=utf-8']);
+        }
+        [$user, $pw, $mode] = $p;
+        Audit::log('dav.profile_taken', $mode, [], (int) $user['id']);
+        return Response::download(\M4W\Service\PhoneProfile::xml($user, $pw, $mode), 'application/x-apple-aspen-config', 'compte-' . $mode . '.mobileconfig');
     }
 
     /** Apple configuration profile: calendars and contacts set up in one tap (no password inside). */

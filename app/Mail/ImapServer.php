@@ -54,6 +54,8 @@ final class ImapServer
     {
         $user = \M4W\Dav\AppPasswords::check($email, $password, $ip);
         if ($user) {
+            $user['_app_password'] = \M4W\Dav\AppPasswords::$matched;
+            $user['_first_use'] = \M4W\Dav\AppPasswords::$firstUse;
             try {
                 \M4W\Service\AccountGuard::onLogin($user, $ip, strtoupper($proto) . ' (mail app)');
             } catch (\Throwable) {

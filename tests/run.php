@@ -3146,6 +3146,45 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         $store = $W::child($W::child($sr, 'Response'), 'Store');
         $hit = $W::child($W::child($store, 'Result'), 'Properties');
         ok((int) $W::text($store, 'Total') >= 1 && $W::text($hit, 'GAL:EmailAddress') === 'paul@ext.example' && $W::text($hit, 'GAL:DisplayName') === 'Paul Martin', 'recipients suggested while typing: ' . json_encode($store));
+        // An invitation: shown as a meeting request, answered from the phone.
+        $when = gmdate('Ymd', time() + 3 * 86400);
+        $inv = "From: Alice <alice@ext.example>\nTo: bob@test.local\nSubject: Point projet\nMessage-ID: <inv1@ext.example>\nDate: " . date('r') . "\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"b2\"\n\n--b2\nContent-Type: text/plain; charset=utf-8\n\nInvitation\n--b2\nContent-Type: text/calendar; method=REQUEST; charset=utf-8\n\n"
+            . "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//x//FR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:inv-1@ext.example\r\nDTSTAMP:20261101T080000Z\r\nDTSTART:{$when}T090000Z\r\nDTEND:{$when}T100000Z\r\nSUMMARY:Point projet\r\nLOCATION:Visio\r\nORGANIZER;CN=Alice:mailto:alice@ext.example\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@test.local\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n--b2--\n";
+        $invId = Mailbox::store($uid, $inbox, $inv);
+        $io = $eas('ItemOperations', ['ItemOperations:ItemOperations', [['ItemOperations:Fetch', [['ItemOperations:Store', 'Mailbox'], ['AirSync:ServerId', $inboxId . ':' . $invId]]]]]);
+        $props = $W::child($W::child($W::child($io, 'Response'), 'Fetch'), 'Properties');
+        $mr = $W::child($props, 'Email:MeetingRequest');
+        ok($W::text($props, 'Email:MessageClass') === 'IPM.Schedule.Meeting.Request' && $W::text($mr, 'Email:Location') === 'Visio'
+            && str_contains((string) base64_decode($W::text($mr, 'Email:GlobalObjId')), 'inv-1@ext.example'), 'an invitation shown as a meeting request: ' . json_encode($mr));
+        $mresp = $eas('MeetingResponse', ['MeetingResponse:MeetingResponse', [['MeetingResponse:Request', [['MeetingResponse:UserResponse', '1'], ['MeetingResponse:CollectionId', $inboxId], ['MeetingResponse:RequestId', $inboxId . ':' . $invId]]]]]);
+        $res = $W::child($mresp, 'Result');
+        [$ic, $iu, $irow] = M4W\Service\Scheduling::locate($uid, 'inv-1@ext.example');
+        ok($W::text($res, 'Status') === '1' && $W::text($res, 'CalendarId') === 'c' . $ic . ':' . $iu && str_contains(str_replace(["\r\n ", "\n "], '', (string) $irow['data']), 'PARTSTAT=ACCEPTED'), 'accepted from the phone, in the calendar: ' . json_encode($res));
+        ok(M4W\Service\Scheduling::$reply, 'replies from the webmail itself still sent');
+        // A search of the whole mailbox (the phone keeps only recent mail).
+        $sr = $eas('Search', ['Search:Search', [['Search:Store', [['Search:Name', 'Mailbox'], ['Search:Query', [['Search:And', [['AirSync:Class', 'Email'], ['Search:FreeText', 'Point projet']]]]],
+            ['Search:Options', [['Search:Range', '0-9'], ['Search:DeepTraversal', '']]]]]]]);
+        $store = $W::child($W::child($sr, 'Response'), 'Store');
+        $first = $W::child($store, 'Result');
+        ok((int) $W::text($store, 'Total') >= 1 && $W::text($first, 'LongId') === $inboxId . ':' . $invId && $W::text($W::child($first, 'Properties'), 'Email:Subject') === 'Point projet', 'mailbox searched from the phone: ' . json_encode($store));
+        // Automatic reply from the phone, read back.
+        $set = $eas('Settings', ['Settings:Settings', [['Settings:Oof', [['Settings:Set', [['Settings:OofState', '1'], ['Settings:OofMessage', [['Settings:AppliesToInternal', ''], ['Settings:Enabled', '1'], ['Settings:ReplyMessage', 'En congés'], ['Settings:BodyType', 'TEXT']]]]]]]]]);
+        $vac = M4W\Service\Vacation::get($uid);
+        ok($vac['enabled'] && str_contains($vac['body_html'], 'En congés'), 'automatic reply set from the phone');
+        $get = $eas('Settings', ['Settings:Settings', [['Settings:Oof', [['Settings:Get', [['Settings:BodyType', 'TEXT']]]]]]]);
+        eq($W::text($W::child($W::child($get, 'Oof'), 'Get'), 'OofState'), '1', 'and read back');
+        M4W\Service\Vacation::save($uid, ['enabled' => 0, 'body_html' => '']);
+        // The phone knows its app password: notices, and "disconnect" forgets it.
+        $dev = DB::one("SELECT * FROM eas_devices WHERE user_id = :u AND device_id = 'PHONE1'", ['u' => $uid]);
+        ok((int) $dev['app_password_id'] > 0, 'the phone linked to its app password');
+        ok((bool) DB::value("SELECT COUNT(*) FROM messages WHERE user_id = :u AND subject LIKE :s", ['u' => $uid, 's' => '%Téléphone%utilisé%']), 'first use of the app password told');
+        // IPv6: banned by the /64.
+        eq(M4W\Service\MailAppsActivity::banKey('2a01:e0a:1:2:aaaa::5'), '2a01:e0a:1:2::/64', 'IPv6 ban by /64');
+        // The iPhone profile: once, with the password.
+        $tok = M4W\Service\PhoneProfile::issue($bob, 'abcd-pass', 'eas');
+        $pp = M4W\Service\PhoneProfile::take($tok);
+        $xml = $pp ? M4W\Service\PhoneProfile::xml($pp[0], $pp[1], $pp[2]) : '';
+        ok(str_contains($xml, 'com.apple.eas.account') && str_contains($xml, '<string>abcd-pass</string>') && M4W\Service\PhoneProfile::take($tok) === null, 'iPhone profile, one time');
         // IMAP still served on the same port.
         $c3 = $client();
         $c3->connect('bob@test.local', $pw);
