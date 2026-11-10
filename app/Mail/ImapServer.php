@@ -54,11 +54,19 @@ final class ImapServer
     {
         $user = \M4W\Dav\AppPasswords::check($email, $password, $ip);
         if ($user) {
+            $user['_app_password'] = \M4W\Dav\AppPasswords::$matched;
+            $user['_first_use'] = \M4W\Dav\AppPasswords::$firstUse;
             try {
                 \M4W\Service\AccountGuard::onLogin($user, $ip, strtoupper($proto) . ' (mail app)');
             } catch (\Throwable) {
             }
-            \M4W\Core\Audit::log($proto . '.login', (string) $user['email'], ['ip' => $ip], (int) $user['id']);
+            // A phone connects again and again (each sync, each push wait): one line per person,
+            // protocol and address every quarter of an hour is enough to follow it.
+            $logged = (int) \M4W\Core\Database::value('SELECT COUNT(*) FROM audit_log WHERE user_id = :u AND action = :a AND details = :d AND created_at > :t',
+                ['u' => (int) $user['id'], 'a' => $proto . '.login', 'd' => json_encode(['ip' => $ip], JSON_UNESCAPED_UNICODE), 't' => time() - 900]);
+            if (!$logged) {
+                \M4W\Core\Audit::log($proto . '.login', (string) $user['email'], ['ip' => $ip], (int) $user['id']);
+            }
         }
         return $user;
     }

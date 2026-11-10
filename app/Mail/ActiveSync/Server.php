@@ -24,7 +24,7 @@ use M4W\Service\Mailbox;
 final class Server
 {
     public const VERSIONS = '12.1,14.0,14.1';
-    public const COMMANDS = 'Sync,SendMail,SmartForward,SmartReply,GetAttachment,FolderSync,FolderCreate,FolderDelete,FolderUpdate,MoveItems,GetItemEstimate,Search,Settings,Ping,ItemOperations,Provision';
+    public const COMMANDS = 'Sync,SendMail,SmartForward,SmartReply,GetAttachment,FolderSync,FolderCreate,FolderDelete,FolderUpdate,MoveItems,GetItemEstimate,Search,Settings,Ping,ItemOperations,Provision,MeetingResponse';
     private const HEARTBEAT_MIN = 60;
     private const HEARTBEAT_MAX = 1740;
     private const FILTER_DAYS = [0 => 0, 1 => 1, 2 => 3, 3 => 7, 4 => 14, 5 => 31, 6 => 92, 7 => 183];
@@ -156,6 +156,7 @@ final class Server
             'Settings' => $this->settings($xml),
             'GetAttachment' => $this->getAttachment((string) ($q['AttachmentName'] ?? '')),
             'Search' => $this->search($xml),
+            'MeetingResponse' => $this->meetingResponse($xml),
             default => null,
         };
         if ($out === null) {
@@ -172,12 +173,20 @@ final class Server
         $id = substr(preg_replace('/[^\w-]/', '', (string) ($q['DeviceId'] ?? '')) ?? '', 0, 64) ?: 'unknown';
         $row = DB::one('SELECT id FROM eas_devices WHERE user_id = :u AND device_id = :d', ['u' => $this->uid, 'd' => $id]);
         $data = ['device_type' => mb_substr((string) ($q['DeviceType'] ?? ''), 0, 64), 'user_agent' => mb_substr((string) ($h['user-agent'] ?? ''), 0, 190), 'last_seen_at' => time(), 'last_ip' => $this->ip];
+        if (!empty($this->user['_app_password'])) {
+            $data['app_password_id'] = (int) $this->user['_app_password'];
+        }
         if ($row) {
             DB::update('eas_devices', $data, 'id = :id', ['id' => $row['id']]);
             $this->device = (int) $row['id'];
         } else {
             try {
                 $this->device = DB::insert('eas_devices', $data + ['user_id' => $this->uid, 'device_id' => $id, 'created_at' => time()]);
+                // A new phone on a password already in use (the first use is told already).
+                if (empty($this->user['_first_use']) && !empty($this->user['_app_password'])) {
+                    \M4W\Service\AccountGuard::notifyUser($this->user, t('dav.new_device_subject', ['device' => $data['device_type'] ?: 'Exchange']),
+                        t('dav.new_device_text', ['device' => $data['device_type'] ?: $data['user_agent'], 'ip' => preg_replace('/^::ffff:/', '', $this->ip), 'date' => format_datetime(time())]), 'settings/sync');
+                }
             } catch (\PDOException) {
                 // The phone opens several connections at once: another one created it meanwhile.
                 $this->device = (int) DB::value('SELECT id FROM eas_devices WHERE user_id = :u AND device_id = :d', ['u' => $this->uid, 'd' => $id]);
@@ -378,7 +387,11 @@ final class Server
             $out[] = ['AirSyncBase:Attachments', $atts];
         }
         $out[] = ['AirSyncBase:Body', [['AirSyncBase:Type', (string) $type], ['AirSyncBase:EstimatedDataSize', (string) $size], ['AirSyncBase:Truncated', $truncated ? '1' : '0'], ['AirSyncBase:Data', $data]]];
-        $out[] = ['Email:MessageClass', 'IPM.Note'];
+        $meeting = $this->meetingNodes($p);
+        if ($meeting) {
+            $out[] = $meeting[1];
+        }
+        $out[] = ['Email:MessageClass', $meeting[0] ?? 'IPM.Note'];
         $out[] = ['Email:InternetCPID', '65001'];
         $out[] = (int) $m['is_flagged'] ? ['Email:Flag', [['Email:FlagStatus', '2'], ['Email:FlagType', 'for Follow Up']]] : ['Email:Flag', ''];
         $out[] = ['Email:ContentClass', 'urn:content-classes:message'];
@@ -401,7 +414,7 @@ final class Server
 
     private function message(string $serverId): ?array
     {
-        $id = (int) (explode(':', $serverId)[1] ?? $serverId);
+        $id = (int) (explode(':', $serverId)[1] ?? $serverId); // "folder:message" (also the LongId of a search)
         return $id ? Mailbox::get($this->uid, $id) : null;
     }
 
@@ -797,6 +810,9 @@ final class Server
     private function search(?array $x): array
     {
         $store = W::child($x, 'Store');
+        if (strcasecmp(W::text($store, 'Name'), 'Mailbox') === 0) {
+            return $this->searchMailbox($store);
+        }
         if (strcasecmp(W::text($store, 'Name'), 'GAL') !== 0) {
             return ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', [['Search:Status', '1'], ['Search:Total', '0']]]]]]];
         }
@@ -817,6 +833,138 @@ final class Server
         $last = $results ? $from + count($results) - 1 : 0;
         return ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', array_merge([['Search:Status', '1']], $results,
             $results ? [['Search:Range', $from . '-' . $last]] : [], [['Search:Total', (string) $total]])]]]]];
+    }
+
+    /**
+     * A search of the whole mailbox from the phone (it keeps only recent mail): the webmail's
+     * own search (full-text index), within a folder when asked.
+     */
+    private function searchMailbox(array $store): array
+    {
+        $query = W::child($store, 'Query');
+        $and = W::child($query, 'And') ?? $query;
+        $text = trim(W::text($and, 'FreeText'));
+        $folder = (int) W::text($and, 'AirSync:CollectionId', '0');
+        $options = W::child($store, 'Options');
+        [$from, $to] = array_map('intval', explode('-', W::text($options, 'Range', '0-49')) + [0, 49]);
+        $to = min($to, $from + 99);
+        $pref = self::prefs($options);
+        $total = 0;
+        $results = [];
+        if ($text !== '') {
+            $deep = W::child($options, 'DeepTraversal') !== null;
+            $r = Mailbox::list($this->uid, ['q' => $text, 'folder' => $folder, 'in_folder' => $folder > 0 && !$deep ? 1 : 0, 'limit' => $to - $from + 1, 'offset' => $from]);
+            $total = (int) $r['total'];
+            foreach ($r['items'] as $it) {
+                $m = Mailbox::get($this->uid, (int) $it['id']);
+                if (!$m) {
+                    continue;
+                }
+                $sid = $m['folder_id'] . ':' . $m['id'];
+                $results[] = ['Search:Result', [['AirSync:Class', 'Email'], ['Search:LongId', $sid], ['AirSync:CollectionId', (string) $m['folder_id']],
+                    ['Search:Properties', $this->appData($m, ['types' => $pref['types'] ?: [1], 'size' => $pref['size'] ?: [1 => 512, 2 => 512], 'mime' => false])]]];
+            }
+        }
+        $last = $results ? $from + count($results) - 1 : 0;
+        return ['Search:Search', [['Search:Status', '1'], ['Search:Response', [['Search:Store', array_merge([['Search:Status', '1']], $results,
+            $results ? [['Search:Range', $from . '-' . $last]] : [], [['Search:Total', (string) $total]])]]]]];
+    }
+
+    // ------------------------------------------------------------------ invitations
+
+    /**
+     * An invitation in a message: shown as a meeting request (the phone puts Accept, Tentative,
+     * Decline under it). [message class, Email:MeetingRequest] or null.
+     */
+    private function meetingNodes(\M4W\Mail\ParsedMessage $p): ?array
+    {
+        try {
+            $found = \M4W\Service\Scheduling::fromMessage($p);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (!$found || !in_array($found[1], ['REQUEST', 'CANCEL'], true)) {
+            return null;
+        }
+        [$cal, $method] = $found;
+        $ev = $cal->VEVENT;
+        $tz = date_default_timezone_get();
+        $allDay = isset($ev->DTSTART) && !$ev->DTSTART->hasTime();
+        $start = isset($ev->DTSTART) ? $ev->DTSTART->getDateTime(new \DateTimeZone($tz)) : new \DateTimeImmutable();
+        $end = isset($ev->DTEND) ? $ev->DTEND->getDateTime(new \DateTimeZone($tz)) : $start->modify($allDay ? '+1 day' : '+1 hour');
+        if ($allDay) {
+            $start = new \DateTimeImmutable($start->format('Y-m-d'), new \DateTimeZone($tz));
+            $end = new \DateTimeImmutable($end->format('Y-m-d'), new \DateTimeZone($tz));
+        }
+        $iso = static fn(\DateTimeInterface $d) => gmdate('Y-m-d\TH:i:s.000\Z', $d->getTimestamp());
+        $org = isset($ev->ORGANIZER) ? preg_replace('/^mailto:/i', '', (string) $ev->ORGANIZER->getValue()) : '';
+        $alarm = '';
+        foreach ($ev->select('VALARM') as $a) {
+            if (preg_match('/^-PT?(\d+)([MHD])$/', (string) ($a->TRIGGER ?? ''), $mm)) {
+                $alarm = (string) ((int) $mm[1] * ['M' => 60, 'H' => 3600, 'D' => 86400][$mm[2]]);
+                break;
+            }
+        }
+        $nodes = [['Email:AllDayEvent', $allDay ? '1' : '0'], ['Email:StartTime', $iso($start)],
+            ['Email:DTStamp', $iso(isset($ev->DTSTAMP) ? $ev->DTSTAMP->getDateTime() : new \DateTimeImmutable())], ['Email:EndTime', $iso($end)],
+            ['Email:InstanceType', '0'], ['Email:Location', (string) ($ev->LOCATION ?? '')],
+            ['Email:Organizer', $org !== '' ? ((string) ($ev->ORGANIZER['CN'] ?? '') !== '' ? '"' . $ev->ORGANIZER['CN'] . '" <' . $org . '>' : $org) : '']];
+        if ($alarm !== '') {
+            $nodes[] = ['Email:Reminder', $alarm];
+        }
+        $nodes[] = ['Email:ResponseRequested', '1'];
+        $nodes[] = ['Email:Sensitivity', '0'];
+        $nodes[] = ['Email:BusyStatus', '2'];
+        $nodes[] = ['Email:TimeZone', Pim::timezone($tz)];
+        $nodes[] = ['Email:GlobalObjId', self::globalObjId((string) ($ev->UID ?? ''))];
+        $nodes[] = ['Email2:MeetingMessageType', '1'];
+        return [$method === 'CANCEL' ? 'IPM.Schedule.Meeting.Canceled' : 'IPM.Schedule.Meeting.Request', ['Email:MeetingRequest', $nodes]];
+    }
+
+    /** The identifier Outlook gives an event (MS-ASEMAIL GlobalObjId), the UID inside. */
+    private static function globalObjId(string $uid): string
+    {
+        $data = "vCal-Uid\x01\x00\x00\x00" . $uid . "\x00";
+        return base64_encode("\x04\x00\x00\x00\x82\x00\xE0\x00\x74\xC5\xB7\x10\x1A\x82\xE0\x08" . str_repeat("\x00", 4) . str_repeat("\x00", 8) . str_repeat("\x00", 8) . pack('V', strlen($data)) . $data);
+    }
+
+    /**
+     * Accept, tentative or decline from the phone: the event goes into the calendar with the
+     * answer, as from the webmail. The phone sends the reply to the organizer itself.
+     */
+    private function meetingResponse(?array $x): array
+    {
+        $out = [];
+        foreach (W::children($x, 'Request') as $r) {
+            $rid = W::text($r, 'RequestId');
+            $partstat = ['1' => 'ACCEPTED', '2' => 'TENTATIVE', '3' => 'DECLINED'][W::text($r, 'UserResponse')] ?? '';
+            $m = $this->message($rid);
+            $status = '2';
+            $calId = '';
+            if ($m && $partstat !== '') {
+                try {
+                    $p = Mailbox::parsed($m);
+                    \M4W\Service\Scheduling::$reply = false;
+                    \M4W\Service\Scheduling::respond($this->user, $p, $partstat);
+                    $status = '1';
+                    $uid = (string) (\M4W\Service\Scheduling::fromMessage($p)[0]->VEVENT->UID ?? '');
+                    [$cal, $uri] = \M4W\Service\Scheduling::locate($this->uid, $uid);
+                    if ($cal && $partstat !== 'DECLINED') {
+                        $calId = 'c' . $cal . ':' . $uri;
+                    }
+                } catch (\Throwable) {
+                    $status = '2';
+                } finally {
+                    \M4W\Service\Scheduling::$reply = true;
+                }
+            }
+            $res = [['MeetingResponse:RequestId', $rid], ['MeetingResponse:Status', $status]];
+            if ($calId !== '') {
+                $res[] = ['MeetingResponse:CalendarId', $calId];
+            }
+            $out[] = ['MeetingResponse:Result', $res];
+        }
+        return ['MeetingResponse:MeetingResponse', $out];
     }
 
     // ------------------------------------------------------------------ Ping: waits for a change
@@ -969,6 +1117,48 @@ final class Server
 
     // ------------------------------------------------------------------ settings
 
+    /** The automatic reply (Vacation) read and set from the phone. */
+    private function oof(array $oof): array
+    {
+        $iso = static fn(int $t) => gmdate('Y-m-d\TH:i:s.000\Z', $t);
+        if ($set = W::child($oof, 'Set')) {
+            $v = \M4W\Service\Vacation::get($this->uid);
+            $state = W::text($set, 'OofState', '0');
+            $msg = '';
+            foreach (W::children($set, 'OofMessage') as $om) {
+                if ((W::child($om, 'AppliesToInternal') || W::child($om, 'AppliesToExternalUnknown') || W::child($om, 'AppliesToExternalKnown')) && W::text($om, 'Enabled', '1') !== '0') {
+                    $msg = $msg !== '' ? $msg : W::text($om, 'ReplyMessage');
+                }
+            }
+            $parse = static fn(string $s) => $s !== '' ? (int) strtotime($s) : 0;
+            $html = $msg !== '' ? (str_contains($msg, '<') ? $msg : nl2br(htmlspecialchars($msg, ENT_QUOTES, 'UTF-8'), false)) : $v['body_html'];
+            try {
+                \M4W\Service\Vacation::save($this->uid, ['enabled' => $state !== '0', 'start_at' => $state === '2' ? $parse(W::text($set, 'StartTime')) : 0,
+                    'end_at' => $state === '2' ? $parse(W::text($set, 'EndTime')) : 0, 'subject' => $v['subject'], 'body_html' => $html,
+                    'interval_days' => $v['interval_days'], 'only_contacts' => $v['only_contacts'], 'internal_only' => $v['internal_only']]);
+            } catch (\Throwable) {
+                return [['Settings:Status', '2']];
+            }
+            return [['Settings:Status', '1']];
+        }
+        $v = \M4W\Service\Vacation::get($this->uid);
+        $html = (string) $v['body_html'];
+        $text = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n", $html)), ENT_QUOTES, 'UTF-8'));
+        $type = strtoupper(W::text(W::child($oof, 'Get'), 'BodyType', 'TEXT')) === 'HTML' ? 'HTML' : 'TEXT';
+        $state = !$v['enabled'] ? '0' : ($v['start_at'] || $v['end_at'] ? '2' : '1');
+        $get = [['Settings:OofState', $state]];
+        if ($state === '2') {
+            $get[] = ['Settings:StartTime', $iso($v['start_at'] ?: time())];
+            $get[] = ['Settings:EndTime', $iso($v['end_at'] ?: time() + 86400 * 365)];
+        }
+        foreach (['AppliesToInternal', 'AppliesToExternalKnown', 'AppliesToExternalUnknown'] as $who) {
+            $external = $who !== 'AppliesToInternal';
+            $on = $v['enabled'] && !($external && $v['internal_only']);
+            $get[] = ['Settings:OofMessage', [['Settings:' . $who, ''], ['Settings:Enabled', $on ? '1' : '0'], ['Settings:ReplyMessage', $type === 'HTML' ? $html : $text], ['Settings:BodyType', $type]]];
+        }
+        return [['Settings:Status', '1'], ['Settings:Get', $get]];
+    }
+
     private function settings(?array $x): array
     {
         $out = [['Settings:Status', '1']];
@@ -979,8 +1169,8 @@ final class Server
             $addresses = array_map(static fn($i) => ['Settings:SmtpAddress', $i['email']], Composer::identities($this->user));
             $out[] = ['Settings:UserInformation', [['Settings:Status', '1'], ['Settings:Get', [['Settings:EmailAddresses', $addresses]]]]];
         }
-        if (W::child($x, 'Oof')) {
-            $out[] = ['Settings:Oof', [['Settings:Status', '1'], ['Settings:Get', [['Settings:OofState', '0']]]]];
+        if ($oof = W::child($x, 'Oof')) {
+            $out[] = ['Settings:Oof', $this->oof($oof)];
         }
         return ['Settings:Settings', $out];
     }

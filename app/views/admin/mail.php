@@ -228,6 +228,14 @@ m4w unix - n n - - pipe flags=Rq user=www-data argv=/usr/bin/php <?= e(M4W_ROOT)
         <tbody data-maild-dns-rows><tr><td colspan="4" class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span><?= te('cf.dns_checking') ?></td></tr></tbody></table></div>
       <div class="small" data-maild-dns-result></div>
     </div>
+    <div class="row g-3 mt-1" id="maild-retention">
+      <div class="col-md-6"><label class="form-label small" for="ret-mailapps"><?= te('maild.ret_logins') ?></label>
+        <div class="input-group input-group-sm" style="max-width:200px"><input class="form-control" type="number" min="1" max="365" id="ret-mailapps" name="ret_logins" value="<?= (int) M4W\Core\Settings::get('retention.mailapps_days', 30) ?>"><span class="input-group-text"><?= te('admin.days') ?></span></div>
+        <div class="form-text"><?= te('maild.ret_logins_desc') ?></div></div>
+      <div class="col-md-6"><label class="form-label small" for="ret-eas"><?= te('maild.ret_devices') ?></label>
+        <div class="input-group input-group-sm" style="max-width:200px"><input class="form-control" type="number" min="7" max="730" id="ret-eas" name="ret_devices" value="<?= (int) M4W\Core\Settings::get('retention.eas_days', 90) ?>"><span class="input-group-text"><?= te('admin.days') ?></span></div>
+        <div class="form-text"><?= te('maild.ret_devices_desc') ?></div></div>
+    </div>
     <?php $insts = \M4W\Service\MailGateway::instances(); if (count($insts) > 1): $newest = $insts[0]['version']; $late = array_filter($insts, static fn($i) => version_compare($i['version'], $newest, '<')); ?>
     <div class="border <?= $late ? 'border-warning' : '' ?> rounded-3 p-3 mt-3" id="maild-instances">
       <div class="fw-semibold mb-1"><i class="bi bi-hdd-stack me-1 text-primary"></i><?= te('maild.inst_title', ['n' => count($insts)]) ?></div>

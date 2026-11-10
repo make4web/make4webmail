@@ -250,6 +250,7 @@ final class App
 
         $r->get('/', [Controller\AuthController::class, 'home'], $pub);
         $r->get('/login', [Controller\AuthController::class, 'loginForm'], $pub);
+        $r->get('/p/{token}', [Controller\CalendarController::class, 'phoneProfile'], $pub);
         $r->post('/login', [Controller\AuthController::class, 'login'], $pub);
         $r->get('/login/2fa', [Controller\AuthController::class, 'twoFactorForm'], $pub);
         $r->post('/login/2fa', [Controller\AuthController::class, 'twoFactor'], $pub);

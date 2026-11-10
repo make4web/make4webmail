@@ -91,9 +91,23 @@ function maild_bans(string $dir, ?callable $fn = null): array
     return $b;
 }
 
+/**
+ * Who a ban is for: an IPv4 address as it is, an IPv6 one by its /64 (a single machine is
+ * given a whole /64 and can take any address of it).
+ */
+function maild_ban_key(string $ip): string
+{
+    if (str_contains($ip, '.') || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        return $ip;
+    }
+    $bin = (string) inet_pton($ip);
+    return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
+}
+
 /** A failed attempt (or a probe: the wrong name, nothing sent); too many: banned, longer each time. */
 function maild_fail(string $dir, string $ip, string $why, int $limit = 5): void
 {
+    $ip = maild_ban_key($ip);
     maild_bans($dir, static function (array $b) use ($ip, $limit, $dir, $why) {
         $now = time();
         $x = $b[$ip] ?? ['fails' => [], 'level' => 0, 'until' => 0];
@@ -114,6 +128,7 @@ function maild_fail(string $dir, string $ip, string $why, int $limit = 5): void
 
 function maild_succeeded(string $dir, string $ip): void
 {
+    $ip = maild_ban_key($ip);
     maild_bans($dir, static function (array $b) use ($ip) {
         if (isset($b[$ip])) {
             $b[$ip]['fails'] = [];
@@ -644,6 +659,7 @@ $cfgSig = '';
 $children = []; // pid => ip
 $banCache = ['at' => 0, 'bans' => []];
 $blocked = [];
+$blocked6 = [];
 $blockAt = 0;
 $status = static function (array $extra = []) use ($dir, &$children): void {
     @file_put_contents($dir . '/maild-status.json', json_encode($extra + ['pid' => getmypid(), 'connections' => count($children), 'at' => time()]));
@@ -690,6 +706,7 @@ while (!$stop) {
     if (time() - $blockAt >= 60) {
         $blockAt = time();
         $blocked = maild_blocklist($dir);
+        $blocked6 = array_fill_keys((array) (json_decode((string) @file_get_contents($dir . '/blocklist.json'), true)['ranges6'] ?? []), true);
     }
     clearstatcache(true, __FILE__);
     if ((int) @filemtime(__FILE__) !== $selfMtime) {
@@ -726,7 +743,7 @@ while (!$stop) {
             $banCache = ['at' => time(), 'bans' => maild_bans($dir)];
         }
         $perIp = count(array_filter($children, static fn($x) => $x === $ip));
-        if ((int) ($banCache['bans'][$ip]['until'] ?? 0) > time() || maild_listed($blocked, $ip) || $perIp >= 30 || count($children) >= 300) {
+        if ((int) ($banCache['bans'][maild_ban_key($ip)]['until'] ?? 0) > time() || maild_listed($blocked, $ip) || isset($blocked6[maild_ban_key($ip)]) || $perIp >= 30 || count($children) >= 300) {
             fclose($c); // not a word
             continue;
         }

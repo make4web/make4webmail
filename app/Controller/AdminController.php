@@ -802,6 +802,8 @@ final class AdminController extends Controller
             return $this->back('/admin/mail#maild', 'danger', t('maild.bad_host'));
         }
         Settings::set('maild.enabled', $r->bool('enabled') ? 1 : 0);
+        Settings::set('retention.mailapps_days', max(1, min(365, $r->int('ret_logins', 30))));
+        Settings::set('retention.eas_days', max(7, min(730, $r->int('ret_devices', 90))));
         $imap = max(1024, min(65535, $r->int('imap_port', 51993)));
         $smtp = max(1024, min(65535, $r->int('smtp_port', 51465)));
         if ($imap === $smtp) {
@@ -922,7 +924,7 @@ final class AdminController extends Controller
     public function maildUnban(): Response
     {
         $ip = trim($this->req->str('ip'));
-        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP) && !(preg_match('#^([0-9a-f:]+)/64$#i', $ip, $m) && filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6))) {
             return $this->back('/admin/mail#maild-bans', 'danger', t('maild.unban_bad'));
         }
         \M4W\Service\MailGateway::unban($ip);

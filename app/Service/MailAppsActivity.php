@@ -12,6 +12,16 @@ use M4W\Core\Database as DB;
  */
 final class MailAppsActivity
 {
+    /** The key of a ban (see maild_ban_key): IPv4 as is, IPv6 by its /64. */
+    public static function banKey(string $ip): string
+    {
+        $ip = self::plainIp($ip);
+        if (str_contains($ip, '.') || !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            return $ip;
+        }
+        return inet_ntop(substr((string) inet_pton($ip), 0, 8) . str_repeat("\0", 8)) . '/64';
+    }
+
     public static function plainIp(string $ip): string
     {
         return (string) preg_replace('/^::ffff:/', '', $ip);

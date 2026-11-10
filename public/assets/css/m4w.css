@@ -1517,3 +1517,5 @@ body.m4w-editor-open { overflow: hidden; }
 ul.m4w-steps { list-style: none; padding-left: 0; }
 .m4w-sync-events li { padding: .2rem 0; border-bottom: 1px dashed var(--bs-border-color); }
 .m4w-sync-events li:last-child { border-bottom: 0; }
+.m4w-qr { flex-shrink: 0; }
+.m4w-qr svg { width: 100%; height: 100%; display: block; }

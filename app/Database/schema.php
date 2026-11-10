@@ -1148,4 +1148,8 @@ static function (): void {
 // Profile photo (storage/avatars/<id>.jpg), its time as version of its address.
 "ALTER TABLE users ADD COLUMN avatar_at INTEGER NOT NULL DEFAULT 0",
 ],
+50 => [
+// Which app password each Exchange phone signs in with: "disconnect this device" revokes it.
+"ALTER TABLE eas_devices ADD COLUMN app_password_id INTEGER NOT NULL DEFAULT 0",
+],
 ];

@@ -38,6 +38,13 @@ $pwNote = '<dt>' . te('dav.password') . '</dt><dd>' . te('sync.pw_field') . '</d
         <div class="d-flex flex-wrap align-items-center gap-2"><code class="m4w-app-password fs-5" data-app-password><?= e($created['password']) ?></code>
           <button type="button" class="btn btn-light btn-sm" data-copy="<?= e($created['password']) ?>"><i class="bi bi-clipboard me-1"></i><?= te('common.copy') ?></button></div>
         <div class="small mt-1"><?= te('sync.created_next') ?></div>
+        <?php if (!empty($created['profile'])): ?>
+        <div class="d-flex align-items-center gap-3 mt-3 pt-3 border-top">
+          <div class="m4w-qr bg-white p-2 rounded" style="width:132px;height:132px" data-qr="<?= e($created['profile']) ?>" role="img" aria-label="<?= te('sync.qr_alt') ?>"></div>
+          <div class="small"><div class="fw-semibold"><i class="bi bi-apple me-1"></i><?= te('sync.qr_title') ?></div><?= te('sync.qr_desc_' . $created['profile_mode']) ?>
+            <div class="mt-1"><a href="<?= e($created['profile']) ?>"><?= te('sync.qr_link') ?></a></div></div>
+        </div>
+        <?php endif; ?>
       </div></div>
       <?php endif; ?>
       <form method="post" action="<?= e(url('settings/sync/create')) ?>" class="d-flex gap-2 mb-3" style="max-width:560px">
@@ -46,19 +53,6 @@ $pwNote = '<dt>' . te('dav.password') . '</dt><dd>' . te('sync.pw_field') . '</d
         <input class="form-control" id="dav-name" name="name" maxlength="100" placeholder="<?= te('dav.device_ph') ?>" required>
         <button class="btn btn-primary text-nowrap"><i class="bi bi-plus-lg me-1"></i><?= te('dav.create') ?></button>
       </form>
-      <?php if ($passwords): ?>
-      <details<?= $created ? '' : ' open' ?>><summary class="small fw-semibold"><?= te('dav.passwords') ?> (<?= count($passwords) ?>)</summary>
-      <ul class="list-group list-group-flush mt-1">
-        <?php foreach ($passwords as $p): ?>
-        <li class="list-group-item d-flex align-items-center gap-2 px-0">
-          <i class="bi bi-phone text-muted"></i>
-          <div class="min-w-0 flex-grow-1"><div class="fw-medium text-truncate"><?= e($p['name']) ?></div>
-            <div class="small text-muted"><?= te('dav.created_on', ['date' => format_datetime((int) $p['created_at'], false)]) ?> · <?= $p['last_used_at'] ? te('dav.used_on', ['date' => format_datetime((int) $p['last_used_at']), 'ip' => preg_replace('/^::ffff:/', '', (string) $p['last_ip'])]) : te('dav.never_used') ?></div></div>
-          <form method="post" action="<?= e(url('settings/sync/revoke')) ?>" data-confirm="<?= te('dav.revoke_confirm') ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $p['id'] ?>"><button class="btn btn-outline-danger btn-sm"><?= te('dav.revoke') ?></button></form>
-        </li>
-        <?php endforeach; ?>
-      </ul></details>
-      <?php endif; ?>
     </div>
   </div>
 
@@ -126,4 +120,25 @@ $pwNote = '<dt>' . te('dav.password') . '</dt><dd>' . te('sync.pw_field') . '</d
       <div class="alert alert-info small d-none mb-0" data-sync-answer role="status"></div>
     </div>
   </div>
+  <?php if ($passwords): ?>
+  <div class="card mb-4" id="devices">
+    <div class="card-header"><i class="bi bi-phone me-2 text-primary"></i><?= te('sync.devices_title') ?></div>
+    <div class="card-body">
+      <p class="small text-muted"><?= te('sync.devices_desc') ?></p>
+      <ul class="list-group list-group-flush">
+        <?php foreach ($passwords as $p): $linked = array_values(array_filter($easDevices ?? [], static fn($d) => (int) $d['app_password_id'] === (int) $p['id'])); ?>
+        <li class="list-group-item d-flex align-items-start gap-2 px-0">
+          <i class="bi <?= $linked ? 'bi-phone-vibrate text-success' : 'bi-key text-muted' ?> mt-1"></i>
+          <div class="min-w-0 flex-grow-1"><div class="fw-medium text-truncate"><?= e($p['name']) ?></div>
+            <div class="small text-muted"><?= te('dav.created_on', ['date' => format_datetime((int) $p['created_at'], false)]) ?> · <?= $p['last_used_at'] ? te('dav.used_on', ['date' => format_datetime((int) $p['last_used_at']), 'ip' => preg_replace('/^::ffff:/', '', (string) $p['last_ip'])]) : te('dav.never_used') ?></div>
+            <?php foreach ($linked as $d): ?>
+            <div class="small"><i class="bi bi-arrow-repeat me-1 text-primary"></i><?= te('sync.device_line', ['device' => trim((string) $d['device_type']) ?: t('sync.a_device'), 'date' => format_datetime((int) $d['last_seen_at'])]) ?></div>
+            <?php endforeach; ?></div>
+          <form method="post" action="<?= e(url('settings/sync/revoke')) ?>" data-confirm="<?= te('sync.disconnect_confirm', ['name' => $p['name']]) ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $p['id'] ?>"><button class="btn btn-outline-danger btn-sm text-nowrap"><i class="bi bi-box-arrow-right me-1"></i><?= te('sync.disconnect') ?></button></form>
+        </li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+  </div>
+  <?php endif; ?>
 </div>
