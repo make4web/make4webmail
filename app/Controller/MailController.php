@@ -819,12 +819,7 @@ final class MailController extends Controller
         $held = $this->heldAfterSync($held);
         $since = (int) ($this->req->query['since'] ?? 0);
         // New mail: the inbox, and one's own folders (filed there by a rule), as the notifications.
-        $new = DB::all(
-            "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id'], 'm') . '
-             ORDER BY m.id DESC LIMIT 5',
-            ['u' => $u['id'], 's' => $since]
-        );
+        $new = self::freshMail((int) $u['id'], $since, $held);
         $max = (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]);
         // Fingerprint of the folder on screen: read, starred, moved or deleted elsewhere (another
         // device, the provider's mailbox, a rule) and the list is refreshed.
@@ -844,6 +839,29 @@ final class MailController extends Controller
     }
 
     /**
+     * New mail to announce on the page (toast, sound): in the inbox or one's own folders, still
+     * unread, and just arrived. A page that wakes up (a phone unlocked, the app brought back
+     * after hours) does not ring for mail of long ago: the system notification told of it then,
+     * and it may have been read or deleted elsewhere since. Mail held for this page (no system
+     * notification, the app was open) is announced whatever its age.
+     */
+    private static function freshMail(int $uid, int $since, ?array $held): array
+    {
+        $rows = DB::all(
+            "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id, m.created_at FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql($uid, 'm') . '
+             ORDER BY m.id DESC LIMIT 5',
+            ['u' => $uid, 's' => $since]
+        );
+        $held = array_map('intval', $held ?? []);
+        $rows = array_filter($rows, static fn($r) => (int) $r['created_at'] > time() - 300 || in_array((int) $r['id'], $held, true));
+        return array_values(array_map(static function ($r) {
+            unset($r['created_at']);
+            return $r;
+        }, $rows));
+    }
+
+    /**
      * The light check of the other pages (settings, calendar, files…): unread mail of all the
      * mailboxes for the badges, and what arrived since the last look for the alert.
      */
@@ -859,12 +877,7 @@ final class MailController extends Controller
         }
         $held = $this->heldAfterSync($held);
         $since = (int) ($this->req->query['since'] ?? 0);
-        $new = $since > 0 ? DB::all(
-            "SELECT m.id, m.from_name, m.from_email, m.subject, m.folder_id FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE m.user_id = :u AND m.id > :s AND m.is_read = 0 AND m.is_draft = 0 AND (f.role = 'inbox' OR f.role IS NULL)" . Mailbox::privacySql((int) $u['id'], 'm') . '
-             ORDER BY m.id DESC LIMIT 5',
-            ['u' => $u['id'], 's' => $since]
-        ) : [];
+        $new = $since > 0 ? self::freshMail((int) $u['id'], $since, $held) : [];
         return $this->ok([
             'boxes'  => \M4W\Service\SharedMailboxes::counts((int) $this->actor()['id']),
             'max_id' => (int) DB::value('SELECT COALESCE(MAX(id),0) FROM messages WHERE user_id = :u', ['u' => $u['id']]),

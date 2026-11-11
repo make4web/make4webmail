@@ -3049,9 +3049,13 @@ test('IMAP for mail apps: shared service, the right name only, app password, fol
         ok((bool) DB::value('SELECT COUNT(*) FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid3]), 'delivered');
         $mid4 = 'eas-' . bin2hex(random_bytes(4)) . '@phone.example';
         $eas('SmartReply', ['ComposeMail:SmartReply', [['ComposeMail:ClientId', 'c2'], ['ComposeMail:Source', [['ComposeMail:FolderId', $arch], ['ComposeMail:ItemId', $arch . ':' . $mid]]],
-            ['ComposeMail:Mime', ['opaque' => "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: Premier\r\nMessage-ID: <$mid4>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMa reponse\r\n"]]]]);
+            ['ComposeMail:Mime', ['opaque' => "From: bob@test.local\r\nTo: admin@test.local\r\nSubject: Re: Premier\r\nMessage-ID: <$mid4>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMa reponse\r\n\r\nLe 10 nov. 2026 02:21, Client <client@ext.example> a écrit :\r\n"]]]]);
         $rep = DB::one('SELECT * FROM messages WHERE user_id = :u AND message_id = :m', ['u' => $alice['id'], 'm' => $mid4]);
         ok($rep && str_contains(Mailbox::raw($rep), 'Bonjour Bob') && str_contains(Mailbox::raw($rep), 'Ma reponse'), 'the original quoted');
+        $rh = Mailbox::parsed($rep)->html();
+        $sigAt = strpos($rh, 'data-m4w-signature');
+        ok(!str_contains($rh, 'Le 10 nov. 2026') && $sigAt !== false && $sigAt > strpos($rh, 'Ma reponse') && $sigAt < strpos($rh, 'data-m4w-quote'),
+            "the app's own quote line dropped, the signature between the answer and the quote: " . substr(strip_tags(str_replace('<', ' <', $rh)), 0, 400));
         eq((int) DB::value('SELECT is_answered FROM messages WHERE id = :i', ['i' => $mid]), 1, 'marked answered');
         // ---- Calendars and contacts (Exchange account on a phone).
         $calDefault = $folders['8'][0] ?? '';
@@ -5945,6 +5949,20 @@ test('profile photo: a square JPEG kept, shown instead of initials, removed', fu
     M4W\Service\Avatars::delete($uid);
     ok(!is_file(M4W\Service\Avatars::file($uid)) && (int) DB::value('SELECT avatar_at FROM users WHERE id = :i', ['i' => $uid]) === 0, 'removed');
     unlink($src);
+});
+
+test('new mail announced on the page only when just arrived (a page waking up does not ring for old mail)', function () use ($bob) {
+    $uid = (int) $bob['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $since = (int) DB::value('SELECT COALESCE(MAX(id), 0) FROM messages WHERE user_id = :u', ['u' => $uid]);
+    $mk = static fn(string $s) => "From: Zed <zed@ext.example>\nTo: bob@test.local\nSubject: $s\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.example>\nDate: " . date('r') . "\n\nCorps\n";
+    $old = Mailbox::store($uid, $inbox, $mk('Il y a deux heures'));
+    DB::update('messages', ['created_at' => time() - 7200], 'id = :id', ['id' => $old]);
+    $fresh = Mailbox::store($uid, $inbox, $mk('Tout juste arrivé'));
+    $f = new ReflectionMethod(M4W\Controller\MailController::class, 'freshMail');
+    eq(array_map('intval', array_column($f->invoke(null, $uid, $since, null), 'id')), [$fresh], 'only the mail just arrived');
+    eq(array_map('intval', array_column($f->invoke(null, $uid, $since, [$old]), 'id')), [$fresh, $old], 'and what was held for the page');
+    Mailbox::delete($uid, [$old, $fresh], true);
 });
 
 test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {
