@@ -5951,6 +5951,20 @@ test('profile photo: a square JPEG kept, shown instead of initials, removed', fu
     unlink($src);
 });
 
+test('new mail announced on the page only when just arrived (a page waking up does not ring for old mail)', function () use ($bob) {
+    $uid = (int) $bob['id'];
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $since = (int) DB::value('SELECT COALESCE(MAX(id), 0) FROM messages WHERE user_id = :u', ['u' => $uid]);
+    $mk = static fn(string $s) => "From: Zed <zed@ext.example>\nTo: bob@test.local\nSubject: $s\nMessage-ID: <" . bin2hex(random_bytes(5)) . "@ext.example>\nDate: " . date('r') . "\n\nCorps\n";
+    $old = Mailbox::store($uid, $inbox, $mk('Il y a deux heures'));
+    DB::update('messages', ['created_at' => time() - 7200], 'id = :id', ['id' => $old]);
+    $fresh = Mailbox::store($uid, $inbox, $mk('Tout juste arrivé'));
+    $f = new ReflectionMethod(M4W\Controller\MailController::class, 'freshMail');
+    eq(array_map('intval', array_column($f->invoke(null, $uid, $since, null), 'id')), [$fresh], 'only the mail just arrived');
+    eq(array_map('intval', array_column($f->invoke(null, $uid, $since, [$old]), 'id')), [$fresh, $old], 'and what was held for the page');
+    Mailbox::delete($uid, [$old, $fresh], true);
+});
+
 test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {
     $u = Users::find(Users::create(['email' => 'count.me@test.local', 'password' => 'Secret!Pass123']));
     $uid = (int) $u['id'];
