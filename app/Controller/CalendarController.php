@@ -617,6 +617,7 @@ final class CalendarController extends Controller
         $user = $this->user();
         $mode = $this->req->str('mode');
         return $this->view('settings/sync', ['section' => 'sync', 'user' => $user, 'passwords' => AppPasswords::list((int) $user['id']), 'created' => self::once('app_pw'),
+            'nativeDevices' => \M4W\Service\NativePush::devices((int) $user['id']),
             'easDevices' => DB::all('SELECT * FROM eas_devices WHERE user_id = :u ORDER BY last_seen_at DESC', ['u' => (int) $user['id']]),
             'mode' => in_array($mode, ['eas', 'imap'], true) ? $mode : ($seen = \M4W\Service\MailAppsActivity::modeOf($user)), 'modeSeen' => $seen ?? '',
             'dav' => public_url('dav/'), 'host' => (string) parse_url(public_url('/'), PHP_URL_HOST)]);
@@ -683,6 +684,14 @@ final class CalendarController extends Controller
         Audit::log('dav.password_created', $this->req->str('name'), [], (int) $user['id']);
         $mode = $this->req->str('mode');
         return Response::redirect('/settings/sync' . (in_array($mode, ['eas', 'imap'], true) ? '?mode=' . $mode : '') . '#step-password');
+    }
+
+    /** An Android app device forgotten: it gets no notification any more (and asks to sign in). */
+    public function revokeNative(): Response
+    {
+        $user = $this->user();
+        \M4W\Service\NativePush::unregister((int) $user['id'], '', $this->req->int('id'));
+        return $this->back('/settings/sync#android', 'success', t('app.revoked'));
     }
 
     public function revokePassword(): Response

@@ -69,4 +69,64 @@ final class PushController extends Controller
         $n = WebPush::send((int) $u['id'], ['title' => t('push.test_title'), 'body' => t('push.test_body'), 'tag' => 'm4w-test', 'url' => 'mail'], 300);
         return $n > 0 ? $this->ok(['message' => t('push.test_sent', ['n' => $n])]) : $this->fail(t('push.test_none'));
     }
+
+    // ------------------------------------------------------------ the Android app (NativePush)
+
+    /** The app, signed in: this device gets its token (the page hands it to the app). */
+    public function nativeRegister(): Response
+    {
+        $u = $this->user();
+        $token = \M4W\Service\NativePush::register((int) $u['id'], $this->req->str('name'), $this->req->str('model'));
+        \M4W\Core\Audit::log('native.registered', $this->req->str('model'), [], (int) $u['id']);
+        return $this->ok(['token' => $token]);
+    }
+
+    /** Signed out on purpose, or turned off: the device gets nothing more. */
+    public function nativeUnregister(): Response
+    {
+        $u = $this->user();
+        \M4W\Service\NativePush::unregister((int) $u['id'], $this->req->str('token'), $this->req->int('id'));
+        return $this->ok();
+    }
+
+    private function nativeDevice(): ?array
+    {
+        $auth = $this->req->header('authorization');
+        return preg_match('/^Bearer\s+([A-Za-z0-9_-]{20,100})$/', $auth, $m) ? \M4W\Service\NativePush::device($m[1]) : null;
+    }
+
+    /** The app's long wait for its notifications (no session: its token). */
+    public function nativeWait(): Response
+    {
+        \M4W\Core\Session::close();
+        $d = $this->nativeDevice();
+        if (!$d) {
+            return Response::json(['ok' => false, 'error' => 'unknown device'], 401);
+        }
+        @set_time_limit(\M4W\Service\NativePush::WAIT + 30);
+        $events = \M4W\Service\NativePush::wait($d, $this->req->int('ack'), $this->req->ip(), min(\M4W\Service\NativePush::WAIT, max(0, $this->req->int('wait', \M4W\Service\NativePush::WAIT))));
+        return Response::json(['ok' => true, 'events' => $events, 'wait' => \M4W\Service\NativePush::WAIT]);
+    }
+
+    /** One of the person's own sounds, for the app to play (kept by it). */
+    public function nativeSound(string $id): Response
+    {
+        \M4W\Core\Session::close();
+        $d = $this->nativeDevice();
+        $f = $d && ctype_digit($id) ? \M4W\Service\Notify::soundFile((int) $d['user_id'], (int) $id) : null;
+        if (!$f) {
+            return new Response('', 404);
+        }
+        return new Response((string) file_get_contents($f['path']), 200, ['Content-Type' => $f['mime'], 'Cache-Control' => 'private, max-age=31536000']);
+    }
+
+    /** The Android app itself (android/apk/), to install by hand. */
+    public function androidApk(): Response
+    {
+        $f = M4W_ROOT . '/android/apk/make4webmail.apk';
+        if (!is_file($f)) {
+            return new Response('', 404);
+        }
+        return Response::download((string) file_get_contents($f), 'application/vnd.android.package-archive', 'make4webmail.apk');
+    }
 }

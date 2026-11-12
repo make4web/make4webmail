@@ -69,6 +69,44 @@ $wizard = M4W\Service\MailGateway::enabled();
 <?php endif; ?>
 <?php if ($wizard) { require __DIR__ . '/sync_wizard.php'; } ?>
 
+<?php $apk = is_file(M4W_ROOT . '/android/apk/make4webmail.apk'); $appLink = 'm4wapp://open?url=' . rawurlencode(rtrim(public_url('/'), '/') . '/'); ?>
+<?php if ($apk || !empty($nativeDevices)): ?>
+<div class="card mt-4" id="android">
+  <div class="card-header"><i class="bi bi-android2 me-2 text-success"></i><?= te('app.title') ?></div>
+  <div class="card-body">
+    <p class="small text-muted"><?= te('app.desc') ?></p>
+    <?php if ($apk): ?>
+    <div class="d-flex flex-wrap align-items-start gap-4 mb-3">
+      <div>
+        <div class="fw-semibold small mb-1"><span class="m4w-step-num">1</span><?= te('app.step_install') ?></div>
+        <div class="m4w-qr bg-white p-2 rounded border mb-2" style="width:132px;height:132px" data-qr="<?= e(public_url('app/android.apk')) ?>" role="img" aria-label="<?= te('app.qr_apk') ?>"></div>
+        <a class="btn btn-light btn-sm" href="<?= e(url('app/android.apk')) ?>"><i class="bi bi-download me-1"></i><?= te('app.download') ?></a>
+      </div>
+      <div>
+        <div class="fw-semibold small mb-1"><span class="m4w-step-num">2</span><?= te('app.step_open') ?></div>
+        <div class="m4w-qr bg-white p-2 rounded border mb-2" style="width:132px;height:132px" data-qr="<?= e($appLink) ?>" role="img" aria-label="<?= te('app.qr_open') ?>"></div>
+        <div class="small text-muted" style="max-width:260px"><?= te('app.open_hint', ['url' => rtrim(public_url('/'), '/')]) ?></div>
+      </div>
+    </div>
+    <p class="small text-muted mb-3"><i class="bi bi-info-circle me-1"></i><?= te('app.unknown_sources') ?></p>
+    <?php endif; ?>
+    <?php if (!empty($nativeDevices)): ?>
+    <div class="fw-semibold small mb-1"><?= te('app.devices') ?></div>
+    <ul class="list-group list-group-flush">
+      <?php foreach ($nativeDevices as $d): ?>
+      <li class="list-group-item d-flex align-items-center gap-2 px-0">
+        <i class="bi bi-phone text-success"></i>
+        <div class="min-w-0 flex-grow-1"><div class="fw-medium text-truncate"><?= e($d['name']) ?></div>
+          <div class="small text-muted"><?= e($d['model']) ?> · <?= te('app.seen', ['date' => format_datetime((int) $d['last_seen_at'])]) ?></div></div>
+        <form method="post" action="<?= e(url('settings/sync/native-revoke')) ?>" data-confirm="<?= te('app.revoke_confirm') ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $d['id'] ?>"><button class="btn btn-outline-danger btn-sm"><?= te('sync.disconnect') ?></button></form>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php $personal = array_filter(['teams', 'meet', 'zoom'], static fn($p) => M4W\Service\Meetings::mode($p) === 'personal'); ?>
 <?php if ($personal): ?>
 <form method="post" action="<?= e(url('settings/sync/meetings')) ?>" class="card mt-4" id="meetings">
