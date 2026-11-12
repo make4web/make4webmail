@@ -196,6 +196,7 @@
   }
   setInterval(function () {
     if (!cfg.on || !cfg.notify_reminder || !unread || !unreadSince) return;
+    if (window.M4WApp && (document.hidden || window.M4WAppAway)) return; // the Android app reminds by itself
     var every = (+cfg.reminder_minutes || 30) * 60000;
     if (Date.now() - pushSeen < every) return; // a system notification came meanwhile
     if (Date.now() - unreadSince < every || Date.now() - lastReminder < every || !inPeriod()) return;
@@ -279,7 +280,7 @@
     $(document).on('pointerdown keydown', function () {
       if (pulseSince && Date.now() - pulseSince > 1000) { $('[data-boxes-elsewhere]').removeClass('m4w-pulse'); pulseSince = 0; }
     });
-    var checking = false, told = {};
+    var checking = false, told = {}, resumed = false;
     function check() {
       if (M4W.Offline && M4W.Offline.offline) return;
       if (checking) return; // one at a time (back in front, the timer, a push at once)
@@ -289,7 +290,10 @@
         news.forEach(function (x) { told[x.id] = 1; });
         show(r.boxes, news.length > 0);
         since = r.max_id || since;
-        if (news.length) {
+        // In the Android app, hidden or just back in front: the app's own notification told of it.
+        var quiet = !!window.M4WApp && (document.hidden || window.M4WAppAway || resumed);
+        resumed = false;
+        if (news.length && !quiet) {
           var n = news[0];
           M4W.toast(M4W.t('new_mail_from', { name: n.from_name || n.from_email }) + ' — ' + (n.subject || M4W.t('no_subject')), 'info', {
             action: { label: M4W.t('open'), fn: function () { location.href = M4W.url('mail') + '#f/' + n.folder_id + '/m/' + n.id; } }
@@ -302,7 +306,8 @@
     refresh = check;
     check();
     setInterval(check, 20000);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { resumed = true; check(); } });
+    document.addEventListener('m4wapp-resume', function () { resumed = true; check(); });
   });
 
 

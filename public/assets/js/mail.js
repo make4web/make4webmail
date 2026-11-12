@@ -60,7 +60,10 @@
     $(document).on('show.bs.dropdown', '.m4w-folder-dd', function () { $(this).addClass('open'); })
       .on('hidden.bs.dropdown', '.m4w-folder-dd', function () { $(this).removeClass('open'); });
     $(window).on('hashchange', route);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(false); });
+    // Back in front. In the Android app, its own notification told of what came meanwhile:
+    // that check announces nothing more (no second sound).
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { S.resumed = !!window.M4WApp; poll(false); } });
+    document.addEventListener('m4wapp-resume', function () { S.resumed = true; poll(false); });
   });
 
   // ---------------------------------------------------------------- router
@@ -394,6 +397,7 @@
     rowById(id).addClass('active').attr('aria-current', 'true');
     S.cursor = S.items.findIndex(function (m) { return m.id === id; });
     $main.addClass('reading');
+    fabState();
     $reader.addClass('is-open');
     $('#m4w-reader-empty').addClass('d-none');
     var $c = $('#m4w-reader-content').removeClass('d-none').addClass('d-flex').html('<div class="m4w-reader-toolbar"></div><div class="m4w-reader-scroll"><div class="m4w-skeleton border-0"><i style="width:60%;height:18px"></i></div><div class="m4w-skeleton border-0"><i style="width:36px;height:36px;border-radius:var(--m4w-radius-round)"></i><div class="flex-grow-1"><i style="width:40%;margin-bottom:8px"></i><i style="width:25%"></i></div></div></div>');
@@ -415,9 +419,17 @@
   }
   M4W.openMessage = openMessage;
 
+  /** The round button: "reply all" while a message is open, "new message" otherwise. */
+  function fabState() {
+    var $b = $('.m4w-fab'), reading = !!S.activeId && $main.hasClass('reading');
+    $b.attr('aria-label', reading ? t('reply_all') : $b.data('label-new')).attr('title', reading ? t('reply_all') : $b.data('label-new'))
+      .find('i').attr('class', reading ? 'bi bi-reply-all' : 'bi bi-pencil');
+  }
+
   function closeReader(keepHash) {
     S.activeId = null; S.current = null;
     $main.removeClass('reading');
+    fabState();
     $reader.removeClass('is-open');
     $scroll.find('.m4w-row').removeClass('active');
     $('#m4w-reader-content').addClass('d-none').removeClass('d-flex').empty();
@@ -922,7 +934,9 @@
       if (r.csrf) M4W.csrf(r.csrf);
       var fresh = (r.new || []).filter(function (x) { return !toasted[x.id]; });
       fresh.forEach(function (x) { toasted[x.id] = 1; });
-      if (!first && fresh.length) {
+      var quiet = !!window.M4WApp && (document.hidden || window.M4WAppAway || S.resumed);
+      S.resumed = false;
+      if (!first && fresh.length && !quiet) {
         S.fresh = S.fresh || {};
         fresh.forEach(function (x) { if (!S.fresh[x.id]) S.fresh[x.id] = 1; });
         var n = fresh[0];
@@ -1187,6 +1201,11 @@
       });
     });
     $(document).on('click', '[data-action=compose]', function () { M4W.Compose.open({ mode: 'new' }); });
+    // The round button of phones and tablets: a message open, it answers everyone; else a new one.
+    $(document).on('click', '[data-action=fab]', function () {
+      if (S.activeId && $main.hasClass('reading')) M4W.Compose.open({ mode: 'reply_all', id: lastThreadId() });
+      else M4W.Compose.open({ mode: 'new' });
+    });
     $(document).on('click', '[data-not-spam]', function () { bulk('not_spam', [+$(this).attr('data-not-spam')]); });
     $(document).on('click', '[data-att-send]', function () { M4W.Compose.open({ mode: 'attach', id: +$(this).attr('data-att-send'), part: String($(this).attr('data-part')) }); });
     $(document).on('click', '[data-save-files]', function () {
