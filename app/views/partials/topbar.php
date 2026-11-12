@@ -107,6 +107,9 @@ $elsewhere = array_sum($boxCounts); ?>
       </div>
     </div>
     <?php endif; ?>
+    <?php if (is_file(M4W_ROOT . '/android/apk/make4webmail.apk')): ?>
+    <button type="button" class="btn btn-ghost btn-icon d-none" data-apk-guide data-apk-only title="<?= te('app.get') ?>" aria-label="<?= te('app.get') ?>"><i class="bi bi-android2 text-success"></i></button>
+    <?php endif; ?>
     <div class="dropdown">
       <button class="btn btn-ghost btn-icon" type="button" data-bs-toggle="dropdown" title="<?= te('nav.apps') ?>" aria-label="<?= te('nav.apps') ?>"><i class="bi bi-grid-3x3-gap"></i></button>
       <div class="dropdown-menu dropdown-menu-end p-2" style="width:290px">
@@ -157,6 +160,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <div class="dropdown-divider"></div>
         <?php endif; ?>
         <a class="dropdown-item" href="<?= e(url('settings')) ?>"><i class="bi bi-person-circle"></i><?= te('nav.profile') ?></a>
+        <?php if (is_file(M4W_ROOT . '/android/apk/make4webmail.apk')): ?><button type="button" class="dropdown-item d-none" data-apk-guide data-apk-only><i class="bi bi-android2"></i><?= te('app.get') ?></button><?php endif; ?>
         <a class="dropdown-item" href="<?= e(url('settings/vacation')) ?>"><i class="bi bi-airplane"></i><?= te('nav.vacation') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/security')) ?>"><i class="bi bi-shield-lock"></i><?= te('nav.security') ?></a>
         <a class="dropdown-item" href="<?= e(url('help')) ?>"><i class="bi bi-book"></i><?= te('nav.guide') ?></a>
