@@ -34,6 +34,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.graphics.drawable.ColorDrawable
 
 /**
  * The webmail itself, in the app: the same pages as in the browser (all that is built for the
@@ -43,6 +46,9 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private var web: WebView? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var barTop: View? = null
+    private var barBottom: View? = null
+    private var colors = intArrayOf(Color.WHITE, Color.WHITE)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -182,9 +188,57 @@ class MainActivity : Activity() {
             } catch (_: Exception) {
             }
         }
-        setContentView(w)
+        // The webmail between two bands that take the colours of its top and bottom (bars()):
+        // Android 15 draws the app under the system bars, the bands fill them (and the keyboard's).
+        val top = View(this)
+        val bottom = View(this)
+        barTop = top
+        barBottom = bottom
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(top, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
+        box.addView(w, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        box.addView(bottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
+        if (Build.VERSION.SDK_INT >= 35) {
+            box.setOnApplyWindowInsetsListener { _, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                val ime = insets.getInsets(WindowInsets.Type.ime())
+                top.layoutParams.height = bars.top
+                bottom.layoutParams.height = maxOf(bars.bottom, ime.bottom)
+                top.requestLayout()
+                bottom.requestLayout()
+                insets
+            }
+        }
+        setContentView(box)
+        applyBars()
         w.loadUrl(prefs.baseUrl + (path ?: ""))
     }
+
+    /** The system bars in the page's colours, their icons dark on a light colour and light on a dark one. */
+    private fun applyBars() {
+        val (top, bottom) = colors[0] to colors[1]
+        barTop?.setBackgroundColor(top)
+        barBottom?.setBackgroundColor(bottom)
+        window.setBackgroundDrawable(ColorDrawable(bottom))
+        if (Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            window.statusBarColor = top
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = bottom
+        }
+        val lightTop = luminance(top) > 0.55
+        val lightBottom = luminance(bottom) > 0.55
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.setSystemBarsAppearance(
+                (if (lightTop) WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS else 0) or (if (lightBottom) WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS else 0),
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (if (lightTop) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0) or (if (lightBottom) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
+        }
+    }
+
+    private fun luminance(c: Int): Double = (0.2126 * Color.red(c) + 0.7152 * Color.green(c) + 0.0722 * Color.blue(c)) / 255.0
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -228,6 +282,16 @@ class MainActivity : Activity() {
         @JavascriptInterface fun clear() {
             prefs.clearAccount()
             runOnUiThread { WatchService.stop(this@MainActivity) }
+        }
+
+        /** The colours at the top and the bottom of the page (#rrggbb): the system bars follow. */
+        @JavascriptInterface fun bars(top: String, bottom: String) {
+            val t = try { Color.parseColor(top) } catch (_: Exception) { return }
+            val b = try { Color.parseColor(bottom) } catch (_: Exception) { return }
+            runOnUiThread {
+                colors = intArrayOf(t, b)
+                applyBars()
+            }
         }
 
         /** The unread count changed (read here or elsewhere). */

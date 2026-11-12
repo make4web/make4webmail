@@ -13,8 +13,8 @@ use M4W\Core\Database as DB;
  */
 final class NativePush
 {
-    /** How long one wait is held (Cloudflare cuts at 100 s). */
-    public const WAIT = 50;
+    /** How long one wait is held: short enough that no mobile network takes the silent connection for dead (Cloudflare cuts at 100 s). */
+    public const WAIT = 25;
 
     public static function hash(string $token): string
     {
