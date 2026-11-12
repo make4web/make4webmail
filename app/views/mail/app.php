@@ -128,7 +128,7 @@ $pane = in_array($prefs['reading_pane'], ['right', 'bottom', 'off'], true) ? $pr
   </div>
 </div>
 
-<button class="btn btn-primary m4w-fab" data-action="compose" aria-label="<?= te('mail.compose') ?>"><i class="bi bi-pencil"></i></button>
+<button class="btn btn-primary m4w-fab" data-action="fab" aria-label="<?= te('mail.compose') ?>" data-label-new="<?= te('mail.compose') ?>"><i class="bi bi-pencil"></i></button>
 
 <!-- Shortcuts -->
 <div class="modal fade" id="m4w-shortcuts" tabindex="-1" aria-hidden="true">

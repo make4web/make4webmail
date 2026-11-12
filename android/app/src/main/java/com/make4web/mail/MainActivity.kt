@@ -82,11 +82,15 @@ class MainActivity : Activity() {
         super.onResume()
         WatchService.appVisible = true
         web?.onResume()
+        // Back in front: the page checks again, quietly (what came meanwhile was notified).
+        web?.evaluateJavascript("window.M4WAppAway=false;document.dispatchEvent(new Event('m4wapp-resume'));", null)
         WatchService.start(this)
     }
 
     override fun onPause() {
         WatchService.appVisible = false
+        // In the background: the app notifies, the page stays quiet.
+        web?.evaluateJavascript("window.M4WAppAway=true;", null)
         web?.onPause()
         CookieManager.getInstance().flush()
         super.onPause()
