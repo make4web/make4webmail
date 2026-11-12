@@ -48,6 +48,57 @@
     setTimeout(function () { showInstall('prompt'); }, 1500);
   });
   window.addEventListener('appinstalled', function () { installOffered = false; hideInstall(); });
+
+  // ------------------------------------------------------- the Android app (android/apk)
+  // On an Android phone, in the browser or the PWA: the app is offered instead (notifications with
+  // the chosen sound, phone locked), with a guide to allow installing it outside the Play Store.
+  var $apk = $('meta[name="m4w-apk"]'), apkUrl = $apk.attr('content') || '', apkOpen = $apk.data('open') || '';
+  var android = /Android/i.test(navigator.userAgent) && !window.M4WApp;
+  var APK_LATER = 'm4w.apk.later';
+  function apkLater() { try { return Date.now() - (+window.localStorage.getItem(APK_LATER) || 0) < LATER_MS; } catch (e) { return false; } }
+  function apkGuide() {
+    $('#m4w-apk-guide').remove();
+    var step = function (n, title, body, extra) {
+      return '<li class="m4w-apk-step"><span class="m4w-step-num">' + n + '</span><div><div class="fw-semibold">' + M4W.esc(title) + '</div>'
+        + '<div class="small text-muted">' + body + '</div>' + (extra || '') + '</div></li>';
+    };
+    var html = '<div class="modal fade" id="m4w-apk-guide" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">'
+      + '<div class="modal-header"><h2 class="modal-title fs-5"><i class="bi bi-android2 text-success me-2"></i>' + M4W.esc(t('apk_title')) + '</h2>'
+      + '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="' + M4W.esc(t('close')) + '"></button></div>'
+      + '<div class="modal-body"><p class="small text-muted">' + M4W.esc(t('apk_intro')) + '</p><ol class="list-unstyled mb-0">'
+      + step(1, t('apk_s1'), M4W.esc(t('apk_s1_text')), '<a class="btn btn-primary btn-sm mt-2" href="' + M4W.esc(apkUrl) + '" download="make4webmail.apk" data-apk-download><i class="bi bi-download me-1"></i>' + M4W.esc(t('apk_download')) + '</a>')
+      + step(2, t('apk_s2'), t('apk_s2_html'))
+      + step(3, t('apk_s3'), t('apk_s3_html'))
+      + step(4, t('apk_s4'), t('apk_s4_html'))
+      + step(5, t('apk_s5'), M4W.esc(t('apk_s5_text')), '<a class="btn btn-success btn-sm mt-2" href="' + M4W.esc(apkOpen) + '"><i class="bi bi-box-arrow-up-right me-1"></i>' + M4W.esc(t('apk_open')) + '</a>')
+      + '</ol></div></div></div></div>';
+    var $m = $(html).appendTo('body');
+    $m.on('click', '[data-apk-download]', function () { $(this).addClass('btn-light').removeClass('btn-primary').find('i').attr('class', 'bi bi-check2 me-1'); });
+    if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance($m[0]).show();
+  }
+  $(document).on('click', '[data-apk-guide]', function (e) { e.preventDefault(); hideInstall(); apkGuide(); });
+  $(document).on('click', '[data-apk-later]', function () {
+    try { window.localStorage.setItem(APK_LATER, String(Date.now())); } catch (e) {}
+    hideInstall();
+  });
+  if (apkUrl && android && mobile && !apkLater() && $('meta[name="m4w-user"]').length) {
+    installOffered = false; // the app rather than the home screen shortcut
+    $(function () {
+      setTimeout(function () {
+        if ($('#m4w-install').length) return;
+        var name = $('meta[name=apple-mobile-web-app-title]').attr('content') || document.title;
+        $('<div class="m4w-install" id="m4w-install" role="dialog" aria-live="polite"></div>').attr('aria-label', t('apk_offer_title', { name: name }))
+          .append($('<img alt="" width="44" height="44">').attr('src', $('link[rel=apple-touch-icon]').attr('href') || ''))
+          .append($('<div class="m4w-install-text"></div>').append($('<strong></strong>').text(t('apk_offer_title', { name: name }))).append($('<span></span>').text(t('apk_offer_text'))))
+          .append($('<div class="m4w-install-actions"></div>')
+            .append($('<button type="button" class="btn btn-light btn-sm" data-apk-later></button>').text(t('install_later')))
+            .append($('<button type="button" class="btn btn-primary btn-sm" data-apk-guide></button>').text(t('install_go'))))
+          .appendTo('body');
+      }, 2500);
+    });
+  }
+  M4W.apkGuide = apkGuide;
+
   if (installOffered && ios) {
     $(function () { setTimeout(function () { showInstall('ios'); }, 2500); });
   }

@@ -81,6 +81,7 @@ $wizard = M4W\Service\MailGateway::enabled();
         <div class="fw-semibold small mb-1"><span class="m4w-step-num">1</span><?= te('app.step_install') ?></div>
         <div class="m4w-qr bg-white p-2 rounded border mb-2" style="width:132px;height:132px" data-qr="<?= e(public_url('app/android.apk')) ?>" role="img" aria-label="<?= te('app.qr_apk') ?>"></div>
         <a class="btn btn-light btn-sm" href="<?= e(url('app/android.apk')) ?>"><i class="bi bi-download me-1"></i><?= te('app.download') ?></a>
+        <div><button type="button" class="btn btn-primary btn-sm mt-2" data-apk-guide><i class="bi bi-phone me-1"></i><?= te('app.guide') ?></button></div>
       </div>
       <div>
         <div class="fw-semibold small mb-1"><span class="m4w-step-num">2</span><?= te('app.step_open') ?></div>
