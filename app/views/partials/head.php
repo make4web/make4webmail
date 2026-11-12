@@ -14,6 +14,9 @@ $themePref = $currentUser['prefs']['theme'] ?? 'auto';
 <meta name="m4w-version" content="<?= e(M4W_VERSION) ?>">
 <?php if (!empty($currentUser)): ?>
 <meta name="m4w-user" content="<?= (int) $currentUser['id'] ?>">
+<?php if (is_file(M4W_ROOT . '/android/apk/make4webmail.apk')): ?>
+<meta name="m4w-apk" content="<?= e(url('app/android.apk')) ?>" data-open="<?= e('m4wapp://open?url=' . rawurlencode(rtrim(public_url('/'), '/') . '/')) ?>">
+<?php endif; ?>
 <meta name="m4w-photos" content="<?= e(json_encode((object) M4W\Service\Avatars::map(), JSON_UNESCAPED_SLASHES)) ?>">
 <?php // Offline mode: one's own mailbox only (nothing of a delegated or shared mailbox kept on a device). ?>
 <meta name="m4w-offline" content="<?= M4W\Service\Offline::enabled() && empty($delegation) && empty($sharedBox) ? 1 : 0 ?>">
