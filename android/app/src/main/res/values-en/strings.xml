@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_title">Welcome</string>
+    <string name="setup_text">Address of your webmail (the one you open in the browser), or scan the QR code of Settings › Phone and calendar with the camera.</string>
+    <string name="setup_hint">https://webmail.example.com</string>
+    <string name="setup_go">Continue</string>
+    <string name="setup_bad">Invalid address: it starts with https://</string>
+    <string name="channel_mail">New mail</string>
+    <string name="channel_mail_desc">Mail arriving, a calendar reminder, an account alert: with the sound chosen in the webmail.</string>
+    <string name="channel_service">Webmail connection</string>
+    <string name="channel_service_desc">Keeps listening to tell you at once. You can hide this notification in Android\'s settings.</string>
+    <string name="service_text">Listening for new mail</string>
+    <string name="offline">No connection. Trying again shortly…</string>
+    <string name="battery_title">Instant notifications</string>
+    <string name="battery_text">To be told even with the phone asleep, let the app run without battery restriction.</string>
+    <string name="battery_ok">Allow</string>
+    <string name="later">Later</string>
+    <string name="change_server">Change webmail</string>
+</resources>

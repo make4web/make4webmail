@@ -245,12 +245,18 @@ final class WebPush
      */
     public static function send(int $userId, array $message, int $ttl = 86400, bool $holdIfOpen = false): int
     {
+        // The Android app gets the same, by its own way (no Google service: NativePush).
+        try {
+            $native = NativePush::queue($userId, $message);
+        } catch (\Throwable) {
+            $native = 0;
+        }
         if (!self::enabled()) {
-            return 0;
+            return $native;
         }
         $subs = DB::all('SELECT * FROM push_subscriptions WHERE user_id = :u', ['u' => $userId]);
         if (!$subs) {
-            return 0;
+            return $native;
         }
         $body = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $n = 0;
@@ -263,7 +269,7 @@ final class WebPush
             }
             $n += self::deliver($s, $body, $ttl) ? 1 : 0;
         }
-        return $n;
+        return $n + $native;
     }
 
     /**
@@ -508,9 +514,7 @@ final class WebPush
     /** New message in a user's inbox. Called by local delivery. */
     public static function newMail(array $user, int $messageId, array $from, string $subject, int $folderId): void
     {
-        if (!self::enabled()) {
-            return;
-        }
+        // (Web Push turned off: the Android app is still told, see send.)
         $preview = (int) Settings::get('push.preview', 1) === 1;
         $name = trim((string) ($from['name'] ?? '')) ?: (string) ($from['email'] ?? '');
         $email = (string) ($from['email'] ?? '');

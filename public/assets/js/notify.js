@@ -153,6 +153,14 @@
     $(form).find('[name=device]').val(device);
     var sent = false, go = function () { if (!sent) { sent = true; form.submit(); } };
     setTimeout(go, 1500); // never held up
+    if (window.M4WApp) {
+      // Signed out on purpose in the Android app: it stops waiting for notifications.
+      var tok = window.M4WApp.token();
+      window.M4WApp.clear();
+      if (tok) { M4W.post('api/native/unregister', { token: tok }, { quiet: true }).always(go); return; }
+      go();
+      return;
+    }
     if (!navigator.serviceWorker) { go(); return; }
     navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager && reg.pushManager.getSubscription(); })
       .then(function (sub) { return sub && sub.unsubscribe(); })
@@ -181,6 +189,7 @@
   // Reminders made here when this device gets no push (not subscribed): while mail stays unread.
   var pushSeen = 0, unreadSince = 0, lastReminder = 0, unread = 0;
   function setUnread(n) {
+    if (window.M4WApp && window.M4WApp.unread) { try { window.M4WApp.unread(+n || 0); } catch (e) {} } // all read: the phone's notices go
     unread = n;
     if (!n) { unreadSince = 0; lastReminder = 0; return; }
     if (!unreadSince) unreadSince = Date.now();

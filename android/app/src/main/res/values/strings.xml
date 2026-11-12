@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Make4WebMail</string>
+    <string name="setup_title">Bienvenue</string>
+    <string name="setup_text">Adresse de votre messagerie (celle que vous ouvrez dans le navigateur), ou scannez le QR code de Paramètres › Téléphone et agenda avec l\'appareil photo.</string>
+    <string name="setup_hint">https://webmail.exemple.fr</string>
+    <string name="setup_go">Continuer</string>
+    <string name="setup_bad">Adresse invalide : elle commence par https://</string>
+    <string name="channel_mail">Nouveaux messages</string>
+    <string name="channel_mail_desc">Un message arrive, un rappel de l\'agenda, une alerte du compte : avec le son choisi dans la messagerie.</string>
+    <string name="channel_service">Connexion à la messagerie</string>
+    <string name="channel_service_desc">Reste à l\'écoute pour prévenir sans délai. Vous pouvez masquer cette notification dans les réglages d\'Android.</string>
+    <string name="service_text">À l\'écoute des nouveaux messages</string>
+    <string name="offline">Pas de connexion. Nouvel essai dans un instant…</string>
+    <string name="battery_title">Notifications sans délai</string>
+    <string name="battery_text">Pour être prévenu même téléphone en veille, autorisez l\'application à fonctionner sans restriction de batterie.</string>
+    <string name="battery_ok">Autoriser</string>
+    <string name="later">Plus tard</string>
+    <string name="change_server">Changer de messagerie</string>
+</resources>

@@ -1152,4 +1152,26 @@ static function (): void {
 // Which app password each Exchange phone signs in with: "disconnect this device" revokes it.
 "ALTER TABLE eas_devices ADD COLUMN app_password_id INTEGER NOT NULL DEFAULT 0",
 ],
+51 => [
+// The Android app (no Google service): its devices, and what waits for each (see NativePush).
+"CREATE TABLE native_devices (
+  id {PK},
+  user_id INTEGER NOT NULL,
+  token_hash VARCHAR(64) NOT NULL,
+  name VARCHAR(100) NOT NULL DEFAULT '',
+  model VARCHAR(100) NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER NOT NULL DEFAULT 0,
+  last_ip VARCHAR(64) NOT NULL DEFAULT ''
+) {OPT}",
+"CREATE UNIQUE INDEX native_devices_token ON native_devices(token_hash)",
+"CREATE INDEX native_devices_user ON native_devices(user_id)",
+"CREATE TABLE native_queue (
+  id {PK},
+  device_id INTEGER NOT NULL,
+  payload {TEXT},
+  created_at INTEGER NOT NULL DEFAULT 0
+) {OPT}",
+"CREATE INDEX native_queue_device ON native_queue(device_id, id)",
+],
 ];

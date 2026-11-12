@@ -251,6 +251,9 @@ final class App
         $r->get('/', [Controller\AuthController::class, 'home'], $pub);
         $r->get('/login', [Controller\AuthController::class, 'loginForm'], $pub);
         $r->get('/p/{token}', [Controller\CalendarController::class, 'phoneProfile'], $pub);
+        $r->get('/api/native/wait', [Controller\PushController::class, 'nativeWait'], $pub);
+        $r->get('/api/native/sound/{id}', [Controller\PushController::class, 'nativeSound'], $pub);
+        $r->get('/app/android.apk', [Controller\PushController::class, 'androidApk'], $pub);
         $r->post('/login', [Controller\AuthController::class, 'login'], $pub);
         $r->get('/login/2fa', [Controller\AuthController::class, 'twoFactorForm'], $pub);
         $r->post('/login/2fa', [Controller\AuthController::class, 'twoFactor'], $pub);
@@ -311,6 +314,8 @@ final class App
         // Push notifications
         $r->get('/api/push/key', [Controller\PushController::class, 'key']);
         $r->post('/api/push/subscribe', [Controller\PushController::class, 'subscribe']);
+        $r->post('/api/native/register', [Controller\PushController::class, 'nativeRegister']);
+        $r->post('/api/native/unregister', [Controller\PushController::class, 'nativeUnregister']);
         $r->post('/api/push/renew', [Controller\PushController::class, 'renew']);
         $r->post('/api/push/unsubscribe', [Controller\PushController::class, 'unsubscribe']);
         $r->post('/api/push/test', [Controller\PushController::class, 'test']);
@@ -421,6 +426,7 @@ final class App
         $r->post('/settings/sync/create', [Controller\CalendarController::class, 'createPassword']);
         $r->post('/settings/sync/meetings', [Controller\CalendarController::class, 'saveMeetingLinks']);
         $r->post('/settings/sync/revoke', [Controller\CalendarController::class, 'revokePassword']);
+        $r->post('/settings/sync/native-revoke', [Controller\CalendarController::class, 'revokeNative']);
         $r->get('/settings/sync/profile', [Controller\CalendarController::class, 'mobileconfig']);
 
         // User settings

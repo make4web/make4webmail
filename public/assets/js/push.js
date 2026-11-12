@@ -11,7 +11,7 @@
   // In a mobile browser, the app is offered for the home screen: Android hands its install
   // prompt (beforeinstallprompt), iOS has none, so its two taps are explained. "Later" waits 30 days.
   var mobile = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) && Math.min(screen.width, screen.height) < 1024;
-  var inApp = /FBAN|FBAV|Instagram|Line\/|LinkedInApp|Twitter|MicroMessenger/i.test(navigator.userAgent); // in-app browsers cannot install
+  var inApp = /FBAN|FBAV|Instagram|Line\/|LinkedInApp|Twitter|MicroMessenger/i.test(navigator.userAgent) || !!window.M4WApp; // in-app browsers cannot install (nor our own Android app)
   var LATER_KEY = 'm4w.install.later', LATER_MS = 30 * 86400000, deferredPrompt = null;
   function later() { try { return Date.now() - (+window.localStorage.getItem(LATER_KEY) || 0) < LATER_MS; } catch (e) { return false; } }
   var installOffered = mobile && !standalone && !inApp && !later();
@@ -77,8 +77,31 @@
    * State of this device: unsupported | ios-install (iPhone outside the home screen) |
    * denied | on | off | disabled (turned off by the administrator).
    */
+  // ------------------------------------------------------- inside the Android app (window.M4WApp)
+  // Its notifications come by its own way (NativePush): the page registers the device and hands
+  // its token to the app, which waits on the server and plays the chosen sound itself.
+  var app = window.M4WApp || null;
+  if (app) supported = true;
+  function appEnable() {
+    var d = $.Deferred();
+    M4W.post('api/native/register', { name: app.deviceName(), model: app.deviceModel() }, { quiet: true }).done(function (r) {
+      try { app.register(r.token, M4W.url('')); d.resolve(); } catch (e) { d.reject(''); }
+    }).fail(function () { d.reject(''); });
+    return d.promise();
+  }
+  function appDisable() {
+    var d = $.Deferred(), token = app.token();
+    app.clear();
+    M4W.post('api/native/unregister', { token: token }, { quiet: true }).always(function () { d.resolve(); });
+    return d.promise();
+  }
+  if (app && $('meta[name="m4w-user"]').length && !app.token()) {
+    $(function () { appEnable(); }); // signed in in the app: notifications at once
+  }
+
   function state() {
     var d = $.Deferred();
+    if (app) { d.resolve(app.token() ? 'on' : 'off'); return d.promise(); }
     if (!supported) { d.resolve(ios && !standalone ? 'ios-install' : 'unsupported'); return d.promise(); }
     if (Notification.permission === 'denied') { d.resolve('denied'); return d.promise(); }
     subscription().then(function (s) { d.resolve(s && Notification.permission === 'granted' ? 'on' : 'off'); }, function () { d.resolve('unsupported'); });
@@ -86,6 +109,7 @@
   }
 
   function enable() {
+    if (app) return appEnable();
     var d = $.Deferred();
     M4W.get('api/push/key', null, { silent: true }).done(function (k) {
       if (!k.enabled || !k.key) { d.reject(t('push_disabled')); return; }
@@ -113,6 +137,7 @@
   }
 
   function disable() {
+    if (app) return appDisable();
     var d = $.Deferred();
     subscription().then(function (s) {
       if (!s) { d.resolve(); return; }

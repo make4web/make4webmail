@@ -5965,6 +5965,27 @@ test('new mail announced on the page only when just arrived (a page waking up do
     Mailbox::delete($uid, [$old, $fresh], true);
 });
 
+test('Android app: its device, what the PWA gets queued for it with the chosen sound, its wait, signed out', function () use ($bob) {
+    $uid = (int) $bob['id'];
+    $token = M4W\Service\NativePush::register($uid, 'Pixel', 'Pixel 7 (Android 15)');
+    $dev = M4W\Service\NativePush::device($token);
+    ok($dev && (int) $dev['user_id'] === $uid && M4W\Service\NativePush::device('nope') === null, 'registered, by its token only');
+    Users::savePrefs($uid, ['sound_new' => 'marimba']);
+    M4W\Service\WebPush::send($uid, ['title' => 'Nouveau', 'body' => 'De Zoé', 'kind' => 'new', 'url' => 'mail#f/1/m/2', 'count' => 3]);
+    M4W\Service\WebPush::send($uid, ['title' => 'Rappel', 'body' => 'Réunion', 'url' => 'calendar']);
+    $slept = 0;
+    $ev = M4W\Service\NativePush::wait($dev, 0, '10.0.0.9', 0, static function () use (&$slept) { $slept++; });
+    eq([count($ev), $ev[0]['title'], $ev[0]['sound'], $ev[1]['sound']], [2, 'Nouveau', 'marimba', 'chime'], 'the PWA notices queued, with the sound chosen');
+    // Shown: acknowledged, gone; nothing else: the wait ends empty.
+    eq(M4W\Service\NativePush::wait($dev, (int) $ev[1]['id'], '10.0.0.9', 4, static function () use (&$slept) { $slept++; }), [], 'nothing more after what was shown');
+    ok($slept >= 1, 'waited for something to come');
+    M4W\Service\WebPush::send($uid, ['title' => 'Muet', 'kind' => 'new', 'silent' => true]);
+    eq(M4W\Service\NativePush::wait($dev, (int) $ev[1]['id'], '10.0.0.9', 0)[0]['sound'], 'none', 'silent stays silent');
+    M4W\Service\NativePush::unregister($uid, $token);
+    ok(M4W\Service\NativePush::device($token) === null && !(int) DB::value('SELECT COUNT(*) FROM native_queue'), 'signed out: forgotten with its queue');
+    Users::savePrefs($uid, ['sound_new' => 'ding']);
+});
+
 test('unread count of a mailbox: inbox and own folders, not spam, trash or drafts', function () {
     $u = Users::find(Users::create(['email' => 'count.me@test.local', 'password' => 'Secret!Pass123']));
     $uid = (int) $u['id'];
