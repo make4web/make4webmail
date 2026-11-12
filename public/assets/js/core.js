@@ -25,6 +25,33 @@
    * version, the page reloads itself where nothing is being written, else offers to.
    */
   M4W.version = $('meta[name="m4w-version"]').attr('content') || '';
+  // In the Android app: its system bars take the colours shown at the top and the bottom of the
+  // page (theme, brand, dark mode), told again when they change.
+  if (window.M4WApp && window.M4WApp.bars) {
+    var lastBars = '';
+    var colorAt = function (x, y) {
+      var el = document.elementFromPoint(x, y);
+      while (el && el.nodeType === 1) {
+        var c = getComputedStyle(el).backgroundColor, m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(c || '');
+        if (m && (m[4] === undefined || +m[4] > 0.5)) {
+          return '#' + [m[1], m[2], m[3]].map(function (v) { return ('0' + (+v).toString(16)).slice(-2); }).join('');
+        }
+        el = el.parentElement;
+      }
+      return '';
+    };
+    var tellBars = function () {
+      if (document.hidden) return;
+      var w = window.innerWidth, h = window.innerHeight;
+      var top = colorAt(w / 2, 1) || colorAt(4, 1), bottom = colorAt(w - 2, h - 2) || colorAt(w / 2, h - 2); // the edge: the page's background, not a bar over it
+      var body = colorAt(1, h / 2) || '#ffffff';
+      var v = (top || body) + '|' + (bottom || body);
+      if (v !== lastBars) { lastBars = v; try { window.M4WApp.bars(top || body, bottom || body); } catch (e) {} }
+    };
+    $(function () { tellBars(); setTimeout(tellBars, 400); });
+    $(window).on('load resize', tellBars);
+    setInterval(tellBars, 1500);
+  }
   /** Profile photos of the users of this webmail: address => URL. */
   try { M4W.photos = JSON.parse($('meta[name="m4w-photos"]').attr('content') || '{}') || {}; } catch (e) { M4W.photos = {}; }
   var newer = '';
