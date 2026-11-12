@@ -50,8 +50,21 @@ final class Updater
         return Settings::secret('update.token') !== '';
     }
 
+    /**
+     * The list of a release itself (its own Updater::INCLUDE): a folder it adds is copied by this
+     * very update, not only by the next one (the running code knows only its own list).
+     */
+    public static function includeOf(string $updaterSource): array
+    {
+        if (!preg_match('/const INCLUDE\s*=\s*\[(.*?)\];/s', $updaterSource, $m)) {
+            return [];
+        }
+        preg_match_all("/'([A-Za-z0-9_.\/-]+)'/", $m[1], $mm);
+        return array_values(array_filter($mm[1], static fn($p) => !str_contains($p, '..') && !str_starts_with($p, '/')));
+    }
+
     /** Whether a path of the repository is part of what is installed. */
-    public static function included(string $path): bool
+    public static function included(string $path, array $more = []): bool
     {
         if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/') || str_ends_with($path, '/')) {
             return false;
@@ -61,7 +74,7 @@ final class Updater
                 return false;
             }
         }
-        foreach (self::INCLUDE as $inc) {
+        foreach (array_merge(self::INCLUDE, $more) as $inc) {
             if (str_ends_with($inc, '/') ? str_starts_with($path, $inc) : $path === $inc) {
                 return true;
             }
@@ -241,10 +254,16 @@ final class Updater
             }
             // 2. What it holds: the application's files only.
             $files = [];
+            $more = [];
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                if (preg_match('#^[^/]+/app/Service/Updater\.php$#', (string) $zip->getNameIndex($i))) {
+                    $more = self::includeOf((string) $zip->getFromIndex($i));
+                }
+            }
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $name = (string) $zip->getNameIndex($i);
                 $rel = (string) preg_replace('#^[^/]+/#', '', $name); // "make4web-make4webmail-<sha>/…"
-                if (self::included($rel)) {
+                if (self::included($rel, $more)) {
                     $files[$rel] = $i;
                 }
             }
