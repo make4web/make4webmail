@@ -2955,4 +2955,5 @@ If it is not you, disconnect it in Settings › Phone and calendar › Your devi
     'js.apk_s5_text' => 'The button below opens the app already set to this webmail. Sign in, then accept notifications and running without battery restriction.',
     'js.apk_download' => 'Download the app',
     'js.apk_open' => 'Open the app',
+    'app.get' => 'Install the Android app',
 ];

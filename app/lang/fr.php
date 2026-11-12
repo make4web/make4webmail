@@ -3028,4 +3028,5 @@ Si ce n\'est pas vous, déconnectez-le dans Paramètres › Téléphone et agend
     'js.apk_s5_text' => 'Le bouton ci-dessous ouvre l\'application déjà réglée sur cette messagerie. Connectez-vous, puis acceptez les notifications et le fonctionnement sans restriction de batterie.',
     'js.apk_download' => 'Télécharger l\'application',
     'js.apk_open' => 'Ouvrir l\'application',
+    'app.get' => 'Installer l\'application Android',
 ];

@@ -98,6 +98,8 @@
     });
   }
   M4W.apkGuide = apkGuide;
+  // Always at hand on an Android phone (the invitation may have been put off, or not shown).
+  if (apkUrl && android) $(function () { $('[data-apk-only]').removeClass('d-none'); });
 
   if (installOffered && ios) {
     $(function () { setTimeout(function () { showInstall('ios'); }, 2500); });
