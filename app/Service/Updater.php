@@ -23,7 +23,8 @@ final class Updater
     public const REPO = 'make4web/make4webmail';
 
     /** What a release brings: paths copied (prefixes ending with / are folders). */
-    public const INCLUDE = ['app/', 'bin/', 'public/', 'deploy/', 'config/config.example.php', 'config/.htaccess', '.htaccess', 'README.md'];
+    public const INCLUDE = ['app/', 'bin/', 'public/', 'deploy/', 'config/config.example.php', 'config/.htaccess', '.htaccess', 'README.md',
+        'android/apk/']; // the Android app itself (its sources stay in the repository)
 
     /** Never copied, wherever they are (development and test material). */
     private const EXCLUDE = ['#(^|/)\.git#', '#(^|/)\.github/#', '#(^|/)\.claude/#', '#^tests/#', '#^storage/#', '#^config/config\.php$#',
