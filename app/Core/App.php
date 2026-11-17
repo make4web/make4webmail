@@ -255,6 +255,7 @@ final class App
         $r->get('/api/native/sound/{id}', [Controller\PushController::class, 'nativeSound'], $pub);
         $r->post('/api/native/read', [Controller\PushController::class, 'nativeRead'], ['auth' => 'public', 'nocsrf' => true]);
         $r->get('/app/android.apk', [Controller\PushController::class, 'androidApk'], $pub);
+        $r->get('/app/android.json', [Controller\PushController::class, 'androidVersion'], $pub);
         $r->post('/login', [Controller\AuthController::class, 'login'], $pub);
         $r->get('/login/2fa', [Controller\AuthController::class, 'twoFactorForm'], $pub);
         $r->post('/login/2fa', [Controller\AuthController::class, 'twoFactor'], $pub);

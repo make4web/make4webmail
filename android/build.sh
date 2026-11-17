@@ -16,4 +16,8 @@ if [ ! -f keystore/keystore.properties ]; then
 fi
 ./gradlew assembleRelease --no-daemon -q
 cp app/build/outputs/apk/release/app-release.apk apk/make4webmail.apk
+# What the installed apps compare with (served at /app/android.json): the same code as Gradle's.
+V=$(grep -o "M4W_VERSION', '[^']*" ../app/bootstrap.php | cut -d"'" -f3)
+CODE=$(echo "$V" | awk -F. '{ c = $5 > 99 ? 99 : $5; printf "%d", ($3 % 100) * 1000000 + $4 * 100 + c }')
+printf '{"version":"%s","code":%s}\n' "$V" "$CODE" > apk/version.json
 echo "apk/make4webmail.apk: $(grep -o "M4W_VERSION', '[^']*" ../app/bootstrap.php | cut -d"'" -f3)"

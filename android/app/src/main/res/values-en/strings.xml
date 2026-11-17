@@ -18,6 +18,12 @@
     <string name="battery_ok">Allow</string>
     <string name="later">Later</string>
     <string name="change_server">Change webmail</string>
+    <string name="upd_title">App update</string>
+    <string name="upd_text">Version %1$s is available. It installs over this one, your settings are kept.</string>
+    <string name="upd_go">Update</string>
+    <string name="upd_allow">Allow "Make4WebMail" to install apps, come back, then tap "Update" again.</string>
+    <string name="upd_downloading">Downloading the update…</string>
+    <string name="upd_failed">The update could not be installed. Try again, or install it from the webmail (Android icon).</string>
     <plurals name="new_messages">
         <item quantity="one">%d new message</item>
         <item quantity="other">%d new messages</item>

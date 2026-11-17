@@ -141,6 +141,16 @@ final class PushController extends Controller
         return new Response((string) file_get_contents($f['path']), 200, ['Content-Type' => $f['mime'], 'Cache-Control' => 'private, max-age=31536000']);
     }
 
+    /** The version of the Android app on offer: the installed apps update themselves from it. */
+    public function androidVersion(): Response
+    {
+        $v = json_decode((string) @file_get_contents(M4W_ROOT . '/android/apk/version.json'), true);
+        if (!is_array($v) || !is_file(M4W_ROOT . '/android/apk/make4webmail.apk')) {
+            return Response::json(['ok' => false], 404);
+        }
+        return Response::json(['ok' => true, 'version' => (string) $v['version'], 'code' => (int) $v['code'], 'url' => public_url('app/android.apk')]);
+    }
+
     /** The Android app itself (android/apk/), to install by hand. */
     public function androidApk(): Response
     {
