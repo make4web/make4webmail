@@ -26,6 +26,7 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -155,6 +156,19 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, false)
         w.addJavascriptInterface(Bridge(), "M4WApp")
         w.webViewClient = object : WebViewClient() {
+            // The sign-in kept at once (not only when the app goes to the background).
+            override fun onPageFinished(view: WebView, url: String) {
+                CookieManager.getInstance().flush()
+            }
+
+            // A page that does not exist (an old link): back to the webmail's home, the address told.
+            override fun onReceivedHttpError(view: WebView, req: WebResourceRequest, res: WebResourceResponse) {
+                if (req.isForMainFrame && res.statusCode == 404 && req.url.toString().trimEnd('/') != prefs.baseUrl.trimEnd('/')) {
+                    Toast.makeText(this@MainActivity, getString(R.string.not_found, req.url.encodedPath ?: ""), Toast.LENGTH_LONG).show()
+                    view.loadUrl(prefs.baseUrl)
+                }
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val u = req.url
                 val base = Uri.parse(prefs.baseUrl)

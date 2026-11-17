@@ -24,6 +24,7 @@
     <string name="upd_allow">Allow "Make4WebMail" to install apps, come back, then tap "Update" again.</string>
     <string name="upd_downloading">Downloading the update…</string>
     <string name="upd_failed">The update could not be installed. Try again, or install it from the webmail (Android icon).</string>
+    <string name="not_found">Page not found (%1$s): back home.</string>
     <plurals name="new_messages">
         <item quantity="one">%d new message</item>
         <item quantity="other">%d new messages</item>
