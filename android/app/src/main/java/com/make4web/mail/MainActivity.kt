@@ -63,6 +63,7 @@ class MainActivity : Activity() {
         setIntent(intent)
         val before = prefs.baseUrl
         intent.data?.let { fromLink(it) }
+        if (intent.getBooleanExtra("update", false)) AppUpdate.check(this, true)
         val path = intent.getStringExtra("path")
         if (prefs.baseUrl != before || web == null) openWeb(path) else if (path != null) web?.loadUrl(prefs.baseUrl + path)
     }
@@ -85,6 +86,7 @@ class MainActivity : Activity() {
         // Back in front: the page checks again, quietly (what came meanwhile was notified).
         web?.evaluateJavascript("window.M4WAppAway=false;document.dispatchEvent(new Event('m4wapp-resume'));", null)
         WatchService.start(this)
+        if (prefs.baseUrl.isNotEmpty()) AppUpdate.check(this, intent?.getBooleanExtra("update", false) == true)
     }
 
     override fun onPause() {

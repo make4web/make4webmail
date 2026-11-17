@@ -19,6 +19,12 @@
     <string name="battery_ok">Autoriser</string>
     <string name="later">Plus tard</string>
     <string name="change_server">Changer de messagerie</string>
+    <string name="upd_title">Mise à jour de l\'application</string>
+    <string name="upd_text">La version %1$s est disponible. Elle s\'installe par-dessus celle-ci, vos réglages sont gardés.</string>
+    <string name="upd_go">Mettre à jour</string>
+    <string name="upd_allow">Autorisez « Make4WebMail » à installer des applications, revenez, puis touchez à nouveau « Mettre à jour ».</string>
+    <string name="upd_downloading">Téléchargement de la mise à jour…</string>
+    <string name="upd_failed">La mise à jour n\'a pas pu être installée. Réessayez, ou installez-la depuis la messagerie (icône Android).</string>
     <plurals name="new_messages">
         <item quantity="one">%d nouveau message</item>
         <item quantity="other">%d nouveaux messages</item>

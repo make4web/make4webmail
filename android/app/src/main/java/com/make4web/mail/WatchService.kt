@@ -143,6 +143,7 @@ class WatchService : Service() {
                 val body = c.inputStream.bufferedReader().use { it.readText() }
                 c.disconnect()
                 lastAnswer = SystemClock.elapsedRealtime()
+                AppUpdate.checkInBackground(this)
                 val events = JSONObject(body).optJSONArray("events")
                 if (events != null) {
                     for (i in 0 until events.length()) {
