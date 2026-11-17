@@ -27,6 +27,11 @@
   M4W.version = $('meta[name="m4w-version"]').attr('content') || '';
   // In the Android app: its system bars take the colours shown at the top and the bottom of the
   // page (theme, brand, dark mode), told again when they change.
+  // The webmail's true address (its folder included, as the server sees it): the app keeps it, for
+  // its pages and its listening, even when another address was typed at first (the site's root…).
+  if (window.M4WApp && window.M4WApp.base) {
+    try { window.M4WApp.base(new URL(M4W.url(''), window.location.href).href); } catch (e) { /* older app */ }
+  }
   if (window.M4WApp && window.M4WApp.bars) {
     var lastBars = '';
     var colorAt = function (x, y) {

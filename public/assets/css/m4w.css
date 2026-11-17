@@ -1284,6 +1284,14 @@ tr:hover .fs-more, .fs-tile:hover .fs-more, .fs-more:focus-visible { opacity: 1;
 .m4w-dav-settings { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; align-items: center; }
 .m4w-dav-settings dt { color: var(--m4w-muted); font-weight: 500; }
 .m4w-dav-settings dd { margin: 0; min-width: 0; }
+.m4w-dav-settings dt { max-width: 22rem; }
+.m4w-dav-settings code { overflow-wrap: anywhere; }
+/* A phone: each label above its value (a long label left the value one letter wide). */
+@media (max-width: 575.98px) {
+  .m4w-dav-settings { grid-template-columns: 1fr; gap: 0; }
+  .m4w-dav-settings dt { max-width: none; margin-top: .55rem; font-size: .85em; }
+  .m4w-dav-settings dd { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap; }
+}
 .m4w-app-password { letter-spacing: .06em; background: var(--m4w-surface); padding: .2rem .5rem; border-radius: var(--m4w-radius-sm); }
 @media (max-width: 760px) {
   .m4w-invite { margin-left: 1rem; }

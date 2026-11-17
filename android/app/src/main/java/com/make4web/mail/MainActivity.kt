@@ -315,6 +315,16 @@ class MainActivity : Activity() {
             }
         }
 
+        /** The webmail's true address, told by its pages: kept (pages, listening, updates). */
+        @JavascriptInterface fun base(url: String) {
+            val u = Uri.parse(url)
+            val now = Uri.parse(prefs.baseUrl)
+            if (u.scheme == "https" && u.host != null && u.host == now.host && url.trimEnd('/') != prefs.baseUrl.trimEnd('/')) {
+                prefs.baseUrl = url
+                runOnUiThread { WatchService.restart(this@MainActivity) }
+            }
+        }
+
         /** What the app's page in Settings shows: versions, listening, what Android allows. */
         @JavascriptInterface fun info(): String {
             val nm = getSystemService(android.app.NotificationManager::class.java)
@@ -329,6 +339,8 @@ class MainActivity : Activity() {
                 .put("battery", pm.isIgnoringBatteryOptimizations(packageName))
                 .put("install", packageManager.canRequestPackageInstalls())
                 .put("model", Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE)
+                .put("base", prefs.baseUrl)
+                .put("error", WatchService.lastError)
                 .toString()
         }
 

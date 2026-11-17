@@ -39,8 +39,9 @@ class WatchService : Service() {
         @Volatile var appVisible = false
         /** When the server last answered (the watchdog's measure). */
         @Volatile var lastAnswer = 0L
-        /** Listening now (for the app's own page in Settings). */
+        /** Listening now (for the app's own page in Settings), and why the last wait failed. */
         @Volatile var listening = false
+        @Volatile var lastError = ""
 
         fun start(ctx: Context, restart: Boolean = false) {
             if (Prefs(ctx).token.isEmpty()) return
@@ -156,10 +157,14 @@ class WatchService : Service() {
                     prefs.clearAccount()
                     break
                 }
-                if (code != 200) throw Exception("HTTP $code")
+                if (code != 200) {
+                    lastError = "HTTP $code"
+                    throw Exception(lastError)
+                }
                 val body = c.inputStream.bufferedReader().use { it.readText() }
                 c.disconnect()
                 lastAnswer = SystemClock.elapsedRealtime()
+                lastError = ""
                 AppUpdate.checkInBackground(this)
                 val events = JSONObject(body).optJSONArray("events")
                 if (events != null) {
@@ -167,14 +172,19 @@ class WatchService : Service() {
                         val e = events.getJSONObject(i)
                         val kind = e.optString("kind")
                         // In front: the page announces new mail itself (toast and sound).
-                        if (!(appVisible && (kind == "new" || kind == "reminder"))) Alerts.show(this, e)
+                        try {
+                            if (!(appVisible && (kind == "new" || kind == "reminder"))) Alerts.show(this, e)
+                        } catch (x: Exception) {
+                            lastError = "notice: " + (x.message ?: x.javaClass.simpleName) // shown in Settings, never stuck on it
+                        }
                         prefs.ack = maxOf(prefs.ack, e.optLong("id"))
                     }
                 }
                 backoff = 2000L
             } catch (_: InterruptedException) {
                 break
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (lastError.isEmpty() || !lastError.startsWith("HTTP")) lastError = e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
                 if (!running || worker != me) break
                 try {
                     Thread.sleep(backoff)
