@@ -20,3 +20,10 @@
 
 - L'interface et les échanges avec l'utilisateur sont en français.
 - Toute chaîne visible existe en français et en anglais (`app/lang/fr.php`, `app/lang/en.php`).
+
+## Application Android (`android/`)
+
+- Elle a son propre numéro (`android/version.txt`, suffixe `A`), indépendant de `M4W_VERSION`.
+- Ne reconstruire l'APK que si le code de l'application change, avec `android/build.sh bump` (sinon les téléphones proposeraient une mise à jour pour rien). Le bump de la messagerie à chaque push reste obligatoire.
+- La clé de signature (`android/keystore/`) ne va jamais dans le dépôt.
+
