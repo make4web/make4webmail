@@ -51,13 +51,6 @@ final class Request
             } else {
                 $script = $_SERVER['SCRIPT_NAME'] ?? '/index.php';
                 $base = rtrim(str_replace('\\', '/', dirname($script)), '/');
-                // Reached at the site's root, forwarded to /public by the root .htaccess: the
-                // addresses (links, the sign-in cookie) stay at the root, where they were asked
-                // (else the cookie, kept for /public/, never comes back to the root).
-                $asked = isset($_SERVER['REQUEST_URI']) ? (string) (parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/') : null;
-                if ($asked !== null && $base !== '' && $asked !== $base && !str_starts_with($asked, $base . '/')) {
-                    $base = '';
-                }
             }
         }
         return $base;
