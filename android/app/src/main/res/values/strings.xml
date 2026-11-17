@@ -10,11 +10,17 @@
     <string name="channel_mail_desc">Un message arrive, un rappel de l\'agenda, une alerte du compte : avec le son choisi dans la messagerie.</string>
     <string name="channel_service">Connexion à la messagerie</string>
     <string name="channel_service_desc">Reste à l\'écoute pour prévenir sans délai. Vous pouvez masquer cette notification dans les réglages d\'Android.</string>
-    <string name="service_text">À l\'écoute des nouveaux messages</string>
+    <string name="mark_read">Marquer comme lu</string>
+    <string name="service_title">Notifications actives</string>
+    <string name="service_text">Touchez pour ouvrir la messagerie. Masquable dans les réglages des notifications (« Connexion à la messagerie »).</string>
     <string name="offline">Pas de connexion. Nouvel essai dans un instant…</string>
     <string name="battery_title">Notifications sans délai</string>
     <string name="battery_text">Pour être prévenu même téléphone en veille, autorisez l\'application à fonctionner sans restriction de batterie.</string>
     <string name="battery_ok">Autoriser</string>
     <string name="later">Plus tard</string>
     <string name="change_server">Changer de messagerie</string>
+    <plurals name="new_messages">
+        <item quantity="one">%d nouveau message</item>
+        <item quantity="other">%d nouveaux messages</item>
+    </plurals>
 </resources>

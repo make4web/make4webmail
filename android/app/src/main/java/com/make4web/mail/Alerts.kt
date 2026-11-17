@@ -44,6 +44,10 @@ object Alerts {
         nm.createNotificationChannel(service)
     }
 
+    private const val GROUP_MAIL = "m4w.mail"
+    const val GROUP_SERVICE = "m4w.service"
+    private const val SUMMARY_TAG = "m4w-summary"
+
     private fun openIntent(ctx: Context, path: String): PendingIntent {
         val i = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -52,27 +56,106 @@ object Alerts {
         return PendingIntent.getActivity(ctx, path.hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    /** The sender's initials in their colour (the same as in the webmail). */
+    private fun initials(name: String, seed: String): android.graphics.Bitmap {
+        val palette = intArrayOf(0xFF1D4ED8.toInt(), 0xFF6D28D9.toInt(), 0xFFBE185D.toInt(), 0xFFB91C1C.toInt(), 0xFFC2410C.toInt(),
+            0xFFA16207.toInt(), 0xFF15803D.toInt(), 0xFF0F766E.toInt(), 0xFF0E7490.toInt(), 0xFF4338CA.toInt())
+        var h = 0
+        for (ch in seed.lowercase()) h = (h shl 5) - h + ch.code
+        val words = name.replace(Regex("[<\"].*$"), "").trim().split(Regex("[\\s._@-]+")).filter { it.isNotEmpty() }
+        val text = ((words.getOrNull(0)?.take(1) ?: "?") + (words.getOrNull(1)?.take(1) ?: "")).uppercase()
+        val size = 128
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        p.color = palette[Math.abs(h) % palette.size]
+        c.drawCircle(size / 2f, size / 2f, size / 2f, p)
+        p.color = android.graphics.Color.WHITE
+        p.textSize = 52f
+        p.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        p.textAlign = android.graphics.Paint.Align.CENTER
+        c.drawText(text, size / 2f, size / 2f - (p.descent() + p.ascent()) / 2, p)
+        return bmp
+    }
+
     fun show(ctx: Context, e: JSONObject) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        val title = e.optString("title", ctx.getString(R.string.app_name))
-        val body = e.optString("body", "")
         val path = e.optString("url", "mail")
         val tag = e.optString("tag", "m4w")
+        val from = e.optString("from")
+        val subject = e.optString("subject")
         val b = Notification.Builder(ctx, CHANNEL_MAIL)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(0xFF2563EB.toInt())
-            .setContentTitle(title)
-            .setContentText(body.lineSequence().firstOrNull() ?: "")
-            .setStyle(Notification.BigTextStyle().bigText(body))
             .setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_EMAIL)
             .setContentIntent(openIntent(ctx, path))
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+        if (e.optString("kind") == "new" && from.isNotEmpty()) {
+            // Like a mail app: who, about what, which mailbox (and its folder when filed).
+            val folder = e.optString("folder")
+            val email = e.optString("from_email")
+            b.setContentTitle(from)
+                .setContentText(subject)
+                .setSubText(e.optString("account") + if (folder.isNotEmpty()) " · $folder" else "")
+                .setStyle(Notification.BigTextStyle().bigText(subject + if (email.isNotEmpty() && !email.equals(from, true)) "\n$email" else ""))
+                .setLargeIcon(initials(from, email.ifEmpty { from }))
+                .setCategory(Notification.CATEGORY_EMAIL)
+                .setGroup(GROUP_MAIL)
+                .setSortKey("a" + (Long.MAX_VALUE - System.currentTimeMillis()))
+            val msg = e.optLong("msg")
+            if (msg > 0) {
+                val read = Intent(ctx, ActionReceiver::class.java).apply {
+                    action = "read"
+                    putExtra("msg", msg)
+                    putExtra("mbx", e.optLong("mbx"))
+                    putExtra("tag", tag)
+                }
+                b.addAction(Notification.Action.Builder(null, ctx.getString(R.string.mark_read),
+                    PendingIntent.getBroadcast(ctx, tag.hashCode(), read, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
+            }
+        } else {
+            val body = e.optString("body", "")
+            b.setContentTitle(e.optString("title", ctx.getString(R.string.app_name)))
+                .setContentText(body.lineSequence().firstOrNull() ?: "")
+                .setStyle(Notification.BigTextStyle().bigText(body))
+                .setCategory(if (e.optString("kind") == "new") Notification.CATEGORY_EMAIL else Notification.CATEGORY_REMINDER)
+                .setGroup(GROUP_MAIL)
+        }
         if (e.has("count")) b.setNumber(e.optInt("count"))
         nm.notify(tag, 1, b.build())
+        summary(ctx)
         if (e.optString("kind") == "new" && e.has("count")) Badge.set(ctx, e.optInt("count"))
         ring(ctx, e)
+    }
+
+    /** Several notices: one heading above them ("3 new messages", who and what). */
+    fun summary(ctx: Context) {
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        val mine = nm.activeNotifications.filter { it.notification.channelId == CHANNEL_MAIL && it.tag != SUMMARY_TAG }
+        if (mine.size < 2) {
+            nm.cancel(SUMMARY_TAG, 1)
+            return
+        }
+        val style = Notification.InboxStyle()
+        mine.sortedByDescending { it.postTime }.take(6).forEach {
+            val x = it.notification.extras
+            style.addLine("${x.getCharSequence(Notification.EXTRA_TITLE) ?: ""} — ${x.getCharSequence(Notification.EXTRA_TEXT) ?: ""}")
+        }
+        val title = ctx.resources.getQuantityString(R.plurals.new_messages, mine.size, mine.size)
+        style.setBigContentTitle(title)
+        nm.notify(SUMMARY_TAG, 1, Notification.Builder(ctx, CHANNEL_MAIL)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(0xFF2563EB.toInt())
+            .setContentTitle(title)
+            .setStyle(style)
+            .setGroup(GROUP_MAIL)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
+            .setAutoCancel(true)
+            .setContentIntent(openIntent(ctx, "mail"))
+            .build())
     }
 
     /** The sound and the vibration, as the phone allows (silent, vibrate only, Do not disturb). */
@@ -140,5 +223,6 @@ object Badge {
         if (n > 0) return
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.activeNotifications.filter { it.notification.channelId == Alerts.CHANNEL_MAIL }.forEach { nm.cancel(it.tag, it.id) }
+        Alerts.summary(ctx)
     }
 }

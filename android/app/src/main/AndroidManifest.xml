@@ -45,6 +45,10 @@
             android:foregroundServiceType="remoteMessaging" />
 
         <receiver
+            android:name=".ActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".Watchdog"
             android:exported="false" />
 

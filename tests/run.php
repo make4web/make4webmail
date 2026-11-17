@@ -5985,6 +5985,14 @@ test('Android app: its device, what the PWA gets queued for it with the chosen s
     ok($slept >= 1, 'waited for something to come');
     M4W\Service\WebPush::send($uid, ['title' => 'Muet', 'kind' => 'new', 'silent' => true]);
     eq(M4W\Service\NativePush::wait($dev, (int) $ev[1]['id'], '10.0.0.9', 0)[0]['sound'], 'none', 'silent stays silent');
+    // A new message: its parts for the app's own layout (sender, subject, mailbox) and "Mark read".
+    $inbox = (int) Folders::byRole($uid, 'inbox')['id'];
+    $mid = Mailbox::store($uid, $inbox, "From: Zoé <zoe@ext.example>\nTo: bob@test.local\nSubject: Devis signé\nMessage-ID: <n1@ext.example>\n\nOk\n");
+    $last = (int) DB::value('SELECT COALESCE(MAX(id), 0) FROM native_queue');
+    M4W\Service\WebPush::newMail(Users::find($uid), $mid, ['name' => 'Zoé', 'email' => 'zoe@ext.example'], 'Devis signé', $inbox);
+    $e = M4W\Service\NativePush::wait($dev, $last, '10.0.0.9', 0)[0] ?? [];
+    eq([$e['msg'] ?? 0, $e['from'] ?? '', $e['from_email'] ?? '', $e['subject'] ?? '', $e['account'] ?? ''], [$mid, 'Zoé', 'zoe@ext.example', 'Devis signé', 'bob@test.local'], 'the parts of a new message for the app');
+    Mailbox::delete($uid, [$mid], true);
     M4W\Service\NativePush::unregister($uid, $token);
     ok(M4W\Service\NativePush::device($token) === null && !(int) DB::value('SELECT COUNT(*) FROM native_queue'), 'signed out: forgotten with its queue');
     Users::savePrefs($uid, ['sound_new' => 'ding']);
