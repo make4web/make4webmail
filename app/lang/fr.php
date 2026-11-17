@@ -3055,4 +3055,5 @@ Si ce n\'est pas vous, déconnectez-le dans Paramètres › Téléphone et agend
     'app.this' => 'Cette application (version, réglages)',
     'js.app_error' => 'Dernière erreur d\'écoute : :error',
     'js.app_base' => 'Adresse de la messagerie :',
+    'js.app_download_apk' => 'ou télécharger l\'APK',
 ];

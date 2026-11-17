@@ -51,6 +51,13 @@ final class Request
             } else {
                 $script = $_SERVER['SCRIPT_NAME'] ?? '/index.php';
                 $base = rtrim(str_replace('\\', '/', dirname($script)), '/');
+                // Reached at the site's root, forwarded to /public by the root .htaccess: the
+                // addresses (links, the sign-in cookie) stay at the root, where they were asked
+                // (else the cookie, kept for /public/, never comes back to the root).
+                $asked = isset($_SERVER['REQUEST_URI']) ? (string) (parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/') : null;
+                if ($asked !== null && $base !== '' && $asked !== $base && !str_starts_with($asked, $base . '/')) {
+                    $base = '';
+                }
             }
         }
         return $base;
@@ -111,7 +118,20 @@ final class Request
     public function header(string $name): string
     {
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
-        return (string) ($this->server[$key] ?? '');
+        $v = (string) ($this->server[$key] ?? '');
+        if ($v === '' && $key === 'HTTP_AUTHORIZATION') {
+            // Apache hands it on renamed after an internal rewrite (REDIRECT_…), or not at all
+            // (mod_php): every place it may be.
+            $v = (string) ($this->server['REDIRECT_HTTP_AUTHORIZATION'] ?? $this->server['REDIRECT_REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+            if ($v === '' && function_exists('apache_request_headers')) {
+                foreach ((array) apache_request_headers() as $k => $hv) {
+                    if (strcasecmp((string) $k, 'Authorization') === 0) {
+                        $v = (string) $hv;
+                    }
+                }
+            }
+        }
+        return $v;
     }
 
     public function isAjax(): bool

@@ -5993,6 +5993,9 @@ test('Android app: its device, what the PWA gets queued for it with the chosen s
     $e = M4W\Service\NativePush::wait($dev, $last, '10.0.0.9', 0)[0] ?? [];
     eq([$e['msg'] ?? 0, $e['from'] ?? '', $e['from_email'] ?? '', $e['subject'] ?? '', $e['account'] ?? ''], [$mid, 'Zoé', 'zoe@ext.example', 'Devis signé', 'bob@test.local'], 'the parts of a new message for the app');
     Mailbox::delete($uid, [$mid], true);
+    // The app's token reaches PHP however Apache hands it on (renamed after a rewrite).
+    $rq = new M4W\Core\Request('GET', '/api/native/wait', [], [], [], ['REDIRECT_HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
+    eq($rq->header('Authorization'), 'Bearer ' . $token, 'token found after a rewrite');
     M4W\Service\NativePush::unregister($uid, $token);
     ok(M4W\Service\NativePush::device($token) === null && !(int) DB::value('SELECT COUNT(*) FROM native_queue'), 'signed out: forgotten with its queue');
     Users::savePrefs($uid, ['sound_new' => 'ding']);
