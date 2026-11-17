@@ -1,5 +1,7 @@
 # If the document root points to the project root instead of /public, forward everything to /public.
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # The sign-in header of the apps (Bearer, Basic) handed on to PHP.
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
     RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>

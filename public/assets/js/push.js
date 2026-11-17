@@ -169,7 +169,10 @@
         '<div class="fw-semibold mb-2"><i class="bi bi-phone me-1"></i>' + M4W.esc(t('app_this')) + ' <span class="small text-muted fw-normal">' + M4W.esc(i.model) + '</span></div>'
         + '<dl class="m4w-dav-settings mb-2"><dt>' + M4W.esc(t('app_installed')) + '</dt><dd><code>' + M4W.esc(i.version) + '</code></dd>'
         + '<dt>' + M4W.esc(t('app_offered')) + '</dt><dd>' + (offered ? '<code>' + M4W.esc(offered.version) + '</code> ' + (newer ? '<span class="badge text-bg-warning">' + M4W.esc(t('app_newer')) + '</span>' : '<span class="badge text-bg-success">' + M4W.esc(t('app_uptodate')) + '</span>') : '…') + '</dd></dl>'
-        + '<div class="d-flex flex-wrap gap-2 mb-3"><button type="button" class="btn btn-sm ' + (newer ? 'btn-primary' : 'btn-light') + '" data-app-update><i class="bi bi-arrow-repeat me-1"></i>' + M4W.esc(t(newer ? 'app_update_now' : 'app_check')) + '</button></div>'
+        + '<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><button type="button" class="btn btn-sm ' + (newer ? 'btn-primary' : 'btn-light') + '" data-app-update><i class="bi bi-arrow-repeat me-1"></i>' + M4W.esc(t(newer ? 'app_update_now' : 'app_check')) + '</button>'
+        // By hand too (the download, then the file to open): when the app cannot find it itself.
+        + (newer && offered.url ? '<a class="btn btn-link btn-sm" href="' + M4W.esc(new URL(M4W.url('app/android.apk'), location.href).href) + '"><i class="bi bi-download me-1"></i>' + M4W.esc(t('app_download_apk')) + '</a>' : '')
+        + '</div>'
         + (i.error ? '<div class="alert alert-warning small py-2 mb-2">' + M4W.esc(t('app_error', { error: i.error })) + '</div>' : '')
         + (i.base ? '<div class="small text-muted mb-2">' + M4W.esc(t('app_base')) + ' <code>' + M4W.esc(i.base) + '</code></div>' : '')
         + '<ul class="list-unstyled small mb-2">'

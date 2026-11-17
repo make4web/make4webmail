@@ -2982,4 +2982,5 @@ If it is not you, disconnect it in Settings › Phone and calendar › Your devi
     'app.this' => 'This app (version, settings)',
     'js.app_error' => 'Last listening error: :error',
     'js.app_base' => 'Webmail address:',
+    'js.app_download_apk' => 'or download the APK',
 ];
