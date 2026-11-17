@@ -87,6 +87,7 @@ class MainActivity : Activity() {
         // Back in front: the page checks again, quietly (what came meanwhile was notified).
         web?.evaluateJavascript("window.M4WAppAway=false;document.dispatchEvent(new Event('m4wapp-resume'));", null)
         WatchService.start(this)
+        if (prefs.token.isNotEmpty()) askPermissions()
         if (prefs.baseUrl.isNotEmpty()) AppUpdate.check(this, intent?.getBooleanExtra("update", false) == true)
     }
 
@@ -366,11 +367,32 @@ class MainActivity : Activity() {
     }
 
     private fun askPermissions() {
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-        }
         val pm = getSystemService(PowerManager::class.java)
-        if (!pm.isIgnoringBatteryOptimizations(packageName) && !prefs.batteryAsked) {
+        val p = getSharedPreferences("m4w", MODE_PRIVATE)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !p.getBoolean("notif_asked", false)) {
+            p.edit().putBoolean("notif_asked", true).apply()
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+            return // its own question first; the next one at the next return to the app
+        }
+        // One of the app's own questions at a time (the next one at the next return to the app).
+        if (pm.isIgnoringBatteryOptimizations(packageName) || prefs.batteryAsked) {
+            if (!packageManager.canRequestPackageInstalls() && !p.getBoolean("install_asked", false)) {
+                p.edit().putBoolean("install_asked", true).apply()
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.install_title)
+                    .setMessage(R.string.install_text)
+                    .setPositiveButton(R.string.battery_ok) { _, _ ->
+                        try {
+                            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                        } catch (_: Exception) {
+                        }
+                    }
+                    .setNegativeButton(R.string.later, null)
+                    .show()
+            }
+            return
+        }
+        if (!prefs.batteryAsked) {
             prefs.batteryAsked = true
             AlertDialog.Builder(this)
                 .setTitle(R.string.battery_title)

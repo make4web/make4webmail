@@ -27,6 +27,8 @@
     <string name="upd_failed">La mise à jour n\'a pas pu être installée. Réessayez, ou installez-la depuis la messagerie (icône Android).</string>
     <string name="not_found">Page introuvable (%1$s) : retour à l\'accueil.</string>
     <string name="upd_none">Vous avez la dernière version.</string>
+    <string name="install_title">Mises à jour en un geste</string>
+    <string name="install_text">Autorisez l\'application à installer ses mises à jour : elle les proposera elle-même, sans repasser par le navigateur. Dans l\'écran qui s\'ouvre, activez « Autoriser depuis cette source ».</string>
     <plurals name="new_messages">
         <item quantity="one">%d nouveau message</item>
         <item quantity="other">%d nouveaux messages</item>
