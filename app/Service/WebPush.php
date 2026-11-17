@@ -536,6 +536,11 @@ final class WebPush
             'title' => $title, 'body' => $body, 'tag' => 'm4w-' . $messageId, 'kind' => 'new', 'id' => $messageId,
             'count' => array_sum(SharedMailboxes::counts((int) $to['id'])), 'icon' => self::iconPath(), 'vibrate' => Notify::vibration($to['prefs'] ?? []),
             'silent' => Notify::silent($to['prefs'] ?? [], 'new'),
+            // Its parts, for the Android app's own layout (sender, subject, mailbox) and its "Mark read".
+            'msg' => $messageId, 'mbx' => (int) $user['id'], 'account' => (string) $user['email'],
+            'from' => $preview ? mb_substr($name, 0, 80) : '', 'from_email' => $preview ? $email : '',
+            'subject' => $preview ? ($isPersonal ? t('push.personal') : ($subject !== '' ? mb_substr($subject, 0, 140) : t('mail.no_subject'))) : '',
+            'folder' => $folder && empty($folder['role']) ? mb_substr((string) $folder['name'], 0, 40) : '',
         ];
         if (self::wants($user)) {
             self::send((int) $user['id'], $msg($user, ['url' => 'mail' . $hash]), 86400, true);

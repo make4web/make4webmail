@@ -9,11 +9,17 @@
     <string name="channel_mail_desc">Mail arriving, a calendar reminder, an account alert: with the sound chosen in the webmail.</string>
     <string name="channel_service">Webmail connection</string>
     <string name="channel_service_desc">Keeps listening to tell you at once. You can hide this notification in Android\'s settings.</string>
-    <string name="service_text">Listening for new mail</string>
+    <string name="mark_read">Mark read</string>
+    <string name="service_title">Notifications on</string>
+    <string name="service_text">Tap to open the webmail. Can be hidden in the notification settings ("Webmail connection").</string>
     <string name="offline">No connection. Trying again shortly…</string>
     <string name="battery_title">Instant notifications</string>
     <string name="battery_text">To be told even with the phone asleep, let the app run without battery restriction.</string>
     <string name="battery_ok">Allow</string>
     <string name="later">Later</string>
     <string name="change_server">Change webmail</string>
+    <plurals name="new_messages">
+        <item quantity="one">%d new message</item>
+        <item quantity="other">%d new messages</item>
+    </plurals>
 </resources>

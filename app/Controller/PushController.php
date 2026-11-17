@@ -108,6 +108,27 @@ final class PushController extends Controller
         return Response::json(['ok' => true, 'events' => $events, 'wait' => \M4W\Service\NativePush::WAIT]);
     }
 
+    /** "Mark read" from the app's notification. */
+    public function nativeRead(): Response
+    {
+        \M4W\Core\Session::close();
+        $d = $this->nativeDevice();
+        if (!$d) {
+            return Response::json(['ok' => false], 401);
+        }
+        $uid = (int) $d['user_id'];
+        $owner = $this->req->int('mbx', $uid);
+        // One's own mail, or that of a mailbox one may open (shared, delegated).
+        if ($owner !== $uid && !in_array($uid, \M4W\Service\SharedMailboxes::usersOf($owner), true)) {
+            return Response::json(['ok' => false], 403);
+        }
+        $m = \M4W\Service\Mailbox::get($owner, $this->req->int('msg'));
+        if ($m) {
+            \M4W\Service\Mailbox::setFlags($owner, [(int) $m['id']], ['is_read' => 1]);
+        }
+        return Response::json(['ok' => (bool) $m, 'count' => array_sum(\M4W\Service\SharedMailboxes::counts($uid))]);
+    }
+
     /** One of the person's own sounds, for the app to play (kept by it). */
     public function nativeSound(string $id): Response
     {

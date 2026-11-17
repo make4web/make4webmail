@@ -60,11 +60,18 @@ class WatchService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Alerts.channels(this)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        // Apart from the mail notices (its own group, at the bottom, hidden on the lock screen).
         val n = Notification.Builder(this, Alerts.CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(getString(R.string.service_title))
             .setContentText(getString(R.string.service_text))
             .setContentIntent(open)
             .setOngoing(true)
+            .setShowWhen(false)
+            .setGroup(Alerts.GROUP_SERVICE)
+            .setSortKey("z")
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_SECRET)
             .build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
         else startForeground(1, n)
