@@ -26,6 +26,7 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -155,6 +156,19 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, false)
         w.addJavascriptInterface(Bridge(), "M4WApp")
         w.webViewClient = object : WebViewClient() {
+            // The sign-in kept at once (not only when the app goes to the background).
+            override fun onPageFinished(view: WebView, url: String) {
+                CookieManager.getInstance().flush()
+            }
+
+            // A page that does not exist (an old link): back to the webmail's home, the address told.
+            override fun onReceivedHttpError(view: WebView, req: WebResourceRequest, res: WebResourceResponse) {
+                if (req.isForMainFrame && res.statusCode == 404 && req.url.toString().trimEnd('/') != prefs.baseUrl.trimEnd('/')) {
+                    Toast.makeText(this@MainActivity, getString(R.string.not_found, req.url.encodedPath ?: ""), Toast.LENGTH_LONG).show()
+                    view.loadUrl(prefs.baseUrl)
+                }
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val u = req.url
                 val base = Uri.parse(prefs.baseUrl)
@@ -297,6 +311,45 @@ class MainActivity : Activity() {
             runOnUiThread {
                 colors = intArrayOf(t, b)
                 applyBars()
+            }
+        }
+
+        /** What the app's page in Settings shows: versions, listening, what Android allows. */
+        @JavascriptInterface fun info(): String {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            val pm = getSystemService(PowerManager::class.java)
+            val age = if (WatchService.lastAnswer > 0) (android.os.SystemClock.elapsedRealtime() - WatchService.lastAnswer) / 1000 else -1
+            return org.json.JSONObject()
+                .put("version", BuildConfigLite.version(this@MainActivity))
+                .put("code", AppUpdate.installedCode(this@MainActivity))
+                .put("listening", WatchService.listening && prefs.token.isNotEmpty())
+                .put("answered", age)
+                .put("notifications", nm.areNotificationsEnabled())
+                .put("battery", pm.isIgnoringBatteryOptimizations(packageName))
+                .put("install", packageManager.canRequestPackageInstalls())
+                .put("model", Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE)
+                .toString()
+        }
+
+        /** "Look for an update" / "Update now". */
+        @JavascriptInterface fun update() = runOnUiThread { AppUpdate.check(this@MainActivity, force = true, tellUpToDate = true) }
+
+        /** Listening started again from scratch. */
+        @JavascriptInterface fun restartListening() = runOnUiThread { WatchService.restart(this@MainActivity) }
+
+        /** One of Android's own settings for this app. */
+        @JavascriptInterface fun openSettings(which: String) = runOnUiThread {
+            val pkg = Uri.parse("package:$packageName")
+            val i = when (which) {
+                "notifications" -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                "battery" -> @SuppressLint("BatteryLife") Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)
+                "install" -> Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, pkg)
+                else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
+            }
+            try {
+                startActivity(i)
+            } catch (_: Exception) {
+                try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)) } catch (_: Exception) {}
             }
         }
 

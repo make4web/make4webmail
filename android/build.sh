@@ -1,9 +1,20 @@
 #!/bin/sh
 # Builds the Android app and puts it in apk/make4webmail.apk (served by the webmail at
 # /app/android.apk). Needs a JDK 17+ and the Android SDK (ANDROID_HOME, or sdk.dir in
-# local.properties). The version is the webmail's (app/bootstrap.php).
+# local.properties).
+#
+#   ./build.sh        the APK of the current version (version.txt)
+#   ./build.sh bump   a new version first: the app changed (same day: counter + 1, else a new day;
+#                     Paris time). Only then do the installed apps offer to update.
 set -e
 cd "$(dirname "$0")"
+if [ "$1" = "bump" ]; then
+  OLD=$(tr -d ' \n' < version.txt)
+  TODAY_Y=$(TZ=Europe/Paris date +%Y); TODAY_MD=$(TZ=Europe/Paris date +%m%d)
+  NEW=$(echo "${OLD%A}" | awk -F. -v y="$TODAY_Y" -v md="$TODAY_MD" '{ c = ($3 == y && $4 == md) ? $5 + 1 : 1; printf "%s.%s.%s.%s.%dA", $1, $2, y, md, c }')
+  echo "$NEW" > version.txt
+  echo "Android app: $OLD -> $NEW"
+fi
 # No signing key (it is never in the repository): a new one, kept in keystore/ (see README.md).
 if [ ! -f keystore/keystore.properties ]; then
   mkdir -p keystore
@@ -17,7 +28,7 @@ fi
 ./gradlew assembleRelease --no-daemon -q
 cp app/build/outputs/apk/release/app-release.apk apk/make4webmail.apk
 # What the installed apps compare with (served at /app/android.json): the same code as Gradle's.
-V=$(grep -o "M4W_VERSION', '[^']*" ../app/bootstrap.php | cut -d"'" -f3)
-CODE=$(echo "$V" | awk -F. '{ c = $5 > 99 ? 99 : $5; printf "%d", ($3 % 100) * 1000000 + $4 * 100 + c }')
+V=$(tr -d ' \n' < version.txt)
+CODE=$(echo "${V%A}" | awk -F. '{ c = $5 > 99 ? 99 : $5; printf "%d", ($3 % 100) * 1000000 + $4 * 100 + c }')
 printf '{"version":"%s","code":%s}\n' "$V" "$CODE" > apk/version.json
-echo "apk/make4webmail.apk: $(grep -o "M4W_VERSION', '[^']*" ../app/bootstrap.php | cut -d"'" -f3)"
+echo "apk/make4webmail.apk: $V"

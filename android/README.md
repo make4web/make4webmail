@@ -33,12 +33,25 @@ Paramètres › Téléphone et agenda › Application Android : les téléphones
 ## Construire
 
 ```sh
-./build.sh        # → apk/make4webmail.apk
+./build.sh bump   # l'application a changé : nouvelle version, puis l'APK
+./build.sh        # l'APK de la version actuelle (sans changer de numéro)
 ```
 
 Il faut un JDK 17 ou plus et le SDK Android (`ANDROID_HOME`, ou `sdk.dir` dans
-`local.properties`) : plateforme 35, build-tools 35. Le numéro de version est celui de la
-messagerie (`app/bootstrap.php`) ; reconstruire l'APK après une mise à jour de l'application.
+`local.properties`) : plateforme 35, build-tools 35.
+
+## Version
+
+L'application a **son propre numéro**, distinct de celui de la messagerie : `version.txt`,
+`majeur.mineur.année.MMJJ.compteur` suivi de **A** (Android ; I serait pour iOS), par exemple
+`1.0.2026.1117.5A`. Il ne change que lorsque l'application elle-même change (`./build.sh bump` :
+même jour, compteur + 1 ; nouveau jour, compteur à 1 ; heure de Paris). Une mise à jour de la
+messagerie ne touche donc pas à l'APK, et les applications installées ne proposent une mise à
+jour que pour une vraie nouvelle version d'elles-mêmes.
+
+`apk/version.json` (écrit par `build.sh`, servi à `/app/android.json`) donne le numéro et le code
+de l'APK proposé : les applications installées s'y comparent (code Android : AAMMJJ + compteur,
+toujours croissant).
 
 ## Signature
 

@@ -39,6 +39,8 @@ class WatchService : Service() {
         @Volatile var appVisible = false
         /** When the server last answered (the watchdog's measure). */
         @Volatile var lastAnswer = 0L
+        /** Listening now (for the app's own page in Settings). */
+        @Volatile var listening = false
 
         fun start(ctx: Context, restart: Boolean = false) {
             if (Prefs(ctx).token.isEmpty()) return
@@ -47,6 +49,15 @@ class WatchService : Service() {
             } catch (_: Exception) {
             }
             Watchdog.arm(ctx)
+        }
+
+        /** Started again from scratch (the button of the app's page in Settings). */
+        fun restart(ctx: Context) {
+            if (Prefs(ctx).token.isEmpty()) return
+            try {
+                ctx.startForegroundService(Intent(ctx, WatchService::class.java).putExtra("force", true))
+            } catch (_: Exception) {
+            }
         }
 
         fun stop(ctx: Context) {
@@ -102,6 +113,11 @@ class WatchService : Service() {
             worker?.interrupt()
             running = false
         }
+        if (intent?.getBooleanExtra("force", false) == true && running) {
+            current?.disconnect()
+            worker?.interrupt()
+            running = false
+        }
         if (!running) {
             running = true
             lastAnswer = SystemClock.elapsedRealtime()
@@ -127,6 +143,7 @@ class WatchService : Service() {
             val token = prefs.token
             if (token.isEmpty() || prefs.baseUrl.isEmpty()) break
             try {
+                listening = true
                 val c = URL(prefs.baseUrl + "api/native/wait?ack=" + prefs.ack).openConnection() as HttpURLConnection
                 current = c
                 c.setRequestProperty("Authorization", "Bearer $token")
@@ -169,6 +186,7 @@ class WatchService : Service() {
         }
         if (worker == me) {
             running = false
+            listening = false
             if (prefs.token.isEmpty()) stopSelf()
         }
     }

@@ -51,12 +51,16 @@ object AppUpdate {
     }
 
     /** From the activity: at most every 6 hours (or when asked), the offer as a dialog. */
-    fun check(a: Activity, force: Boolean = false) {
+    fun check(a: Activity, force: Boolean = false, tellUpToDate: Boolean = false) {
         val p = a.getSharedPreferences("m4w", Context.MODE_PRIVATE)
         if (!force && System.currentTimeMillis() - p.getLong("upd_checked", 0) < EVERY) return
         p.edit().putLong("upd_checked", System.currentTimeMillis()).apply()
         thread {
-            val o = offered(a) ?: return@thread
+            val o = offered(a)
+            if (o == null) {
+                if (tellUpToDate) a.runOnUiThread { Toast.makeText(a, R.string.upd_none, Toast.LENGTH_SHORT).show() }
+                return@thread
+            }
             a.runOnUiThread {
                 if (a.isFinishing) return@runOnUiThread
                 AlertDialog.Builder(a)

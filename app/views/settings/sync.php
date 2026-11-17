@@ -75,6 +75,7 @@ $wizard = M4W\Service\MailGateway::enabled();
   <div class="card-header"><i class="bi bi-android2 me-2 text-success"></i><?= te('app.title') ?></div>
   <div class="card-body">
     <p class="small text-muted"><?= te('app.desc') ?></p>
+    <div class="border rounded-3 p-3 mb-3 d-none" data-app-panel data-version-url="<?= e(url('app/android.json')) ?>"></div>
     <?php if ($apk): ?>
     <div class="d-flex flex-wrap align-items-start gap-4 mb-3">
       <div>
