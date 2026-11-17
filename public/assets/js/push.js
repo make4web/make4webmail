@@ -100,6 +100,7 @@
   M4W.apkGuide = apkGuide;
   // Always at hand on an Android phone (the invitation may have been put off, or not shown).
   if (apkUrl && android) $(function () { $('[data-apk-only]').removeClass('d-none'); });
+  if (window.M4WApp) $(function () { $('[data-app-only]').removeClass('d-none'); }); // its versions and settings
 
   if (installOffered && ios) {
     $(function () { setTimeout(function () { showInstall('ios'); }, 2500); });
@@ -148,6 +149,44 @@
     M4W.post('api/native/unregister', { token: token }, { quiet: true }).always(function () { d.resolve(); });
     return d.promise();
   }
+  // Inside the app: its own state in Settings (versions, listening, what Android allows) and buttons.
+  $(function () {
+    var $p = $('[data-app-panel]');
+    if (!app || !$p.length) return;
+    var info = function () { try { return app.info ? JSON.parse(app.info()) : null; } catch (e) { return null; } };
+    var offered = null;
+    var yes = function (ok, label, fix) {
+      return '<li class="d-flex align-items-center gap-2 py-1"><i class="bi ' + (ok ? 'bi-check-circle-fill text-success' : 'bi-exclamation-triangle-fill text-warning') + '"></i>'
+        + '<span class="flex-grow-1">' + M4W.esc(label) + '</span>'
+        + (!ok && fix ? '<button type="button" class="btn btn-light btn-sm" data-app-open="' + fix + '">' + M4W.esc(t('app_fix')) + '</button>' : '') + '</li>';
+    };
+    function render() {
+      var i = info();
+      if (!i) { $p.removeClass('d-none').html('<div class="small">' + M4W.esc(t('app_old')) + '</div>'); return; }
+      var newer = offered && +offered.code > +i.code;
+      var ago = i.answered < 0 ? '' : (i.answered < 90 ? t('app_seconds', { n: i.answered }) : t('app_minutes', { n: Math.round(i.answered / 60) }));
+      $p.removeClass('d-none').html(
+        '<div class="fw-semibold mb-2"><i class="bi bi-phone me-1"></i>' + M4W.esc(t('app_this')) + ' <span class="small text-muted fw-normal">' + M4W.esc(i.model) + '</span></div>'
+        + '<dl class="m4w-dav-settings mb-2"><dt>' + M4W.esc(t('app_installed')) + '</dt><dd><code>' + M4W.esc(i.version) + '</code></dd>'
+        + '<dt>' + M4W.esc(t('app_offered')) + '</dt><dd>' + (offered ? '<code>' + M4W.esc(offered.version) + '</code> ' + (newer ? '<span class="badge text-bg-warning">' + M4W.esc(t('app_newer')) + '</span>' : '<span class="badge text-bg-success">' + M4W.esc(t('app_uptodate')) + '</span>') : '…') + '</dd></dl>'
+        + '<div class="d-flex flex-wrap gap-2 mb-3"><button type="button" class="btn btn-sm ' + (newer ? 'btn-primary' : 'btn-light') + '" data-app-update><i class="bi bi-arrow-repeat me-1"></i>' + M4W.esc(t(newer ? 'app_update_now' : 'app_check')) + '</button></div>'
+        + '<ul class="list-unstyled small mb-2">'
+        + yes(i.listening, i.listening ? t('app_listening', { ago: ago }) : t('app_not_listening'), '') .replace('</li>', i.listening ? '</li>' : '<button type="button" class="btn btn-light btn-sm" data-app-restart>' + M4W.esc(t('app_restart')) + '</button></li>')
+        + yes(i.notifications, t(i.notifications ? 'app_notif_on' : 'app_notif_off'), 'notifications')
+        + yes(i.battery, t(i.battery ? 'app_battery_on' : 'app_battery_off'), 'battery')
+        + yes(i.install, t(i.install ? 'app_install_on' : 'app_install_off'), 'install')
+        + '</ul><button type="button" class="btn btn-link btn-sm p-0" data-app-open="app">' + M4W.esc(t('app_android_settings')) + '</button>'
+        + (app.changeServer ? ' · <button type="button" class="btn btn-link btn-sm p-0 text-danger" data-app-server>' + M4W.esc(t('app_change_server')) + '</button>' : ''));
+    }
+    $.getJSON($p.data('version-url')).done(function (r) { offered = r; render(); });
+    render();
+    setInterval(render, 5000); // back from Android's settings, listening restarted…
+    $p.on('click', '[data-app-update]', function () { app.update(); })
+      .on('click', '[data-app-restart]', function () { app.restartListening(); setTimeout(render, 2500); })
+      .on('click', '[data-app-open]', function () { app.openSettings(this.getAttribute('data-app-open')); })
+      .on('click', '[data-app-server]', function () { if (window.confirm(t('app_change_confirm'))) app.changeServer(); });
+  });
+
   if (app && $('meta[name="m4w-user"]').length && !app.token()) {
     $(function () { appEnable(); }); // signed in in the app: notifications at once
   }

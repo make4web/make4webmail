@@ -160,6 +160,7 @@ $elsewhere = array_sum($boxCounts); ?>
         <div class="dropdown-divider"></div>
         <?php endif; ?>
         <a class="dropdown-item" href="<?= e(url('settings')) ?>"><i class="bi bi-person-circle"></i><?= te('nav.profile') ?></a>
+        <a class="dropdown-item d-none" href="<?= e(url('settings/sync')) ?>#android" data-app-only><i class="bi bi-android2"></i><?= te('app.this') ?></a>
         <?php if (is_file(M4W_ROOT . '/android/apk/make4webmail.apk')): ?><button type="button" class="dropdown-item d-none" data-apk-guide data-apk-only><i class="bi bi-android2"></i><?= te('app.get') ?></button><?php endif; ?>
         <a class="dropdown-item" href="<?= e(url('settings/vacation')) ?>"><i class="bi bi-airplane"></i><?= te('nav.vacation') ?></a>
         <a class="dropdown-item" href="<?= e(url('settings/security')) ?>"><i class="bi bi-shield-lock"></i><?= te('nav.security') ?></a>

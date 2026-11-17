@@ -25,6 +25,7 @@
     <string name="upd_downloading">Downloading the update…</string>
     <string name="upd_failed">The update could not be installed. Try again, or install it from the webmail (Android icon).</string>
     <string name="not_found">Page not found (%1$s): back home.</string>
+    <string name="upd_none">You have the latest version.</string>
     <plurals name="new_messages">
         <item quantity="one">%d new message</item>
         <item quantity="other">%d new messages</item>
