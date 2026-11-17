@@ -5558,6 +5558,7 @@ test('update from GitHub: token checked, only the application\'s files copied, s
     // The Android app goes with a release (served at /app/android.apk), not its sources nor its key.
     // A folder added to the list by a release is copied by that very update.
     ok($U::included('newdir/x.bin', $U::includeOf("<?php final class Updater { public const INCLUDE = ['app/', 'newdir/']; }")) && !$U::included('newdir/x.bin'), "the release's own list counts");
+    ok($U::included('index.php'), 'the redirect of the project root copied');
     ok($U::included('android/apk/make4webmail.apk') && !$U::included('android/app/src/main/AndroidManifest.xml') && !$U::included('android/keystore/make4webmail.jks'), 'the Android app copied, not its sources');
     $base = sys_get_temp_dir() . '/m4w-upd-' . getmypid();
     $put = static function (string $path, string $content) { @mkdir(dirname($path), 0777, true); file_put_contents($path, $content); };
