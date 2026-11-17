@@ -170,6 +170,8 @@
         + '<dl class="m4w-dav-settings mb-2"><dt>' + M4W.esc(t('app_installed')) + '</dt><dd><code>' + M4W.esc(i.version) + '</code></dd>'
         + '<dt>' + M4W.esc(t('app_offered')) + '</dt><dd>' + (offered ? '<code>' + M4W.esc(offered.version) + '</code> ' + (newer ? '<span class="badge text-bg-warning">' + M4W.esc(t('app_newer')) + '</span>' : '<span class="badge text-bg-success">' + M4W.esc(t('app_uptodate')) + '</span>') : '…') + '</dd></dl>'
         + '<div class="d-flex flex-wrap gap-2 mb-3"><button type="button" class="btn btn-sm ' + (newer ? 'btn-primary' : 'btn-light') + '" data-app-update><i class="bi bi-arrow-repeat me-1"></i>' + M4W.esc(t(newer ? 'app_update_now' : 'app_check')) + '</button></div>'
+        + (i.error ? '<div class="alert alert-warning small py-2 mb-2">' + M4W.esc(t('app_error', { error: i.error })) + '</div>' : '')
+        + (i.base ? '<div class="small text-muted mb-2">' + M4W.esc(t('app_base')) + ' <code>' + M4W.esc(i.base) + '</code></div>' : '')
         + '<ul class="list-unstyled small mb-2">'
         + yes(i.listening, i.listening ? t('app_listening', { ago: ago }) : t('app_not_listening'), '') .replace('</li>', i.listening ? '</li>' : '<button type="button" class="btn btn-light btn-sm" data-app-restart>' + M4W.esc(t('app_restart')) + '</button></li>')
         + yes(i.notifications, t(i.notifications ? 'app_notif_on' : 'app_notif_off'), 'notifications')

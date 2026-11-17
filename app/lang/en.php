@@ -2980,4 +2980,6 @@ If it is not you, disconnect it in Settings › Phone and calendar › Your devi
     'js.app_change_confirm' => 'Leave this webmail in the app? Another address and a new sign-in will be needed.',
     'js.app_old' => 'This version of the app cannot show its state yet: install the latest (Android icon, at the top).',
     'app.this' => 'This app (version, settings)',
+    'js.app_error' => 'Last listening error: :error',
+    'js.app_base' => 'Webmail address:',
 ];

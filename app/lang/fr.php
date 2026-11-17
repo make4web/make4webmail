@@ -3053,4 +3053,6 @@ Si ce n\'est pas vous, déconnectez-le dans Paramètres › Téléphone et agend
     'js.app_change_confirm' => 'Quitter cette messagerie dans l\'application ? Il faudra saisir une autre adresse et se reconnecter.',
     'js.app_old' => 'Cette version de l\'application ne sait pas encore afficher son état : installez la dernière (icône Android, en haut).',
     'app.this' => 'Cette application (version, réglages)',
+    'js.app_error' => 'Dernière erreur d\'écoute : :error',
+    'js.app_base' => 'Adresse de la messagerie :',
 ];
